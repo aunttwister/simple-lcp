@@ -1,5 +1,8 @@
 name: CI
 
+# CI for the simple-lcp staging line (mirror of aunttwister/lcp at 8016792).
+# Runs on push/PR to main; docs-only commits included on purpose.
+
 on:
   push:
     branches: [main]
