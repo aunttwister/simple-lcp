@@ -382,7 +382,7 @@ class RoutingDecision(Base):
     # No transcript capture here. `conversation_json` used to hold a trimmed copy of the request
     # messages: 101 MB of a 139 MB DB (73%), all of it duplicating what the harness's own session
     # stores already hold. The text that drove the decision is in `intent_text` above, and the
-    # conversation key is `conversation_id`. Stripped in simplify-lcp M7 (alembic 021).
+    # conversation key is `conversation_id`. Stripped in simplify-lcp M7 (alembic 022).
 
 
 class RoutingJudgment(Base):

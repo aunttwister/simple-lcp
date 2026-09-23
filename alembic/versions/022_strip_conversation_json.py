@@ -20,8 +20,8 @@ Dropping the column in SQLite rewrites the table and releases the pages to the
 freelist; the file itself only shrinks on ``VACUUM`` (run once, manually, after
 the upgrade).
 
-Revision ID: 021
-Revises: 020
+Revision ID: 022
+Revises: 021
 Create Date: 2026-09-23
 """
 
@@ -31,8 +31,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "021"
-down_revision: Union[str, None] = "020"
+revision: str = "022"
+down_revision: Union[str, None] = "021"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

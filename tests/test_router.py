@@ -260,20 +260,6 @@ def test_extract_intent_text_skips_context_and_tool_echoes():
     assert meta["skipped_tool"] == 1
     assert meta["skipped_context"] == 1
 
-def test_summarize_preserves_attachment_skip():
-    """End-trimmed summary keeps the <attachments> prefix so replay skips it
-    and the round-trip intent is unchanged."""
-    from src.api.router import _summarize_conversation, _extract_intent_text
-    msgs = [
-        {"role": "system", "content": "You are a coding agent."},
-        {"role": "user", "content": "debug this traceback"},
-        {"role": "assistant", "content": "ok"},
-        {"role": "user", "content": "<attachments> <attachment id='X'> " + "z" * 300},
-    ]
-    s = _summarize_conversation(msgs)
-    assert _extract_intent_text(s)[0] == "debug this traceback"
-
-
 
 def test_extract_intent_text_preamble_not_mid_message():
     """A real instruction that merely MENTIONS the system prompt (not at the
@@ -1636,114 +1622,6 @@ def test_context_tail_truncated_wrapper_body_is_not_intent():
     instruction — the walk continues back to a real user message."""
     from src.api.router import _context_tail
     assert _context_tail("<attachments> <attachment id='X'> zzzzzzzzzzz") is None
-
-
-def test_summarize_conversation_preserves_tool_shape():
-    from src.api.router import _summarize_conversation
-    msgs = [
-        {"role": "system", "content": "You are a coding agent. tools: terminal, patch"},
-        {"role": "user", "content": "debug this failing test"},
-        {"role": "assistant", "content": "",
-         "tool_calls": [{"id": "call_1", "type": "function",
-                         "function": {"name": "run_tests", "arguments": '{"cmd": "pytest"}'}}]},
-        {"role": "user", "content": "[tool result] Ran 12 tests, 3 failed. " + "x" * 500,
-         "tool_call_id": "call_1"},
-    ]
-    s = _summarize_conversation(msgs)
-    assert [m["role"] for m in s] == ["system", "user", "assistant", "user"]
-    assert s[2]["tool_calls"][0]["id"] == "call_1"
-    assert s[2]["tool_calls"][0]["function"]["name"] == "run_tests"
-    assert s[3]["tool_call_id"] == "call_1"
-    # Trimmed from the END keeps the leading tool-result marker.
-    assert s[3]["content"].startswith("[tool result]")
-    assert "… [" in s[3]["content"] and "chars omitted]" in s[3]["content"]
-
-
-def test_summarize_conversation_roundtrip_intent():
-    from src.api.router import _summarize_conversation, _extract_intent_text
-    msgs = [
-        {"role": "system", "content": "You are a coding agent. tools: terminal"},
-        {"role": "user", "content": "debug this error in the code"},
-        {"role": "assistant", "content": "Let me reproduce.",
-         "tool_calls": [{"id": "call_9", "type": "function", "function": {"name": "run", "arguments": "{}"}}]},
-        {"role": "user", "content": "[tool result] Ran 12 tests, 3 failed", "tool_call_id": "call_9"},
-    ]
-    summarized = _summarize_conversation(msgs)
-    assert _extract_intent_text(msgs) == _extract_intent_text(summarized)
-
-
-def test_summarize_conversation_drops_oldest_when_huge():
-    import json
-    from src.api.router import _summarize_conversation
-    msgs = [
-        {"role": "system", "content": "You are a coding agent."},
-        {"role": "user", "content": "y" * 2000},
-        {"role": "assistant", "content": "ok"},
-        {"role": "user", "content": "write pytest tests now"},
-    ]
-    s = _summarize_conversation(msgs, max_content=50, max_total=800)
-    blob = json.dumps(s)
-    assert "pytest tests" in blob  # newest intent survives
-    assert any(isinstance(m.get("content"), str) and "omitted" in m["content"] for m in s)
-
-
-def test_summarize_preserves_trailing_user_request_instruction():
-    """Regression (judge replay NOINTENT): a client-context wrapper carries the
-    real instruction at the END (<userRequest>...</userRequest>). Trimming from
-    the START (default) would cut it off and replay would find no intent; the
-    wrapper message must keep its tail so the stored summary still replays to
-    the genuine instruction (planning)."""
-    from src.api.router import _summarize_conversation, _extract_intent_text, classify_task_detail
-    doc = "# Component Runtime\n\n" + "x" * 400  # long attachment body
-    user_msg = (
-        "<attachments>\n<attachment id=\"component-runtime.md\" filePath=\"/x/component-runtime.md\">\n"
-        + doc + "\n</attachment>\n</attachments>\n"
-        "<context>The current date is 2026-08-28.</context>\n"
-        "<userRequest>let's now plan for the @file:component-runtime.md feature</userRequest>"
-    )
-    msgs = [
-        {"role": "system", "content": "You are an expert AI programming assistant."},
-        {"role": "user", "content": user_msg},
-    ]
-    summarized = _summarize_conversation(msgs, max_content=200, max_total=4000)
-    # The trailing instruction survives the trim.
-    assert "<userRequest>let's now plan" in summarized[1]["content"]
-    # Replaying the summary recovers the same genuine instruction.
-    assert _extract_intent_text(summarized)[0] == _extract_intent_text(msgs)[0]
-    # And (with the embedder active) it classifies as planning, not NOINTENT.
-    detail = classify_task_detail(summarized)
-    assert detail.task == "planning"
-    assert detail.path == "semantic"
-    assert detail.intent_text == "let's now plan for the  feature"
-
-
-def test_summarize_preserves_leading_user_request_instruction():
-    """Regression (judge replay NOINTENT storm): the real VS Code wrapper has
-    <userRequest> at the START, followed by long trailing <context>/
-    <editorContext>/<reminderInstructions> blocks. Trimming to keep a physical
-    END preserved the trailing context and dropped the instruction, so replay
-    found no intent. The summary must canonicalize to JUST the instruction."""
-    from src.api.router import _summarize_conversation, _extract_intent_text, classify_task_detail
-    trailing = (
-        "<context>The current date is 2026-08-29.\nTerminals: bash\n</context>\n"
-        "<editorContext>The user's current file is /x/y.py.\n</editorContext>\n"
-        "<reminderInstructions>When using replace_string_in_file...\n</reminderInstructions>"
-    )
-    user_msg = "<userRequest>Start implementation</userRequest>\n\n" + trailing * 20
-    msgs = [
-        {"role": "system", "content": "You are an expert AI programming assistant."},
-        {"role": "user", "content": user_msg},
-    ]
-    summarized = _summarize_conversation(msgs, max_content=200, max_total=4000)
-    # Only the instruction survives — the trailing context is dropped entirely.
-    assert summarized[1]["content"] == "<userRequest>Start implementation</userRequest>"
-    # Replaying recovers the instruction and classifies it as CODE GENERATION
-    # (the plan→implement handoff fix), not planning and not NOINTENT.
-    assert _extract_intent_text(summarized)[0] == "Start implementation"
-    detail = classify_task_detail(summarized)
-    assert detail.task == "code_generation"
-    assert detail.path == "semantic"
-    assert detail.intent_text == "Start implementation"
 
 
 def test_record_decision_persists_rationale_without_the_transcript(registry_db):

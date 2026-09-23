@@ -59,34 +59,6 @@ class TestCasual812:
         assert res.path == "casual"
 
 
-class TestTrimBranches:
-    def test_trim_empty_text(self):
-        # 877: empty tool_result content → ""
-        out = R._summarize_conversation([
-            {"role": "user", "content": [{"type": "tool_result", "content": ""}]}])
-        assert out[0]["content"][0]["content"] == ""
-
-    def test_trim_from_end_false(self):
-        # 883: the from_end=False tail-trim path. No production caller passes
-        # from_end=False, so exercise the (live) function branch directly via
-        # frame introspection with a real assertion on its return value.
-        seen = {}
-
-        def spy(_b):
-            fr = sys._getframe()
-            while fr is not None and "_trim" not in fr.f_locals:
-                fr = fr.f_back
-            if fr is not None:
-                seen["r"] = fr.f_locals["_trim"]("z" * 30, 10, from_end=False)
-            return "z" * 30
-
-        with patch("src.api.router._content_text", side_effect=spy):
-            R._summarize_conversation([
-                {"role": "user", "content": [{"type": "tool_result", "content": "z"}]}])
-        assert "chars omitted" in seen["r"]
-        assert seen["r"].endswith("z" * 10)
-
-
 class TestLogicalModelEmpty:
     def test_empty_model_shortcut(self, db):
         # 1067: falsy model returned as-is

@@ -144,14 +144,16 @@ class TestSync:
         got = wc.sync_conversations()
         assert got["created"] == 1 and got["updated"] == 0
         row = db.execute("SELECT name, summary, calls FROM conversations").fetchone()
-        assert row["name"] == "Please analyze the zgx metrics now"
+        # M7: no transcript capture means no opening-ask head, so the name comes
+        # from the routing task + date rather than from a message fragment.
+        assert row["name"] == "research 2026-09-19"
         assert "1 calls" in row["summary"]
         # second sync only updates
         got2 = wc.sync_conversations()
         assert got2["created"] == 0 and got2["updated"] == 1
         # name/summary were NOT overwritten
         row2 = db.execute("SELECT name FROM conversations").fetchone()
-        assert row2["name"] == "Please analyze the zgx metrics now"
+        assert row2["name"] == "research 2026-09-19"
 
     def test_fallback_name(self, db):
         wc.ensure_schema()
@@ -194,19 +196,11 @@ class TestViews:
         assert v["conversations"][0]["profile"] == "l1"
         l2 = next(c for c in v["conversations"] if c["profile"] == "l2")
         assert l2["calls"] == 2
-        assert l2["summary"].startswith("hello there")
+        assert "2 calls" in l2["summary"]      # counts survive; the head text does not (M7)
         d = wc.conversation_detail(l2["id"])
         kinds = [e["kind"] for e in d["events"]]
         # chronological: first call (10:00:00) → routing (10:00:30) → second call (10:01:00)
         assert kinds == ["request", "routing", "request"]
-
-    def test_extract_first_user(self):
-        assert wc._extract_first_user(
-            '[{"role":"system","content":"s"},{"role":"user","content":"the ask"}]'
-        ) == "the ask"
-        assert wc._extract_first_user('[{"role":"assistant","content":"x"}]') is None
-        assert wc._extract_first_user("not json") is None
-
 
 class TestLogTableModuleWiring:
     """Every log view pages and sorts through src/ui/tables.py.

@@ -27,7 +27,6 @@ pass is a later, optional refinement.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import sqlite3
@@ -183,14 +182,21 @@ def sync_conversations(force: bool = False) -> Dict[str, int]:
             head = None
             task = None
             route = con.execute(
-                "SELECT task, intent_text FROM routing_decisions "
+                "SELECT task FROM routing_decisions "
                 "WHERE conversation_id=? ORDER BY ts DESC LIMIT 1", (cid,)).fetchone()
             if route:
-                # M7: the head comes from `intent_text` — the newest genuine user
-                # instruction the classifier saw — instead of from the old
-                # `conversation_json` transcript blob (73% of the DB, now gone).
-                head = (route["intent_text"] or "").strip() or None
                 task = route["task"]
+            # `head` stays None: the transcript that used to supply it was the
+            # `conversation_json` blob (73% of the DB, dropped in M7). Measured
+            # against all 1,383 conversations, `intent_text` is NOT a usable
+            # substitute — it is a mid-thread instruction fragment, not the
+            # opening ask: 55% of conversations have no text at all, 29% carry a
+            # template tail, 16% a usable fragment ("xapp-1-A0BUF…", "what is
+            # the"). So a new conversation is named from its task and date, and
+            # the descriptive name/summary stays the job of the LLM pass over the
+            # harness's own session stores (`summary_source='llm'`), which is
+            # where every stored name came from. sync_conversations() without
+            # force never rewrites a stored name.
             name = _generate_name(head, cid, task, r["last_seen"])
             summary = "%s · %d calls · $%.4f" % (
                 (head or "no user or assistant text captured")[:_CONV_SUMMARY_CAP],
@@ -355,69 +361,6 @@ def stamp_new(request_id: int, conversation_id: str, profile: str,
         con.commit()
     finally:
         con.close()
-
-
-def _extract_first_user(conversation_json: Optional[str]) -> Optional[str]:
-    """First real user turn in the captured window (None if absent)."""
-    if not conversation_json:
-        return None
-    try:
-        msgs = json.loads(conversation_json)
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(msgs, list):
-        return None
-    for m in msgs:
-        if not isinstance(m, dict) or m.get("role") != "user":
-            continue
-        c = m.get("content")
-        if isinstance(c, str):
-            cleaned = _clean_marker(c)
-            if cleaned:
-                return re.sub(r"\s+", " ", cleaned).strip()[:_CONV_SUMMARY_CAP]
-        if isinstance(c, list):
-            parts = [p.get("text", "") for p in c if isinstance(p, dict)]
-            joined = re.sub(r"\s+", " ", " ".join(parts)).strip()
-            cleaned = _clean_marker(joined)
-            if cleaned:
-                return cleaned[:_CONV_SUMMARY_CAP]
-    return None
-
-
-def _clean_marker(text: str) -> str:
-    """Strip the '[N older messages omitted]' truncation markers the router
-    inserts when it drops old turns — they are not conversation content."""
-    t = re.sub(r"\[\d+ older messages? omitted\]", "", text)
-    t = re.sub(r"\[\d+ messages? omitted\]", "", t)
-    return t.strip()
-
-
-def _conversation_head(conversation_json: Optional[str]) -> Optional[str]:
-    """Best readable head of the captured window: first real user turn,
-    else first real assistant text, else None. Used for names + summaries
-    because most captured windows are tool-execution slices without a user
-    sentence (the router stores the tail of the message list)."""
-    if not conversation_json:
-        return None
-    try:
-        msgs = json.loads(conversation_json)
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(msgs, list):
-        return None
-    for m in msgs:
-        if not isinstance(m, dict):
-            continue
-        c = m.get("content")
-        if not isinstance(c, str) or not c.strip():
-            continue
-        role = m.get("role")
-        if role not in ("user", "assistant"):
-            continue
-        cleaned = _clean_marker(c)
-        if cleaned and "omitted messages" not in cleaned:
-            return re.sub(r"\s+", " ", cleaned).strip()[:_CONV_SUMMARY_CAP]
-    return None
 
 
 _CONV_SUMMARY_CAP = 240

@@ -8,8 +8,7 @@ Closes helper + CapabilityRouter branches:
     _strip_client_context_from_messages drop paths, _is_preamble_like
     short/continuation/task-signal exits, _preamble_tail exits, _is_tool_result
     layers, _extract_intent_text empty, classify_task_detail classifier crash
-    + tool/token/casual structural paths, _summarize_conversation trim/
-    blocks/tool_calls/drop-oldest
+    + tool/token/casual structural paths
   - CapabilityRouter: load_matrix failure, _has_profile_override settings
     crash, _effective_policy TypeError+crash, _record_decision DB failure,
     recent_decisions DB failure, _health_bonus/_provider_available/
@@ -163,61 +162,6 @@ class TestHelperGaps:
         res = R.classify_task_detail(
             [{"role": "user", "content": "hey there, how are you doing?"}])
         assert res.task == "casual_chat"                    # 810-813
-
-
-# ── _summarize_conversation ──────────────────────────────────────────────────
-
-class TestSummarizeConversation:
-    def test_trim_both_directions(self):
-        msgs = [
-            {"role": "user", "content": "x" * 500},
-            {"role": "user", "content": "short"},
-        ]
-        out = R._summarize_conversation(msgs, max_content=50)
-        assert "chars omitted" in out[0]["content"]        # 882
-        assert out[1]["content"] == "short"
-
-    def test_trim_from_start_for_wrapper(self):
-        msgs = [{"role": "user",
-                 "content": "<system-reminder>" + "y" * 400 + "</system-reminder>"}]
-        out = R._summarize_conversation(msgs, max_content=50)
-        assert out[0]["content"] != msgs[0]["content"]
-
-    def test_content_list_blocks(self):
-        msgs = [{"role": "user", "content": [
-            5,                                               # 915 continue
-            {"type": "tool_result", "content": "z" * 300},   # 917-918
-            {"type": "text", "text": "body text"},           # 919-920
-            {"type": "image_url", "image_url": {"url": "u"}},  # 921-922
-            {"weird": True},                                 # 923-924
-        ]}]
-        out = R._summarize_conversation(msgs)
-        kinds = [b["type"] for b in out[0]["content"]]      # 925-926
-        assert kinds == ["tool_result", "text", "image_url", "unknown"]
-
-    def test_tool_calls_trimmed(self):
-        msgs = [{"role": "assistant", "tool_calls": [
-            "junk",                                          # 934 continue
-            {"id": "t1", "type": "function",
-             "function": {"name": "f", "arguments": "a" * 300}},
-            {"id": "t2"},
-        ]}]
-        out = R._summarize_conversation(msgs, max_content=20)  # 935-945
-        assert out[0]["tool_calls"][0]["function"]["name"] == "f"
-        assert "chars omitted" in out[0]["tool_calls"][0]["function"]["arguments"]
-        assert out[0]["tool_calls"][1] == {"id": "t2"}
-
-    def test_empty_and_drop_oldest(self):
-        assert R._summarize_conversation([]) == []          # 950
-        msgs = [{"role": "user", "content": "z" * 2000} for _ in range(5)]
-        out = R._summarize_conversation(msgs, max_content=200, max_total=500)
-        assert out[0]["role"] == "system"                    # 956
-        assert "older messages omitted" in out[0]["content"]
-
-    def test_tool_call_id_kept(self):
-        out = R._summarize_conversation(
-            [{"role": "tool", "tool_call_id": "c1", "content": "r"}])
-        assert out[0]["tool_call_id"] == "c1"                # 927-928
 
 
 # ── CapabilityRouter: matrix / policy / decisions ────────────────────────────
