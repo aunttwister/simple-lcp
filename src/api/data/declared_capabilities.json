@@ -1,0 +1,1049 @@
+{
+ "_why": "The capability matrix the router ranks on: {task_type: {model: score 0-1}}. Bundled so a fresh database starts with a populated matrix now that the LiveBench import path is gone. `source` records where each score came from and is kept honest: 'livebench' = imported from the 2026-06-25..2026-09-09 snapshot, 'lcp_benchmark' = produced by LCP's own benchmark runs, 'manual' = hand-set. Nothing here is editable in this file at runtime - change scores via the Models page or POST /api/models/capability/manual.",
+ "rows": [
+  {
+   "model": "claude-5-opus-thinking",
+   "task_type": "agentic_multi_step",
+   "score": 0.652,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 65.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-5-opus-thinking",
+   "task_type": "casual_chat",
+   "score": 0.887,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 88.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-5-opus-thinking",
+   "task_type": "code_generation",
+   "score": 0.814,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 81.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-5-opus-thinking",
+   "task_type": "planning",
+   "score": 0.638,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 63.8,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-5-opus-thinking",
+   "task_type": "reasoning_chain",
+   "score": 0.957,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 95.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-5-opus-thinking",
+   "task_type": "research_deep",
+   "score": 0.746,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 74.6,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-fable-5",
+   "task_type": "agentic_multi_step",
+   "score": 0.622,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 62.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-fable-5",
+   "task_type": "casual_chat",
+   "score": 0.907,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 90.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-fable-5",
+   "task_type": "code_generation",
+   "score": 0.86,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 86.0,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-fable-5",
+   "task_type": "planning",
+   "score": 0.758,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 75.8,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-fable-5",
+   "task_type": "reasoning_chain",
+   "score": 0.96,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 96.0,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-fable-5",
+   "task_type": "research_deep",
+   "score": 0.805,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 80.5,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-opus-5",
+   "task_type": "agentic_multi_step",
+   "score": 0.652,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 65.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-opus-5",
+   "task_type": "casual_chat",
+   "score": 0.887,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 88.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-opus-5",
+   "task_type": "code_generation",
+   "score": 0.814,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 81.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-opus-5",
+   "task_type": "planning",
+   "score": 0.638,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 63.8,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-opus-5",
+   "task_type": "reasoning_chain",
+   "score": 0.957,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 95.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-opus-5",
+   "task_type": "research_deep",
+   "score": 0.746,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 74.6,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-sonnet-5",
+   "task_type": "agentic_multi_step",
+   "score": 0.594,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 59.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-sonnet-5",
+   "task_type": "casual_chat",
+   "score": 0.75,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 75.0,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-sonnet-5",
+   "task_type": "code_generation",
+   "score": 0.807,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 80.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-sonnet-5",
+   "task_type": "planning",
+   "score": 0.639,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 63.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-sonnet-5",
+   "task_type": "reasoning_chain",
+   "score": 0.929,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 92.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "claude-sonnet-5",
+   "task_type": "research_deep",
+   "score": 0.717,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 71.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "deepseek-v4-flash",
+   "task_type": "agentic_multi_step",
+   "score": 0.468,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 46.8,
+   "release_label": "2026-07-31"
+  },
+  {
+   "model": "deepseek-v4-flash",
+   "task_type": "casual_chat",
+   "score": 0.792,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 79.2,
+   "release_label": "2026-07-31"
+  },
+  {
+   "model": "deepseek-v4-flash",
+   "task_type": "code_generation",
+   "score": 0.75,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 75.0,
+   "release_label": "2026-07-31"
+  },
+  {
+   "model": "deepseek-v4-flash",
+   "task_type": "planning",
+   "score": 0.655,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 65.5,
+   "release_label": "2026-07-31"
+  },
+  {
+   "model": "deepseek-v4-flash",
+   "task_type": "reasoning_chain",
+   "score": 0.868,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 86.8,
+   "release_label": "2026-07-31"
+  },
+  {
+   "model": "deepseek-v4-flash",
+   "task_type": "research_deep",
+   "score": 0.793,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 79.3,
+   "release_label": "2026-07-31"
+  },
+  {
+   "model": "deepseek-v4-pro",
+   "task_type": "agentic_multi_step",
+   "score": 0.549,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 54.9,
+   "release_label": "2026-08-13"
+  },
+  {
+   "model": "deepseek-v4-pro",
+   "task_type": "casual_chat",
+   "score": 0.821,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 82.1,
+   "release_label": "2026-08-13"
+  },
+  {
+   "model": "deepseek-v4-pro",
+   "task_type": "code_generation",
+   "score": 0.772,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 77.2,
+   "release_label": "2026-08-13"
+  },
+  {
+   "model": "deepseek-v4-pro",
+   "task_type": "planning",
+   "score": 0.677,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 67.7,
+   "release_label": "2026-08-13"
+  },
+  {
+   "model": "deepseek-v4-pro",
+   "task_type": "reasoning_chain",
+   "score": 0.951,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 95.1,
+   "release_label": "2026-08-13"
+  },
+  {
+   "model": "deepseek-v4-pro",
+   "task_type": "research_deep",
+   "score": 0.792,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 79.2,
+   "release_label": "2026-08-13"
+  },
+  {
+   "model": "gemini-3.6-flash",
+   "task_type": "agentic_multi_step",
+   "score": 0.434,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 43.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gemini-3.6-flash",
+   "task_type": "casual_chat",
+   "score": 0.839,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 83.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gemini-3.6-flash",
+   "task_type": "code_generation",
+   "score": 0.779,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 77.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gemini-3.6-flash",
+   "task_type": "planning",
+   "score": 0.754,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 75.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gemini-3.6-flash",
+   "task_type": "reasoning_chain",
+   "score": 0.864,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 86.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gemini-3.6-flash",
+   "task_type": "research_deep",
+   "score": 0.63,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 63.0,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.5-thinking",
+   "task_type": "agentic_multi_step",
+   "score": 0.54,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 54.0,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.5-thinking",
+   "task_type": "casual_chat",
+   "score": 0.874,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 87.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.5-thinking",
+   "task_type": "code_generation",
+   "score": 0.821,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 82.1,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.5-thinking",
+   "task_type": "planning",
+   "score": 0.707,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 70.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.5-thinking",
+   "task_type": "reasoning_chain",
+   "score": 0.959,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 95.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.5-thinking",
+   "task_type": "research_deep",
+   "score": 0.816,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 81.6,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-luna",
+   "task_type": "agentic_multi_step",
+   "score": 0.484,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 48.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-luna",
+   "task_type": "casual_chat",
+   "score": 0.726,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 72.6,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-luna",
+   "task_type": "code_generation",
+   "score": 0.829,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 82.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-luna",
+   "task_type": "planning",
+   "score": 0.601,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 60.1,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-luna",
+   "task_type": "reasoning_chain",
+   "score": 0.872,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 87.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-luna",
+   "task_type": "research_deep",
+   "score": 0.78,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 78.0,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-sol",
+   "task_type": "agentic_multi_step",
+   "score": 0.562,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 56.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-sol",
+   "task_type": "casual_chat",
+   "score": 0.877,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 87.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-sol",
+   "task_type": "code_generation",
+   "score": 0.839,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 83.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-sol",
+   "task_type": "planning",
+   "score": 0.718,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 71.8,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-sol",
+   "task_type": "reasoning_chain",
+   "score": 0.962,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 96.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-sol",
+   "task_type": "research_deep",
+   "score": 0.798,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 79.8,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-terra",
+   "task_type": "agentic_multi_step",
+   "score": 0.549,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 54.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-terra",
+   "task_type": "casual_chat",
+   "score": 0.829,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 82.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-terra",
+   "task_type": "code_generation",
+   "score": 0.782,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 78.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-terra",
+   "task_type": "planning",
+   "score": 0.646,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 64.6,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-terra",
+   "task_type": "reasoning_chain",
+   "score": 0.949,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 94.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "gpt-5.6-terra",
+   "task_type": "research_deep",
+   "score": 0.793,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 79.3,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "grok-4.5",
+   "task_type": "agentic_multi_step",
+   "score": 0.565,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 56.5,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "grok-4.5",
+   "task_type": "casual_chat",
+   "score": 0.828,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 82.8,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "grok-4.5",
+   "task_type": "code_generation",
+   "score": 0.686,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 68.6,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "grok-4.5",
+   "task_type": "planning",
+   "score": 0.715,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 71.5,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "grok-4.5",
+   "task_type": "reasoning_chain",
+   "score": 0.908,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 90.8,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "grok-4.5",
+   "task_type": "research_deep",
+   "score": 0.73,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 73.0,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "kimi-k3",
+   "task_type": "agentic_multi_step",
+   "score": 0.622,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 62.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "kimi-k3",
+   "task_type": "casual_chat",
+   "score": 0.855,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 85.5,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "kimi-k3",
+   "task_type": "code_generation",
+   "score": 0.814,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 81.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "kimi-k3",
+   "task_type": "planning",
+   "score": 0.714,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 71.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "kimi-k3",
+   "task_type": "reasoning_chain",
+   "score": 0.844,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 84.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "kimi-k3",
+   "task_type": "research_deep",
+   "score": 0.787,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 78.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "minimax-m3",
+   "task_type": "agentic_multi_step",
+   "score": 0.407,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 40.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "minimax-m3",
+   "task_type": "casual_chat",
+   "score": 0.768,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 76.8,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "minimax-m3",
+   "task_type": "code_generation",
+   "score": 0.682,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 68.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "minimax-m3",
+   "task_type": "planning",
+   "score": 0.575,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 57.5,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "minimax-m3",
+   "task_type": "reasoning_chain",
+   "score": 0.769,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 76.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "minimax-m3",
+   "task_type": "research_deep",
+   "score": 0.762,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 76.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen-3.8-max",
+   "task_type": "agentic_multi_step",
+   "score": 0.646,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 64.6,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen-3.8-max",
+   "task_type": "casual_chat",
+   "score": 0.797,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 79.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen-3.8-max",
+   "task_type": "code_generation",
+   "score": 0.729,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 72.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen-3.8-max",
+   "task_type": "planning",
+   "score": 0.741,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 74.1,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen-3.8-max",
+   "task_type": "reasoning_chain",
+   "score": 0.913,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 91.3,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen-3.8-max",
+   "task_type": "research_deep",
+   "score": 0.784,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 78.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.6-27b-q4_k_m",
+   "task_type": "agentic_multi_step",
+   "score": 0.393,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 39.3,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.6-27b-q4_k_m",
+   "task_type": "casual_chat",
+   "score": 0.633,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 63.3,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.6-27b-q4_k_m",
+   "task_type": "code_generation",
+   "score": 0.718,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 71.8,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.6-27b-q4_k_m",
+   "task_type": "planning",
+   "score": 0.532,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 53.2,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.6-27b-q4_k_m",
+   "task_type": "reasoning_chain",
+   "score": 0.799,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 79.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.6-27b-q4_k_m",
+   "task_type": "research_deep",
+   "score": 0.704,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 70.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.8-flash-next",
+   "task_type": "casual_chat",
+   "score": 0.696,
+   "source": "lcp_benchmark",
+   "benchmark_category": "language",
+   "raw_score": 69.6,
+   "release_label": "2026-09-05"
+  },
+  {
+   "model": "qwen3.8-flash-next",
+   "task_type": "code_generation",
+   "score": 0.878,
+   "source": "lcp_benchmark",
+   "benchmark_category": "coding",
+   "raw_score": 87.8,
+   "release_label": "2026-09-05"
+  },
+  {
+   "model": "qwen3.8-flash-next",
+   "task_type": "debugging",
+   "score": 0.878,
+   "source": "lcp_benchmark",
+   "benchmark_category": "coding",
+   "raw_score": 87.8,
+   "release_label": "2026-09-05"
+  },
+  {
+   "model": "qwen3.8-flash-next",
+   "task_type": "planning",
+   "score": 0.96,
+   "source": "lcp_benchmark",
+   "benchmark_category": "instruction_following",
+   "raw_score": 96.0,
+   "release_label": "2026-09-05"
+  },
+  {
+   "model": "qwen3.8-flash-next",
+   "task_type": "planning",
+   "score": 0.88,
+   "source": "lcp_benchmark",
+   "benchmark_category": "instruction_following",
+   "raw_score": 88.0,
+   "release_label": "2026-09-09"
+  },
+  {
+   "model": "qwen3.8-flash-next",
+   "task_type": "reasoning_chain",
+   "score": 0.938,
+   "source": "lcp_benchmark",
+   "benchmark_category": "math",
+   "raw_score": 93.8,
+   "release_label": "2026-09-05"
+  },
+  {
+   "model": "qwen3.8-flash-next",
+   "task_type": "research_deep",
+   "score": 0.698,
+   "source": "lcp_benchmark",
+   "benchmark_category": "data_analysis",
+   "raw_score": 69.8,
+   "release_label": "2026-09-05"
+  },
+  {
+   "model": "qwen3.8-flash-next",
+   "task_type": "unit_tests",
+   "score": 0.878,
+   "source": "lcp_benchmark",
+   "benchmark_category": "coding",
+   "raw_score": 87.8,
+   "release_label": "2026-09-05"
+  },
+  {
+   "model": "qwen3.8-max",
+   "task_type": "agentic_multi_step",
+   "score": 0.646,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 64.6,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.8-max",
+   "task_type": "casual_chat",
+   "score": 0.797,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 79.7,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.8-max",
+   "task_type": "code_generation",
+   "score": 0.729,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 72.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.8-max",
+   "task_type": "planning",
+   "score": 0.741,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 74.1,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.8-max",
+   "task_type": "reasoning_chain",
+   "score": 0.913,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 91.3,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "qwen3.8-max",
+   "task_type": "research_deep",
+   "score": 0.784,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 78.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "smaug-agentic",
+   "task_type": "agentic_multi_step",
+   "score": 0.646,
+   "source": "livebench",
+   "benchmark_category": "agentic_coding",
+   "raw_score": 64.6,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "smaug-agentic",
+   "task_type": "casual_chat",
+   "score": 0.844,
+   "source": "livebench",
+   "benchmark_category": "language",
+   "raw_score": 84.4,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "smaug-agentic",
+   "task_type": "code_generation",
+   "score": 0.825,
+   "source": "livebench",
+   "benchmark_category": "coding",
+   "raw_score": 82.5,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "smaug-agentic",
+   "task_type": "planning",
+   "score": 0.71,
+   "source": "livebench",
+   "benchmark_category": "instruction_following",
+   "raw_score": 71.0,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "smaug-agentic",
+   "task_type": "reasoning_chain",
+   "score": 0.839,
+   "source": "livebench",
+   "benchmark_category": "math",
+   "raw_score": 83.9,
+   "release_label": "2026-06-25"
+  },
+  {
+   "model": "smaug-agentic",
+   "task_type": "research_deep",
+   "score": 0.799,
+   "source": "livebench",
+   "benchmark_category": "data_analysis",
+   "raw_score": 79.9,
+   "release_label": "2026-06-25"
+  }
+ ]
+}

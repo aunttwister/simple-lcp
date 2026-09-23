@@ -321,43 +321,11 @@ class TestPageAndCapabilityApis:
 # ── Capability import / seed / manual APIs ───────────────────────────────────
 
 class TestCapabilityWriteApis:
-    def test_import_db_path_crash(self, temp_db):
-        class BoomEngine:
-            @property
-            def url(self):
-                raise RuntimeError("no url")
-
-        h = TestHandler(path="/api/models/capability/import", method="POST",
-                        engine=BoomEngine(), headers={"Content-Type": "text/plain"})
-        h._serve_capability_import_api()                      # 2336-2337
-        assert _status(h) == 400                              # not multipart
-
-    def test_import_non_utf8_400(self, temp_db):
-        h = TestHandler(path="/api/models/capability/import", method="POST",
-                        engine=temp_db)
-        h._import_csv_body(b"\xff\xfe not utf8", None, ":memory:")
-        assert _status(h) == 400                              # 2369-2371
-
-    def test_import_value_error_400(self, temp_db):
-        h = TestHandler(path="/api/models/capability/import", method="POST",
-                        engine=temp_db)
-        with patch("src.api.benchmark_import.import_csv_string",
-                   side_effect=ValueError("bad csv")):
-            h._import_csv_body(b"model,score\nm,1\n", None, "db")
-        assert _status(h) == 400                              # 2376-2377
-
-    def test_import_generic_crash_500(self, temp_db):
-        h = TestHandler(path="/api/models/capability/import", method="POST",
-                        engine=temp_db)
-        with patch("src.api.benchmark_import.import_csv_string",
-                   side_effect=RuntimeError("disk")):
-            h._import_csv_body(b"model,score\nm,1\n", None, "db")
-        assert _status(h) == 500                              # 2378-2379
 
     def test_seed_crash_500(self, temp_db):
         h = TestHandler(path="/api/models/capability/seed", method="POST",
                         engine=temp_db)
-        with patch("src.api.seed_capabilities.seed_livebench",
+        with patch("src.api.seed_capabilities.seed_capabilities",
                    side_effect=RuntimeError("seed boom")):
             h._serve_capability_seed_api()
         assert _status(h) == 500                              # 2395-2396

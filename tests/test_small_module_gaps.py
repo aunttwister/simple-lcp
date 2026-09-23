@@ -1,5 +1,5 @@
 """Small-module coverage gaps: crypto fallback-key error path, reasoning_store
-singleton, benchmark_import materialization edge cases, and setup install
+singleton and setup install
 progress/failure paths."""
 
 import os
@@ -41,7 +41,6 @@ class TestReasoningStoreSingleton:
         reasoning_store._reasoning_store = None
 
 
-# ── benchmark_import: materialization edge cases ─────────────────────────────
 
 @pytest.fixture
 def db_path():
@@ -58,64 +57,6 @@ def db_path():
             os.unlink(path + ext)
         except FileNotFoundError:
             pass
-
-
-class TestMaterializeEdgeCases:
-    def test_materialize_capability_updates_existing(self, db_path):
-        """Re-importing a metric updates the existing typed row (upsert)."""
-        from src.api.benchmark_import import import_csv_string
-        from src.api.models import ModelCapability, get_engine, get_session
-
-        csv_text = "model,code_generation\ngpt-5.5-xhigh,70.0\n"
-        import_csv_string(db_path, csv_text)
-        import_csv_string(db_path, csv_text)  # idempotent upsert
-
-        engine = get_engine(db_path)
-        with get_session(engine) as session:
-            rows = session.query(ModelCapability).filter_by(
-                model="gpt-5.5-thinking", source="livebench"
-            ).all()
-            assert rows
-            codegen = [r for r in rows if r.benchmark_category == "coding"]
-            assert codegen
-            assert codegen[0].score == 0.7
-
-    def test_materialize_subtasks_updates_existing(self, db_path):
-        from src.api.benchmark_import import import_csv_string
-        from src.api.models import ModelCapabilitySubtask, get_engine, get_session
-
-        csv_text = "model,theory_of_mind\ngpt-5.5-xhigh,80.0\n"
-        import_csv_string(db_path, csv_text, materialize_capabilities=False)
-        import_csv_string(db_path, csv_text, materialize_capabilities=False)
-
-        engine = get_engine(db_path)
-        with get_session(engine) as session:
-            rows = session.query(ModelCapabilitySubtask).filter_by(
-                model="gpt-5.5-thinking", task="theory_of_mind").all()
-            assert len(rows) == 1
-            assert rows[0].score == 0.8
-
-    def test_unknown_category_skipped(self, db_path):
-        from src.api.benchmark_import import import_csv_string
-        from src.api.models import ModelCapability, get_engine, get_session
-
-        csv_text = "model,not_a_lb_task\ngpt-5.5-xhigh,90.0\n"
-        import_csv_string(db_path, csv_text)
-        engine = get_engine(db_path)
-        with get_session(engine) as session:
-            # unknown task column yields no typed capability rows
-            assert session.query(ModelCapability).filter_by(model="gpt-5.5-thinking").count() == 0
-
-    def test_discover_files_invalid_csv_skipped(self, tmp_path, monkeypatch):
-        from src.api import benchmark_import
-        bad = tmp_path / "bad.csv"
-        bad.write_text("\x00not csv")
-        monkeypatch.setattr(benchmark_import, "BUNDLED_DATA_DIR", str(tmp_path))
-        files = benchmark_import.discover_files()
-        assert str(bad) in files
-        # import_bundled skips it gracefully (no metrics written).
-        n = benchmark_import.import_bundled("data/costs.db", dry_run=True)
-        assert n == 0
 
 
 # ── setup: install failure paths ─────────────────────────────────────────────

@@ -2583,79 +2583,20 @@ class DashboardEndpoints:
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 
-    def _serve_capability_import_api(self):
-        """POST /api/models/capability/import — import a benchmark dataset.
-
-        Accepts a ``multipart/form-data`` upload with a ``file`` field
-        containing a LiveBench CSV (``table_*.csv``), plus an optional
-        ``release`` field.
-
-        The dataset is validated, written into ``capability_metrics``, and
-        materialized into typed ``model_capabilities`` +
-        ``model_capability_subtasks`` rows.
-        """
-        db_path = "data/costs.db"
-        try:
-            if getattr(self.engine, "url", None) is not None:
-                db_path = str(self.engine.url.database) or db_path
-        except Exception:
-            pass
-
-        content_type = (self.headers.get("Content-Type") or "").lower()
-
-        if "multipart/form-data" not in content_type:
-            self._send_json({"error": "import requires a multipart CSV upload"}, 400)
-            return
-
-        # Read the raw body and parse the multipart upload manually (the
-        # stdlib cgi module is deprecated and awkward to drive with a mock
-        # rfile; our parser is small and tested).
-        try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length) if content_length else b""
-            raw, release, filename = _parse_multipart_upload(
-                body, self.headers.get("Content-Type", ""))
-        except Exception as exc:
-            self._send_json({"error": f"invalid upload: {exc}"}, 400)
-            return
-
-        if not filename.lower().endswith(".csv"):
-            self._send_json({"error": "only LiveBench CSV uploads are supported"}, 400)
-            return
-
-        return self._import_csv_body(raw, release, db_path)
-
-    def _import_csv_body(self, raw: bytes, release: Optional[str], db_path: str) -> None:
-        """Import a CSV upload (``table_*.csv``) and respond."""
-        from ..api.benchmark_import import import_csv_string
-
-        try:
-            csv_text = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            self._send_json({"error": "CSV upload must be UTF-8 text"}, 400)
-            return
-
-        try:
-            count = import_csv_string(db_path, csv_text, release=release)
-            self._send_json({"ok": True, "materialized": count, "schema_id": "livebench"})
-        except ValueError as e:
-            self._send_json({"error": str(e)}, 400)
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
 
     def _serve_capability_seed_api(self):
-        """POST /api/models/capability/seed — seed the bundled LiveBench leaderboard.
+        """POST /api/models/capability/seed — (re)apply the bundled declared matrix.
 
-        Imports the shipped leaderboard snapshot into ``model_capabilities``
-        (``source="livebench"``) WITHOUT running benchmarks — the instant
-        "give semantic routing capability data to route by" action surfaced by
-        the Setup page when no scores exist yet.
+        Writes the shipped ``data/declared_capabilities.json`` into
+        ``model_capabilities`` — the instant "give the router capability data to
+        route by" action surfaced by the Setup page when no scores exist yet.
+        Idempotent; never touches hand-set (``source="manual"``) rows.
         """
-        from ..api.seed_capabilities import seed_livebench
+        from ..api.seed_capabilities import seed_capabilities
 
         db_path = _engine_db_path(self.engine)
         try:
-            count = seed_livebench(db_path)
+            count = seed_capabilities(db_path)
             self._send_json({"ok": True, "materialized": count})
         except Exception as e:
             self._send_json({"error": str(e)}, 500)

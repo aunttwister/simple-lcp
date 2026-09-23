@@ -1,12 +1,21 @@
-"""Tests for seed_capabilities.py — LiveBench snapshot derivation + seeding."""
+"""Tests for the declared capability matrix: the bundled seed and its resolution.
+
+The router ranks models on ``model_capabilities``; since R13 that table is fed by
+the bundled ``data/declared_capabilities.json`` instead of a LiveBench import.
+"""
+
+import json
 import os
 import tempfile
 
 import pytest
 
 from src.api.seed_capabilities import (
-    LIVEBENCH_DATA,
-    derive_category_scores,
+    CAPABILITIES_FILE,
+    load_capability_matrix,
+    load_declared_capabilities,
+    seed_capabilities,
+    seed_model_registry,
 )
 
 
@@ -14,7 +23,7 @@ from src.api.seed_capabilities import (
 def db_path():
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
-    from src.api.models import get_engine, Base
+    from src.api.models import Base, get_engine
     engine = get_engine(path)
     Base.metadata.create_all(engine)
     engine.dispose()
@@ -26,56 +35,58 @@ def db_path():
             pass
 
 
-def test_derive_category_scores_matches_hand_typed():
-    """Derived top-level scores must equal the hand-typed leaderboard values."""
-    from src.api.livebench_tasks import LIVEBENCH_TASKS
-
-    for model in sorted(set(LIVEBENCH_DATA) & set(LIVEBENCH_TASKS)):
-        hand = LIVEBENCH_DATA[model]
-        latest_release = list(hand.keys())[-1]
-        hand_cats = {k: v for k, v in hand[latest_release].items() if k != "overall"}
-        derived = derive_category_scores(LIVEBENCH_TASKS[model])
-        derived_cats = {k: v for k, v in derived.items() if k != "overall"}
-        assert derived_cats == hand_cats, f"{model}: derived {derived_cats} != hand {hand_cats}"
-        assert derived["overall"] == hand[latest_release]["overall"]
+def test_bundled_file_is_valid_declared_data():
+    payload = json.load(open(CAPABILITIES_FILE))
+    assert payload["_why"], "the bundled file must explain itself"
+    rows = load_declared_capabilities()
+    assert rows, "the bundled matrix must not be empty"
+    for row in rows:
+        assert set(row) >= {"model", "task_type", "score", "source", "release_label"}
+        assert 0.0 <= row["score"] <= 1.0
+        assert row["source"] in {"livebench", "lcp_benchmark", "arena", "gateway_yaml", "manual"}
 
 
-def test_seed_livebench_seeds_derived_models(db_path):
-    """Seeding stores top-level scores for subtask-only models (gpt-5.6-luna)."""
-    from src.api.models import ModelCapability, get_session, get_engine
-    from src.api.seed_capabilities import seed_livebench
-
-    seed_livebench(db_path)
-
-    engine = get_engine(db_path)
-    session = get_session(engine)
-    try:
-        rows = session.query(ModelCapability).filter_by(
-            model="gpt-5.6-luna", source="livebench"
-        ).all()
-        assert rows, "gpt-5.6-luna should have seeded capability rows"
-        by_task = {r.task_type: r.score for r in rows}
-        assert by_task["casual_chat"] == pytest.approx(0.726, abs=1e-3)  # language 72.6
-        assert by_task["reasoning_chain"] == pytest.approx(0.872, abs=1e-3)  # math 87.2 (math after reasoning, matching hand-typed)
-    finally:
-        session.close()
-        engine.dispose()
+def test_seed_writes_rows_and_loads_as_matrix(db_path):
+    n = seed_capabilities(db_path)
+    assert n == len(load_declared_capabilities())
+    matrix = load_capability_matrix(db_path)
+    assert matrix, "a freshly seeded database must yield a usable matrix"
+    sample = load_declared_capabilities()[0]
+    assert matrix[sample["task_type"]][sample["model"]] == pytest.approx(sample["score"], abs=1e-4)
 
 
-def test_seed_livebench_seeds_minimax(db_path):
-    """minimax-m3 (subtask-only) should also get top-level scores."""
-    from src.api.models import ModelCapability, get_session, get_engine
-    from src.api.seed_capabilities import seed_livebench
+def test_seed_is_idempotent(db_path):
+    first = seed_capabilities(db_path)
+    second = seed_capabilities(db_path)
+    assert first == second
+    from src.api.models import ModelCapability, get_engine, get_session
+    with get_session(get_engine(db_path)) as session:
+        assert session.query(ModelCapability).count() == first
 
-    seed_livebench(db_path)
 
-    engine = get_engine(db_path)
-    session = get_session(engine)
-    try:
-        rows = session.query(ModelCapability).filter_by(
-            model="minimax-m3", source="livebench"
-        ).all()
-        assert rows, "minimax-m3 should have seeded capability rows"
-    finally:
-        session.close()
-        engine.dispose()
+def test_seed_never_clobbers_a_manual_score(db_path):
+    """A hand-set score from another source must survive a re-seed."""
+    from src.api.models import ModelCapability, get_engine, get_session
+
+    seed_capabilities(db_path)
+    with get_session(get_engine(db_path)) as session:
+        session.add(ModelCapability(
+            model="deepseek-v4-pro", task_type="code_generation", score=0.111,
+            source="manual", release_label="2099-01-01", updated_at="2026-09-23T00:00:00",
+        ))
+        session.commit()
+
+    seed_capabilities(db_path)
+    with get_session(get_engine(db_path)) as session:
+        kept = session.query(ModelCapability).filter_by(
+            model="deepseek-v4-pro", source="manual").one()
+        assert kept.score == pytest.approx(0.111)
+
+
+def test_registry_seed_then_matrix_resolution(db_path):
+    seed_model_registry(db_path)
+    seed_capabilities(db_path)
+    matrix = load_capability_matrix(db_path)
+    assert "reasoning_chain" in matrix
+    for derived in ("debugging", "unit_tests"):
+        assert derived in matrix

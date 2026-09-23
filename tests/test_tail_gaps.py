@@ -1,5 +1,5 @@
 """Final targeted gaps: derive second-pass, load_model_registry bad-JSON,
-benchmark_import overall branch + CLI file print, load_capability_matrix
+load_capability_matrix
 source-priority, and the remaining setup/benchmark small branches."""
 
 import os
@@ -27,14 +27,6 @@ def db_path():
 
 # ── seed_capabilities: derive second-pass (unknown category) ────────────────
 
-class TestDeriveSecondPass:
-    def test_derive_unknown_category_appended(self):
-        """A subtask category not in CATEGORY_ORDER is still averaged."""
-        from src.api.seed_capabilities import derive_category_scores
-        result = derive_category_scores({"brand_new_cat": {"task_a": 80.0, "task_b": 60.0}})
-        assert result["brand_new_cat"] == 70.0
-        assert result["overall"] == 70.0
-
 
 # ── load_model_registry: bad provider_mappings JSON ─────────────────────────
 
@@ -53,30 +45,6 @@ class TestLoadRegistryBadJson:
         assert reg["m"]["provider_mappings"] == {}
 
 
-# ── benchmark_import: overall branch + CLI file print ───────────────────────
-
-class TestImportOverallBranch:
-    def test_import_subtask_only_derives_overall(self, db_path):
-        from src.api.benchmark_import import import_csv_string
-        from src.api.models import CapabilityMetric, get_engine, get_session
-        csv_text = "model,theory_of_mind\ngpt-5.5-xhigh,100.0\n"
-        import_csv_string(db_path, csv_text, materialize_capabilities=False)
-        engine = get_engine(db_path)
-        with get_session(engine) as session:
-            overall = session.query(CapabilityMetric).filter_by(
-                model="gpt-5.5-thinking", category="overall", task=None
-            ).first()
-            assert overall is not None
-            assert overall.value == 100.0
-
-    def test_cli_file_print(self, db_path, tmp_path, capsys):
-        from src.api.benchmark_import import main
-        jf = tmp_path / "d.csv"
-        jf.write_text("model,code_generation\ngpt-5.5-xhigh,90.0\n")
-        with patch("sys.argv", ["benchmark_import", "--db", db_path, "--file", str(jf)]):
-            main()
-        out = capsys.readouterr().out
-        assert "Imported" in out
 
 
 # ── load_capability_matrix: source priority ─────────────────────────────────

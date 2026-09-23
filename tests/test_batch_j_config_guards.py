@@ -166,28 +166,9 @@ class TestCliGuards:
             assert s.query(ModelRegistryEntry).count() > 0
         engine.dispose()
 
-    def test_seed_capabilities_livebench_only(self):
+    def test_seed_capabilities_only(self):
         a = MagicMock(return_value=1)
-        b = MagicMock(return_value=2)
         _run_guard("src.api.seed_capabilities",
-                   ["seed_capabilities", "--db", ":memory:",
-                    "--livebench-only", "--release", "2026-06-25"],
-                   {"seed_livebench": a, "seed_livebench_tasks": b})
+                   ["seed_capabilities", "--db", ":memory:", "--capabilities-only"],
+                   {"seed_capabilities": a})
         a.assert_called_once()
-        b.assert_called_once()
-
-    def test_benchmark_import_file_mode(self, tmp_path):
-        m = MagicMock(return_value=7)
-        _run_guard("src.api.benchmark_import",
-                   ["benchmark_import", "--db", ":memory:",
-                    "--file", str(tmp_path / "x.csv")],
-                   {"import_csv_file": m})
-        m.assert_called_once()
-
-    def test_benchmark_import_bundled_mode(self):
-        m = MagicMock(return_value=5)
-        d = MagicMock(return_value=["a.csv", "b.csv"])
-        _run_guard("src.api.benchmark_import",
-                   ["benchmark_import", "--db", ":memory:", "--dry-run"],
-                   {"import_bundled": m, "discover_files": d})
-        m.assert_called_once()

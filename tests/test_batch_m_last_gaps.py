@@ -128,9 +128,6 @@ class TestPaddedGuards:
     def test_main_py(self):
         _padded_guard("src.main")            # main.py:181
 
-    def test_benchmark_import(self):
-        _padded_guard("src.api.benchmark_import")     # 466
-
     def test_seed_capabilities(self):
         _padded_guard("src.api.seed_capabilities")    # 597
 

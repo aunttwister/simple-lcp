@@ -1063,8 +1063,6 @@ def _build_routes() -> RouteTable:
            lambda h, p: h._serve_capability_manual_api())
     t.post("api.models.capability.seed", exact("/api/models/capability/seed"),
            lambda h, p: h._serve_capability_seed_api())
-    t.post("api.models.capability.import", exact("/api/models/capability/import"),
-           lambda h, p: h._serve_capability_import_api())
     t.post("api.models.benchmark", exact("/api/models/benchmark"),
            lambda h, p: h._serve_benchmark_create_api())
 

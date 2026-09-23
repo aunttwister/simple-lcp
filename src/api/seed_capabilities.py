@@ -1,11 +1,15 @@
 """Model capability storage and the model registry.
 
-Capability scores come from LiveBench — either hand-typed leaderboard
-snapshots (``LIVEBENCH_DATA``) plus subtask-derived top-level scores, or
-benchmark runs the user executes directly via ``src.api.benchmark``. The
-model registry maps each logical model name to its stable benchmark key and
-provider-side model IDs; the provider keys double as the model's provider
-list in the UI.
+Capability scores are DECLARED data. The bundled ``data/declared_capabilities.json``
+holds the matrix the router ranks on, ``seed_capabilities()`` writes it into a
+fresh database, and the Models page / ``POST /api/models/capability/manual`` is
+how it changes. The LiveBench import pipeline and the in-app benchmark executor
+were removed (R13); ``source`` survives on each row as provenance, not as a live
+input path.
+
+The model registry maps each logical model name to its stable capability-matrix
+key and provider-side model IDs; the provider keys double as the model's
+provider list in the UI.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 # Map LiveBench categories → LCP task types
@@ -35,224 +40,69 @@ DERIVED_TASKS: dict[str, str] = {
 }
 
 
-# ── Bulk-seeded LiveBench snapshots (opt-in) ─────────────────────────────────
-# Hand-typed leaderboard snapshots (source: livebench.ai). Kept as an OPT-IN
-# convenience for the setup wizard / a CLI: this is NOT loaded on boot.
-#
-# Shape: {logical_model: {release_label: {category: raw_0_100}}}. Only the
-# LATEST snapshot is kept per model — ``release_label`` is the model VERSION
-# (``2026-08-13`` = DeepSeek V4 Pro 0813, ``2026-07-31`` = Flash 0731) for
-# DeepSeek, and the leaderboard date for models without a dated build. The
-# leaderboard snapshot date itself lives in ``benchmark_release`` on the
-# registry entry, so version and benchmark date stay separate.
-LIVEBENCH_RELEASE = "2026-06-25"
-
-LIVEBENCH_DATA: dict[str, dict[str, dict[str, float]]] = {
-    "deepseek-v4-pro": {
-        "2026-08-13": {
-            "reasoning": 85.8, "coding": 77.2, "agentic_coding": 54.9,
-            "math": 95.1, "data_analysis": 79.2, "language": 82.1,
-            "instruction_following": 67.7, "overall": 77.4,
-        },
-    },
-    "deepseek-v4-flash": {
-        "2026-07-31": {
-            "reasoning": 86.6, "coding": 75.0, "agentic_coding": 46.8,
-            "math": 86.8, "data_analysis": 79.3, "language": 79.2,
-            "instruction_following": 65.5, "overall": 74.2,
-        },
-    },
-    "claude-fable-5": {
-        "2026-06-25": {
-            "reasoning": 89.7, "coding": 86.0, "agentic_coding": 62.2,
-            "math": 96.0, "data_analysis": 80.5, "language": 90.7,
-            "instruction_following": 75.8, "overall": 83.0,
-        },
-    },
-    "claude-sonnet-5": {
-        "2026-06-25": {
-            "reasoning": 88.7, "coding": 80.7, "agentic_coding": 59.4,
-            "math": 92.9, "data_analysis": 71.7, "language": 75.0,
-            "instruction_following": 63.9, "overall": 76.0,
-        },
-    },
-    "claude-opus-5": {
-        "2026-06-25": {
-            "reasoning": 91.2, "coding": 81.4, "agentic_coding": 65.2,
-            "math": 95.7, "data_analysis": 74.6, "language": 88.7,
-            "instruction_following": 63.8, "overall": 80.1,
-        },
-    },
-    "gpt-5.6-sol": {
-        "2026-06-25": {
-            "reasoning": 91.7, "coding": 83.9, "agentic_coding": 56.2,
-            "math": 96.2, "data_analysis": 79.8, "language": 87.7,
-            "instruction_following": 71.8, "overall": 81.0,
-        },
-    },
-    "gpt-5.5-thinking": {
-        "2026-06-25": {
-            "reasoning": 89.7, "coding": 82.1, "agentic_coding": 54.0,
-            "math": 95.9, "data_analysis": 81.6, "language": 87.4,
-            "instruction_following": 70.7, "overall": 80.2,
-        },
-    },
-    "claude-5-opus-thinking": {
-        "2026-06-25": {
-            "reasoning": 91.2, "coding": 81.4, "agentic_coding": 65.2,
-            "math": 95.7, "data_analysis": 74.6, "language": 88.7,
-            "instruction_following": 63.8, "overall": 80.1,
-        },
-    },
-    "smaug-agentic": {
-        "2026-06-25": {
-            "reasoning": 90.3, "coding": 82.5, "agentic_coding": 64.6,
-            "math": 83.9, "data_analysis": 79.9, "language": 84.4,
-            "instruction_following": 71.0, "overall": 79.5,
-        },
-    },
-    "kimi-k3": {
-        "2026-06-25": {
-            "reasoning": 90.7, "coding": 81.4, "agentic_coding": 62.2,
-            "math": 84.4, "data_analysis": 78.7, "language": 85.5,
-            "instruction_following": 71.4, "overall": 79.2,
-        },
-    },
-    "qwen-3.8-max": {
-        "2026-06-25": {
-            "reasoning": 88.2, "coding": 72.9, "agentic_coding": 64.6,
-            "math": 91.3, "data_analysis": 78.4, "language": 79.7,
-            "instruction_following": 74.1, "overall": 78.5,
-        },
-    },
-    "gemini-3.6-flash": {
-        "2026-06-25": {
-            "reasoning": 85.1, "coding": 77.9, "agentic_coding": 43.4,
-            "math": 86.4, "data_analysis": 63.0, "language": 83.9,
-            "instruction_following": 75.4, "overall": 73.6,
-        },
-    },
-    "grok-4.5": {
-        "2026-06-25": {
-            "reasoning": 87.2, "coding": 68.6, "agentic_coding": 56.5,
-            "math": 90.8, "data_analysis": 73.0, "language": 82.8,
-            "instruction_following": 71.5, "overall": 75.8,
-        },
-    },
-}
 
 
-def derive_category_scores(tasks: dict[str, dict[str, float]]) -> dict[str, float]:
-    """Aggregate per-subtask scores into per-category averages (0–100, 1 dp).
+# ── Declared capabilities (bundled seed) ─────────────────────────────────
+# The matrix the router ranks on. It used to be imported from LiveBench
+# leaderboard snapshots; that pipeline is gone (R13), so the matrix is DECLARED
+# data: this bundled file is what a fresh database starts from, and the Models
+# page / POST /api/models/capability/manual is how it changes. ``source`` on
+# each row records where a score came from and is kept honest -- ``livebench``
+# = imported from the 2026-06..09 snapshots, ``lcp_benchmark`` = produced by
+# the retired benchmark executor, ``manual`` = hand-set.
+CAPABILITIES_FILE = Path(__file__).resolve().parent / "data" / "declared_capabilities.json"
 
-    LiveBench grades each model down to individual tasks (``LIVEBENCH_TASKS``).
-    The top-level leaderboard category score is the mean of that category's
-    subtask scores; ``overall`` is the mean of the category averages. This
-    function reproduces the livebench.ai aggregation exactly (verified against
-    the 2026-06-25 leaderboard), so any model that only has subtask data can
-    still receive top-level scores.
 
-    Categories are emitted in the canonical leaderboard order so downstream
-    seeding resolves the ``reasoning_chain`` LCP task the same way the
-    hand-typed ``LIVEBENCH_DATA`` does (``math`` after ``reasoning`` — the
-    last writer wins, matching the existing hand-typed behavior).
+def load_declared_capabilities() -> list:
+    """Read the bundled declared-capability rows (see the file's ``_why``)."""
+    with open(CAPABILITIES_FILE, encoding="utf-8") as fh:
+        return json.load(fh)["rows"]
+
+
+def seed_capabilities(db_path: str) -> int:
+    """Write the bundled declared capability rows into ``model_capabilities``.
+
+    Idempotent and non-destructive: a row is matched on the same key the manual
+    edit endpoint uses -- (model, task_type, source, release_label) -- so a
+    re-run updates its own rows and never clobbers a hand-set ``manual`` score.
+    Returns the number of rows written.
     """
-    CATEGORY_ORDER = (
-        "reasoning", "coding", "agentic_coding", "math",
-        "data_analysis", "language", "instruction_following",
-    )
-    out: dict[str, float] = {}
-    for category in CATEGORY_ORDER:
-        subtasks = tasks.get(category)
-        if not subtasks:
-            continue
-        values = list(subtasks.values())
-        if values:
-            out[category] = round(sum(values) / len(values), 1)
-    for category, subtasks in tasks.items():
-        if category not in out and subtasks:
-            values = list(subtasks.values())
-            if values:
-                out[category] = round(sum(values) / len(values), 1)
-    if out:
-        out["overall"] = round(sum(out.values()) / len(out), 1)
-    return out
+    from src.api.models import ModelCapability
 
-
-def seed_livebench(db_path: str, release: Optional[str] = None) -> int:
-    """Seed model_capabilities from the bundled LiveBench JSON dataset.
-
-    Delegates to the JSON import pipeline (``benchmark_import``) which writes
-    ``capability_metrics`` and materializes typed ``model_capabilities`` rows.
-    Then runs legacy cleanup migrations (retired snapshot keys, unversioned
-    rows, superseded dated snapshots).
-    """
-    from . import benchmark_import
-
-    count = benchmark_import.import_bundled(
-        db_path, release=release,
-        materialize_capabilities=True, materialize_subtasks=False,
-    )
-    _cleanup_legacy_capabilities(db_path)
-    return count
-
-
-def seed_livebench_tasks(db_path: str, release: str = LIVEBENCH_RELEASE) -> int:
-    """Seed model_capability_subtasks from the bundled LiveBench JSON dataset.
-
-    Delegates to the JSON import pipeline; materializes only the subtask rows.
-    """
-    from . import benchmark_import
-
-    return benchmark_import.import_bundled(
-        db_path, release=release,
-        materialize_capabilities=False, materialize_subtasks=True,
-    )
-
-
-def _cleanup_legacy_capabilities(db_path: str) -> None:
-    """Remove legacy capability rows that predate the import pipeline.
-
-    * rows keyed to the retired dated snapshot name (``deepseek-v4-flash-0731``)
-    * unversioned (release_label NULL) livebench rows for imported models
-    * dated snapshots that are no longer the newest release for a model
-    """
-    from src.api.models import CapabilityMetric, ModelCapability
-
+    rows = load_declared_capabilities()
     session = _get_session(db_path)
+    now = datetime.now(timezone.utc).isoformat()
+    written = 0
+    try:
+        for row in rows:
+            existing = session.query(ModelCapability).filter_by(
+                model=row["model"],
+                task_type=row["task_type"],
+                source=row["source"],
+                release_label=row.get("release_label"),
+            ).first()
+            if existing is not None:
+                existing.score = row["score"]
+                existing.raw_score = row.get("raw_score")
+                existing.benchmark_category = row.get("benchmark_category")
+                existing.updated_at = now
+            else:
+                session.add(ModelCapability(
+                    model=row["model"],
+                    task_type=row["task_type"],
+                    score=row["score"],
+                    source=row["source"],
+                    benchmark_category=row.get("benchmark_category"),
+                    raw_score=row.get("raw_score"),
+                    release_label=row.get("release_label"),
+                    updated_at=now,
+                ))
+            written += 1
+        session.commit()
+    finally:
+        session.close()
+    return written
 
-    top_rows = session.query(CapabilityMetric).filter(
-        CapabilityMetric.schema_id == "livebench",
-        CapabilityMetric.task.is_(None),
-    ).all()
-    seeded_models = {r.model for r in top_rows}
-    keep_releases: dict[str, set[str]] = defaultdict(set)
-    for r in top_rows:
-        if r.release_label:
-            keep_releases[r.model].add(r.release_label)
-
-    retired_snapshot_keys = ("deepseek-v4-flash-0731",)
-    session.query(ModelCapability).filter(
-        ModelCapability.model.in_(retired_snapshot_keys),
-        ModelCapability.source == "livebench",
-    ).delete(synchronize_session=False)
-
-    if seeded_models:
-        session.query(ModelCapability).filter(
-            ModelCapability.model.in_(list(seeded_models)),
-            ModelCapability.source == "livebench",
-            ModelCapability.release_label.is_(None),
-        ).delete(synchronize_session=False)
-
-    for model, keep in keep_releases.items():
-        session.query(ModelCapability).filter(
-            ModelCapability.model == model,
-            ModelCapability.source == "livebench",
-            ModelCapability.release_label.notin_(list(keep)),
-        ).delete(synchronize_session=False)
-
-    session.commit()
-    session.close()
 
 
 def _get_session(db_path: str):
@@ -270,42 +120,36 @@ def _default_db_path() -> str:
 
 
 def main() -> None:
-    """CLI: seed the model registry + bulk LiveBench snapshots.
+    """CLI: seed the model registry + the declared capability matrix.
 
     Usage:
-        python -m src.api.seed_capabilities                  # seed registry + all releases
-        python -m src.api.seed_capabilities --release 2026-06-25
+        python -m src.api.seed_capabilities                    # registry + capabilities
         python -m src.api.seed_capabilities --registry-only
-        python -m src.api.seed_capabilities --livebench-only --db /app/data/costs.db
-        python -m src.api.seed_capabilities --sync           # migrate identity → release split
+        python -m src.api.seed_capabilities --capabilities-only --db /app/data/costs.db
+        python -m src.api.seed_capabilities --sync             # re-apply curated registry defaults
     """
     import argparse
 
     parser = argparse.ArgumentParser(description="Seed LCP model data")
     parser.add_argument("--db", default=_default_db_path(), help="path to SQLite DB")
-    parser.add_argument("--release", default=None, help="release label for LiveBench snapshot (default: every release)")
     parser.add_argument("--registry-only", action="store_true", help="only seed the model registry")
-    parser.add_argument("--livebench-only", action="store_true", help="only seed the LiveBench snapshot")
-    parser.add_argument("--sync", action="store_true", help="re-apply curated registry defaults to existing rows (migrate identity → release split)")
+    parser.add_argument("--capabilities-only", action="store_true", help="only seed the declared capability matrix")
+    parser.add_argument("--sync", action="store_true", help="re-apply curated registry defaults to existing rows")
     args = parser.parse_args()
 
     db_path = args.db
 
-    if args.livebench_only:
-        n = seed_livebench(db_path, release=args.release)
-        t = seed_livebench_tasks(db_path, release=args.release or LIVEBENCH_RELEASE)
-        print(f"Seeded {n} LiveBench capability rows + {t} subtask rows (release={args.release or 'all'})")
+    if args.capabilities_only:
+        print(f"Seeded {seed_capabilities(db_path)} declared capability rows")
         return
 
     if args.registry_only:
-        n = seed_model_registry(db_path, sync=args.sync)
-        print(f"Seeded {n} registry entries")
+        print(f"Seeded {seed_model_registry(db_path, sync=args.sync)} registry entries")
         return
 
     r = seed_model_registry(db_path, sync=args.sync)
-    l = seed_livebench(db_path, release=args.release)
-    t = seed_livebench_tasks(db_path, release=args.release or LIVEBENCH_RELEASE)
-    print(f"Seeded {r} registry entries + {l} LiveBench capability rows + {t} subtask rows (release={args.release or 'all'})")
+    c = seed_capabilities(db_path)
+    print(f"Seeded {r} registry entries + {c} declared capability rows")
 
 
 def resolve_active_rows(rows, registry: dict, release: Optional[str] = None):

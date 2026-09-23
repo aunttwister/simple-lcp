@@ -247,7 +247,7 @@ def router_install_blocked_reason(db_path: Optional[str] = None) -> Optional[str
     router then routes by the model's benchmark-graded capability scores for
     that task. So the real prerequisite is GRADED CAPABILITY DATA in the
     matrix — not the LiveBench module itself. LiveBench (runs) and the bundled
-    leaderboard snapshot (``seed_livebench``) are the two producers.
+    bundled declared matrix (``seed_capabilities``) is the producer.
 
     With *db_path* the gate keys on the matrix actually having rows, and the
     reason is tailored to the state:

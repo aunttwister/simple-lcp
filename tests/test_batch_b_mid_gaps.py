@@ -15,7 +15,6 @@ Closes error/edge branches in:
   - src/api/memory/embeddings.py (dim happy path)
   - src/api/{circuit_breaker,alert_manager,key_manager}.py (runtime resolve
     exception → legacy fallback)
-  - src/api/benchmark_import.py (unreadable CSV skip, no-files, __main__ guard)
   - src/api/seed_capabilities.py (effective_releases, matrix source priority,
     __main__ guard)
 
@@ -589,17 +588,6 @@ class TestFacadeResolveExceptions:
         km._key_manager = None
 
 
-# ── benchmark_import: unreadable CSVs, no files, __main__ ───────────────────
-
-class TestBenchmarkImportGaps:
-    def test_unreadable_files_skipped_then_none(self, monkeypatch):
-        import src.api.benchmark_import as bi
-        monkeypatch.setattr(bi, "discover_files",
-                            lambda *a, **k: ["/nonexistent/x.csv"])
-        assert bi.import_bundled(":memory:") == 0  # 311-313 + 317-318
-
-    def test_entry_guard(self):
-        _exec_module_guards("src.api.benchmark_import")
 
 
 # ── seed_capabilities: releases + priority + __main__ ────────────────────────

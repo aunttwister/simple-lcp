@@ -561,8 +561,8 @@ def test_sync_router_enabled_from_settings(registry_db, monkeypatch):
 
 def test_get_model_score_resolves_debugging_via_matrix(registry_db):
     """debugging is derived from code_generation, so scores must resolve."""
-    from src.api.seed_capabilities import seed_livebench, load_capability_matrix
-    seed_livebench(registry_db)
+    from src.api.seed_capabilities import load_capability_matrix, seed_capabilities
+    seed_capabilities(registry_db)
     router = CapabilityRouter(enabled=True, db_path=registry_db)
     matrix = load_capability_matrix(registry_db)
     assert "debugging" in matrix
@@ -572,16 +572,16 @@ def test_get_model_score_resolves_debugging_via_matrix(registry_db):
 
 def test_get_model_score_falls_back_for_unknown_model(registry_db):
     """A model with no debugging row falls back to the 0.5 default."""
-    from src.api.seed_capabilities import seed_livebench
-    seed_livebench(registry_db)
+    from src.api.seed_capabilities import seed_capabilities
+    seed_capabilities(registry_db)
     router = CapabilityRouter(enabled=True, db_path=registry_db)
     assert router.get_model_score("some-unknown-model", "debugging") == 0.5
 
 # ── Provider-aware selection (Phase 2) ───────────────────────────────────
 
 def test_score_step_uses_capability_and_cost(registry_db):
-    from src.api.seed_capabilities import seed_livebench
-    seed_livebench(registry_db)
+    from src.api.seed_capabilities import seed_capabilities
+    seed_capabilities(registry_db)
     router = CapabilityRouter(enabled=True, db_path=registry_db)
     # No breaker/cost-cache configured → pure capability + cost-bias boost.
     s = router.score_step({"provider": "opencode", "model": "deepseek-v4-pro",
@@ -593,9 +593,9 @@ def test_score_step_uses_capability_and_cost(registry_db):
     assert abs(s - s2) < 1e-9  # health/credit tiebreakers both absent
 
 def test_health_bonus_penalizes_degraded(registry_db):
-    from src.api.seed_capabilities import seed_livebench
+    from src.api.seed_capabilities import seed_capabilities
     from src.api.circuit_breaker import get_circuit_breaker
-    seed_livebench(registry_db)
+    seed_capabilities(registry_db)
     router = CapabilityRouter(enabled=True, db_path=registry_db)
 
     class _Cfg:
@@ -616,8 +616,8 @@ def test_health_bonus_penalizes_degraded(registry_db):
     assert sh > sd  # healthy provider step scores higher
 
 def test_credit_bonus_penalizes_low_credits(registry_db, monkeypatch):
-    from src.api.seed_capabilities import seed_livebench
-    seed_livebench(registry_db)
+    from src.api.seed_capabilities import seed_capabilities
+    seed_capabilities(registry_db)
     router = CapabilityRouter(enabled=True, db_path=registry_db)
 
     class FakeCache:
@@ -1225,9 +1225,9 @@ def test_routing_status_includes_per_profile(registry_db, monkeypatch):
 
 def test_routing_status_restricts_to_selected_models(registry_db, monkeypatch):
     """Per-task recommendations only include models referenced by a chain."""
-    from src.api.seed_capabilities import seed_livebench
+    from src.api.seed_capabilities import seed_capabilities
     from src.api.router import routing_status
-    seed_livebench(registry_db)
+    seed_capabilities(registry_db)
     _seed_router(registry_db, enabled=True)
     try:
         # Chain selects ONLY deepseek-v4-flash — recommendations must not
@@ -1245,9 +1245,9 @@ def test_routing_status_restricts_to_selected_models(registry_db, monkeypatch):
 
 def test_routing_status_falls_back_without_config(registry_db, monkeypatch):
     """Without config (tests), the top model per task is still shown."""
-    from src.api.seed_capabilities import seed_livebench
+    from src.api.seed_capabilities import seed_capabilities
     from src.api.router import routing_status
-    seed_livebench(registry_db)
+    seed_capabilities(registry_db)
     _seed_router(registry_db, enabled=True)
     try:
         st = routing_status(None)
