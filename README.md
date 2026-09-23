@@ -79,7 +79,7 @@ Every row is the operator's own framing, not an inference. Quoted fragments are 
 | R6 | Dynamic routing *"world class"*: a **very deterministic algorithm** — *"merit order … sortation … this list needs to be very deterministic"* | memo 2 |
 | R7 | Observability as **VSM-style diagrams** — *"attractive to the eye. We should put effort there"* | memo 2 |
 | R8 | Human-first UI — *"the nav bar is huge amounts of different configuration pages, complicated and messed up"* | memo 1 |
-| R9 | Drop per-profile API keys — *"is that necessary? in my opinion no"* | memo 1 |
+| R9 | Per-profile API keys — *"is that necessary? in my opinion no"* → **operator amendment 2026-09-23: keep them, scoped per profile** | memo 1 + review |
 | R10 | **Alerts stay.** Alerts and budgets are defined **per subject**: provider · profile · API key — on their own **alerts page and budgets page**, *"not on profile or API key. That doesn't work like that"* | memo 2 |
 | R11 | A **gate before committing** — *"some sort of gate before committing"*; LCP is the control plane over the harness | memo 2 |
 | R12 | **Balance-aware routing** — *"we're not taking into account the available balances. We're only reacting if we have insufficient balance"* — rank across subscriptions (opencode, commandcode, …) by remaining balance | memo 2 |
@@ -104,9 +104,10 @@ All figures below were read live from `costs.db` (read-only) on 2026-09-22/23 ag
 | `model_registry` | 15 | **KEEP — the pool primitive** |
 | `provider_health` / `provider_credentials` | 11 / 7 | **KEEP** |
 | `daily_summary` | 45 | keep (or recompute on read) |
-| `capability_metrics` / `model_capability_subtasks` / `model_capabilities` | 496 / 434 / 116 | **CUT** — all three are `source=livebench` (R13) |
+| `capability_metrics` / `model_capability_subtasks` | 496 / 434 | **CUT** — LiveBench-shaped metric stores (R13); the declared-capability path does not read them |
+| `model_capabilities` | 116 (108 `livebench` + 8 `lcp_benchmark`) | **KEEP — it IS the routing matrix.** `CapabilityRouter.load_capability_matrix()` reads it on every route. R13 changes where the *rows* come from (declared, not benchmarked), not whether the table exists |
 | `alerts` | **0** | **KEEP** — R10 wants it; implemented, never used, needs restructuring |
-| `api_keys` | 11 | **CUT** — no enforcement path exists (`auth_required: false` on 4 of 6 profiles) |
+| `api_keys` | 11 | **KEEP, scoped per profile** — operator amendment 2026-09-23. There is no enforcement path at all today (`auth_required: false` on 4 of 6 profiles); that is the thing to fix, not the feature to delete |
 | `audit_logs` | **0** | **CUT** — the gate records into `requests` + `routing_decisions` instead |
 | `budgets` | **0** | **CUT as shaped** — user/team-shaped; R10 re-forms it per subject |
 | `users` / `teams` | **0 / 0** | **CUT** — Phase 5 multi-tenant |
@@ -207,7 +208,7 @@ fetched, cached, and ignored when choosing a lane.
 
 | # | milestone | gate |
 |---|---|---|
-| M1 | **Confirm the cut list** and the removals-vs-module split | operator |
+| M1 | **Confirm the cut list** and the removals-vs-module split | ✅ **CONFIRMED 2026-09-23** — *"I Mostly agree with cut list except I would like to keep apik but they should be on per profile level"* |
 | M2 | Profile-first UI — 15 pages → 5, one profile page as the entry point (R8/R2/R3/R4) | M1 |
 | M3 | Per-profile intents + the margin gate (R5, L2 below) | M1 |
 | M4 | Deterministic L0–L4 + the 5 invariants as tests (R6) | M3 |
@@ -334,9 +335,9 @@ The work is **join + render + the two data fixes**, not new instrumentation.
 
 | remove | measured footprint |
 |---|---|
-| LiveBench inside LCP (R13) | `benchmark.py` 906 + `benchmark_import.py` 466 + `livebench_tasks.py` 601 = **1,973 LOC** src, **1,314 LOC** tests, 2 migrations, 3 tables |
+| LiveBench inside LCP (R13) | the **runner + importer + task corpus**: `benchmark.py` 906 + `benchmark_import.py` 466 + `livebench_tasks.py` 601 = **1,973 LOC** src, **1,314 LOC** tests, the `benchmark_runs` + `capability_metrics` tables, and the endpoints/UI that start a run. **Not** `model_capabilities` — that is the routing matrix and it stays, re-sourced from declarations |
 | Phase 5 multi-tenant | `users`, `teams`, `budgets` schema + migration 002 |
-| `api_keys` (R9) | 11 rows, `key_manager.py` 306 LOC, `keys.html` 139 LOC |
+| `api_keys` (R9) | **kept on operator review** → moves into the profile document and gets enforced there, instead of being deleted. Today: 11 rows, `key_manager.py` 306 LOC, `keys.html` 139 LOC |
 | `audit_logs` | schema + migration; replaced by the gate record |
 | `routing_judgments` | table (0 rows) — verify the 02:00 assessment's write target first |
 | `conversation_json` dual storage | **124 MB** of the 169 MB DB |
@@ -350,7 +351,7 @@ The work is **join + render + the two data fixes**, not new instrumentation.
 | # | decision | default |
 |---|---|---|
 | D1 | fork to a new repo vs branch in place | **done** — separate repo (`this one`), staging builds from it; prod stays on `aunttwister/lcp` |
-| D2 | per-profile API keys | **cut** (R9; 11 rows, no enforcement) |
+| D2 | per-profile API keys | **RESOLVED 2026-09-23 — KEPT, scoped per profile** (operator amendment to the cut list) |
 | D3 | where the work surface goes | **module** (a `plugins` block and the `/opt/lcp-modules` mount already exist) |
 | D4 | editing skills from LCP | browse + review only for now — `profiles` mounts read-only; the only writable work path is the cron-ops spool |
 | D5 | `commandcode` balance | no public API; needs a scraper or a manual override before M5 can rank it |
