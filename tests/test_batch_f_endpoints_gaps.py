@@ -216,7 +216,6 @@ class TestInvalidJsonBody:
         ("_serve_routing_rules_api", ()),
         ("_serve_capability_manual_api", ()),
         ("_serve_registry_upsert_api", ()),
-        ("_serve_benchmark_create_api", ()),
     ])
     def test_invalid_json_returns_400(self, temp_db, method_name, args):
         h = self._h(temp_db)

@@ -40,9 +40,14 @@ LIVEBENCH_EVAL_REQUIREMENTS = "code_runner/requirements_eval.txt"
 
 # Root directory where runtime-installed modules live. Override with
 # ``LCP_MODULES_DIR`` (default ``/opt/lcp-modules``). Each module clones into
-# its own subdirectory, e.g. ``<modules_dir>/livebench`` for LiveBench.
+# its own subdirectory, e.g. ``<modules_dir>/router``.
 MODULES_DIR_ENV = "LCP_MODULES_DIR"
 DEFAULT_MODULES_DIR = "/opt/lcp-modules"
+
+# Cap on the retained install log for every runtime module install (memory,
+# router, runboard). Shared by the per-module ``_*_update`` writers, which is
+# why it lives here rather than inside any one module's section.
+_LOG_MAX_LINES = 300
 
 
 class SetupError(Exception):
@@ -52,38 +57,6 @@ class SetupError(Exception):
 def modules_dir() -> str:
     """Return the configured module install root (env or default)."""
     return os.environ.get(MODULES_DIR_ENV, "").strip() or DEFAULT_MODULES_DIR
-
-
-def livebench_root() -> str:
-    """Return the LiveBench checkout ROOT used by the runtime installer.
-
-    Always ``<LCP_MODULES_DIR>/livebench`` (contains ``pyproject.toml``). The
-    livebench Python package lives in ``<root>/livebench``. This is the install
-    *target*; it deliberately does NOT require the directory to exist yet.
-    """
-    return os.path.join(modules_dir(), "livebench")
-
-
-def livebench_site() -> str:
-    """Return the persistent site-packages dir for LiveBench dependencies.
-
-    ``<LCP_MODULES_DIR>/site`` — pip installs ``--target`` here so third-party
-    deps (libtmux, litellm, pandas, …) survive container recreation. The
-    container's own site-packages lives in the writable image layer and is
-    lost on every rebuild, which is why the checkout survived but the imports
-    did not.
-    """
-    return os.path.join(modules_dir(), "site")
-
-
-def livebench_pythonpath() -> str:
-    """Return the PYTHONPATH needed to import LiveBench + its deps.
-
-    Includes both the persistent ``site`` dir (deps) and the repo ROOT (so
-    ``import livebench`` resolves to ``<root>/livebench`` even if the editable
-    ``.pth`` finder isn't processed in a given interpreter).
-    """
-    return os.pathsep.join((livebench_site(), livebench_root()))
 
 
 def memory_site() -> str:
@@ -180,37 +153,6 @@ def provider_steps(config) -> list[dict]:
     return steps
 
 
-def benchmark_step(engine=None) -> dict:
-    """Build the LiveBench benchmark module manifest entry."""
-    from .benchmark import benchmark_status
-
-    status = benchmark_status()
-    # Expose an in-flight install, or the most recent terminal *failure* so
-    # the UI can keep showing what went wrong. A successful terminal state is
-    # represented by ``installed=True`` and needs no ``installing`` payload.
-    installing = _bench_install
-    if installing is None and _bench_last is not None and _bench_last.get("status") == "failed":
-        installing = _bench_last
-    return {
-        "kind": "module",
-        "name": "livebench",
-        "title": "LiveBench benchmarks",
-        "description": (
-            "Grades provider models into the capability matrix that drives "
-            "dynamic routing. Clone + pip install at runtime."
-        ),
-        "required": False,
-        "installed": bool(status.get("available")),
-        "status": status,
-        # What semantic routing actually consumes: the graded capability matrix.
-        # Surfaced on the card so the user sees the real prerequisite state
-        # (installing LiveBench alone doesn't grade anything).
-        "capability": capability_matrix_stats(_db_path_from_engine(engine)),
-        "install_path": livebench_root(),
-        "installing": installing,
-    }
-
-
 def memory_step() -> dict:
     """Build the memory module manifest entry."""
     from .memory import memory_status
@@ -252,13 +194,13 @@ def router_install_blocked_reason(db_path: Optional[str] = None) -> Optional[str
     With *db_path* the gate keys on the matrix actually having rows, and the
     reason is tailored to the state:
 
-    * matrix non-empty            -> None (installable)
-    * empty + LiveBench installed -> "no models graded yet — run a benchmark"
-    * empty + no LiveBench        -> "install LiveBench and run a benchmark,
-                                      or seed the bundled leaderboard"
+    * matrix non-empty -> None (installable)
+    * matrix empty     -> a reason naming the one thing that fills it: declare
+                          the scores (Models page, manual) or re-apply the
+                          bundled declared matrix via the seed action.
 
-    Without *db_path* (e.g. no engine in tests) it falls back to the
-    LiveBench-installed check.
+    Without *db_path* (e.g. no engine in tests) it cannot read the matrix, so it
+    assumes empty and returns that reason.
     """
     if db_path:
         try:
@@ -268,16 +210,10 @@ def router_install_blocked_reason(db_path: Optional[str] = None) -> Optional[str
         except Exception:  # noqa: BLE001 — DB may be unavailable; fall back below
             pass
 
-    from .benchmark import benchmark_status
-    if benchmark_status().get("available"):
-        return (
-            "LiveBench is installed but no models are graded yet — run a "
-            "benchmark (or seed the bundled leaderboard snapshot) so semantic "
-            "routing has capability scores to route by."
-        )
     return (
-        "No graded capability data. Install LiveBench and run a benchmark, or "
-        "seed the bundled leaderboard snapshot, then install Semantic routing."
+        "No capability data to route by. Declare model scores on the Models "
+        "page, or run the seed action to re-apply the bundled declared matrix, "
+        "then install Semantic routing."
     )
 
 
@@ -300,7 +236,7 @@ def capability_matrix_stats(db_path: Optional[str] = None) -> dict:
 
 
 def router_step(engine=None) -> dict:
-    """Build the SEMANTIC ROUTING module manifest entry (grouped with LiveBench).
+    """Build the SEMANTIC ROUTING module manifest entry.
 
     The embedding-based task classifier powers dynamic routing: it picks the
     task type by MEANING (not keywords), which capability scores then route to
@@ -322,8 +258,8 @@ def router_step(engine=None) -> dict:
         "description": (
             "Embedding-based task classification for the dynamic router — "
             "classifies prompts by meaning so they route to the best-fit "
-            "model. Requires graded capability data (LiveBench run or bundled "
-            "snapshot seed). Install sentence-transformers at runtime."
+            "model. Requires declared capability data (the bundled matrix or "
+            "scores set by hand). Install sentence-transformers at runtime."
         ),
         "required": False,
         "installed": bool(status.get("available")),
@@ -425,7 +361,6 @@ def manifest(config, engine=None) -> dict:
     return {
         "steps": provider_steps(config),
         "modules": [
-            benchmark_step(engine),
             router_step(engine),
             memory_step(),
             runboard_step(engine),
@@ -614,37 +549,6 @@ def remove_provider(engine, config, name: str) -> dict:
                        provider=name, error=str(exc))
     logger.info("setup_provider_removed", provider=name)
     return {"removed": True, "provider": name}
-
-
-def remove_livebench(engine) -> dict:
-    """Remove the LiveBench checkout and clear its setup state.
-
-    Removes the configured install target (``<modules_dir>/livebench``) AND
-    any well-known fallback paths, so a stale checkout can't resurrect the
-    module after removal.
-    """
-    targets: list[str] = []
-
-    # 1. Configured target.
-    targets.append(livebench_root())
-
-    # 2. Well-known fallbacks the runtime installer may have written earlier.
-    targets.append("/opt/livebench")
-    targets.append(os.path.join(DEFAULT_MODULES_DIR, "livebench"))
-
-    removed: list[str] = []
-    seen: set[str] = set()
-    for path in targets:
-        if not path or path in seen:
-            continue
-        seen.add(path)
-        if os.path.isdir(path):
-            shutil.rmtree(path, ignore_errors=True)
-            removed.append(path)
-
-    set_state(engine, "module:livebench", "removed")
-    logger.info("setup_livebench_removed", removed=removed)
-    return {"removed": True, "module": "livebench", "paths": removed}
 
 
 # ── Memory module install (background + progress) ───────────────────────────
@@ -1187,222 +1091,3 @@ def remove_router(engine) -> dict:
 
 
 
-# ── LiveBench runtime install (background + progress) ───────────────────────
-
-_bench_lock = threading.Lock()
-_bench_install: Optional[dict] = None  # in-flight {status, progress, detail, log, ...}
-_bench_last: Optional[dict] = None     # terminal result (done/failed) for the UI
-
-_LOG_MAX_LINES = 300
-
-
-def _bench_update(msg: Optional[str], progress: Optional[float] = None,
-                  status: Optional[str] = None) -> None:
-    """Mutate the shared install state (no-op when nothing is in flight)."""
-    global _bench_install
-    if _bench_install is None:
-        return
-    if status is not None:
-        _bench_install["status"] = status
-    if progress is not None:
-        _bench_install["progress"] = round(min(max(progress, 0.0), 100.0), 1)
-    if msg is not None:
-        clean = (msg.rstrip("\n") if isinstance(msg, str) else str(msg)).strip("\r")
-        if clean:
-            _bench_install["detail"] = clean[-200:]
-            log = _bench_install.setdefault("log", [])
-            log.append(clean)
-            if len(log) > _LOG_MAX_LINES:
-                del log[: len(log) - _LOG_MAX_LINES]
-    _bench_install["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-
-def _bench_finish(status: str, detail: str) -> None:
-    """Mark the install terminal and move its state into ``_bench_last``."""
-    global _bench_install, _bench_last
-    _bench_update(detail, status=status)
-    if status == "done":
-        _bench_update(None, progress=100.0)
-    if _bench_install is not None:
-        _bench_install["finished_at"] = datetime.now(timezone.utc).isoformat()
-        _bench_last = dict(_bench_install)
-    _bench_install = None
-
-
-def _stream(cmd: list[str], cwd: Optional[str], start: float, end: float,
-            status_msg: str) -> None:
-    """Run a subprocess streaming its output into the shared install log.
-
-    Progress eases from ``start`` to ``end`` as output lines arrive.
-    Raises ``subprocess.CalledProcessError`` on a non-zero exit code.
-    """
-    _bench_update(status_msg, progress=start, status="running")
-    proc = subprocess.Popen(
-        cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, bufsize=1, errors="replace",
-    )
-    seen = 0
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        seen += 1
-        _bench_update(line)
-        if seen % 3 == 0:
-            # Ease toward the phase ceiling; the final wait pins it exactly.
-            frac = min(0.9, seen / 90.0)
-            _bench_update(None, progress=start + (end - start) * frac)
-    rc = proc.wait()
-    _bench_update(None, progress=end)
-    if rc != 0:
-        raise subprocess.CalledProcessError(rc, cmd)
-
-
-def bench_progress() -> Optional[dict]:
-    """Return the in-flight LiveBench install state (or None when idle)."""
-    return _bench_install
-
-
-def bench_last() -> Optional[dict]:
-    """Return the most recent terminal install result (or None)."""
-    return _bench_last
-
-
-def start_livebench_install(engine) -> dict:
-    """Start (or join) the LiveBench runtime install and return its state."""
-    global _bench_install, _bench_last
-
-    if shutil.which("git") is None:
-        raise SetupError(
-            "git is not installed in this environment — rebuild the image with "
-            "WITH_BENCH=1, or install git in the container."
-        )
-
-    with _bench_lock:
-        if _bench_install is not None and _bench_install.get("status") in ("queued", "running"):
-            return _bench_install
-        _bench_last = None
-        _bench_install = {
-            "status": "queued",
-            "progress": 0.0,
-            "detail": "Waiting to start…",
-            "log": [],
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        state = dict(_bench_install)
-        thread = threading.Thread(target=_run_livebench_install, args=(engine,), daemon=True)
-        thread.start()
-        return state
-
-
-def _run_livebench_install(engine) -> None:
-    """Background install: clone LiveBench + pip install core + eval extras.
-
-    The ``code_runner/requirements_eval.txt`` extras (TensorFlow + scientific
-    stack) are only needed to grade the ``coding`` category. When they fail
-    (e.g. no compatible wheel for the Python version) the install still
-    succeeds with a warning — the other five categories keep working.
-    """
-    try:
-        root = livebench_root()
-        site = livebench_site()
-        _bench_update(f"Target directory: {root}")
-        parent = os.path.dirname(root)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        os.makedirs(site, exist_ok=True)
-        if os.path.isdir(root):
-            shutil.rmtree(root, ignore_errors=True)
-
-        _stream(
-            ["git", "clone", "--depth", "1", LIVEBENCH_REPO, root],
-            cwd=None, start=2.0, end=25.0, status_msg="Cloning LiveBench…",
-        )
-
-        # The repo clones to <root> with pyproject.toml at the top and the
-        # livebench Python package in <root>/livebench. Verify the package is
-        # present (never flatten it — scripts import `from livebench...`).
-        if not os.path.isfile(os.path.join(root, "pyproject.toml")) \
-                or not os.path.isfile(os.path.join(root, "livebench", "run_livebench.py")):
-            raise SetupError(
-                f"clone finished but {root} is missing pyproject.toml or "
-                f"livebench/run_livebench.py"
-            )
-
-        # Install core deps INTO the persistent bind mount (--target), so they
-        # survive container recreation. The checkout is already on the bind
-        # mount; deps must be too.
-        _stream(
-            [sys.executable, "-m", "pip", "install", "--no-cache-dir",
-             "--target", site, "-e", "."],
-            cwd=root, start=25.0, end=60.0, status_msg="Installing LiveBench core…",
-        )
-
-        # Verify the core package actually became importable with the target
-        # dir on PYTHONPATH.
-        from .benchmark import core_deps_available
-        if not core_deps_available(site):
-            raise SetupError(
-                "LiveBench core install did not take effect. The checkout is "
-                f"at {root} and deps are at {site} — check the install log."
-            )
-
-        coding_note = None
-        try:
-            _stream(
-                [sys.executable, "-m", "pip", "install", "--no-cache-dir",
-                 "--target", site, "-r", LIVEBENCH_EVAL_REQUIREMENTS],
-                cwd=os.path.join(root, "livebench"), start=60.0, end=100.0,
-                status_msg="Installing eval extras (TensorFlow + scientific stack)…",
-            )
-        except subprocess.CalledProcessError as exc:
-            # Non-fatal: grading the `coding` category will simply be disabled.
-            _bench_update(
-                f"Eval extras failed ({exc}) — LiveBench works, but the "
-                f"'coding' category will be unavailable."
-            )
-            coding_note = "eval extras not installed; coding category unavailable"
-            _bench_update(None, progress=100.0)
-
-        set_state(engine, "module:livebench", "done")
-        if coding_note:
-            _bench_finish("done", f"LiveBench installed — {coding_note}.")
-        else:
-            _bench_finish("done", "LiveBench installed.")
-    except subprocess.CalledProcessError as exc:
-        _bench_finish("failed", _tail_detail(f"Install failed: {exc}"))
-    except FileNotFoundError as exc:
-        _bench_finish("failed", f"Missing tool: {exc}")
-    except Exception as exc:  # noqa: BLE001 — background thread must not die
-        _bench_finish("failed", _tail_detail(f"Install failed: {exc}"))
-
-
-def _tail_detail(fallback: str, lines: int = 6) -> str:
-    """Return *fallback* plus the real error lines from the install log.
-
-    Prefers lines that look like errors (Traceback, ERROR, error:, fatal,
-    "not importable", etc.) over the generic last-N lines, which are often
-    just pip notices.
-    """
-    global _bench_install
-    if _bench_install is None:
-        return fallback
-    log = _bench_install.get("log") or []
-    if not log:
-        return fallback
-
-    error_markers = (
-        "traceback", "error", "fatal", "failed", "exception", "conflict",
-        "cannot", "could not", "no matching", "not importable", "missing",
-    )
-    error_lines = [
-        ln for ln in log
-        if any(m in ln.lower() for m in error_markers)
-        and "pip.pypa.io" not in ln.lower()
-    ]
-    picked = error_lines[-lines:] if error_lines else log[-lines:]
-    tail = "\n".join(picked).strip()
-    if not tail:
-        tail = "\n".join(log[-lines:]).strip()
-    if not tail:
-        return fallback
-    return f"{fallback}\n{tail[-800:]}"

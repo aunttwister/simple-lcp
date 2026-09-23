@@ -193,52 +193,6 @@ class ModelCapability(Base):
     updated_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
 
 
-class ModelCapabilitySubtask(Base):
-    """Per-subtask LiveBench scores (e.g. theory_of_mind, zebra_puzzle).
-
-    LiveBench's ``all_tasks.csv`` / ``table_<release>.csv`` grades each model
-    down to individual tasks (23 tasks across 7 categories). These rows back
-    the "Subtask breakdown" panel on the Models page, keyed by the model's
-    ``benchmark_key`` with the same ``source`` + ``release_label`` semantics
-    as ``ModelCapability``.
-    """
-    __tablename__ = "model_capability_subtasks"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    model = Column(String, nullable=False, index=True)  # benchmark_key (logical)
-    category = Column(String, nullable=False, index=True)  # reasoning, coding, math, …
-    task = Column(String, nullable=False, index=True)  # theory_of_mind, zebra_puzzle, …
-    score = Column(Float, nullable=False)  # 0.0–1.0 normalized
-    source = Column(String, nullable=False, default="livebench")  # livebench | lcp_benchmark
-    raw_score = Column(Float, nullable=True)  # original 0–100
-    release_label = Column(String, nullable=True, index=True)
-    updated_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
-
-
-class CapabilityMetric(Base):
-    """Imported benchmark metrics — the source of truth for capability scores.
-
-    One row per (schema, release, model, category, task) datum. Top-level
-    category scores have ``category`` set and ``task`` NULL; per-subtask
-    scores (e.g. theory_of_mind) have both set. Values are 0–100.
-
-    The typed query tables (``model_capabilities``,
-    ``model_capability_subtasks``) are MATERIALIZED from these rows on import
-    so the router and Models page keep their existing fast query paths.
-    """
-    __tablename__ = "capability_metrics"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    schema_id = Column(String, nullable=False, index=True)  # dataset id, e.g. "livebench"
-    release_label = Column(String, nullable=False, index=True)  # snapshot date, e.g. "2026-06-25"
-    model = Column(String, nullable=False, index=True)  # logical / benchmark key
-    category = Column(String, nullable=True, index=True)  # NULL = top-level rollup
-    task = Column(String, nullable=True, index=True)  # NULL = category-level datum
-    value = Column(Float, nullable=False)  # 0–100
-    source = Column(String, nullable=False, default="livebench")
-    updated_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
-
-
 class ModelRegistryEntry(Base):
     """Explicit model registry: canonical logical model ↔ benchmark key ↔ providers.
 
@@ -272,30 +226,6 @@ class ModelRegistryEntry(Base):
     benchmark_release = Column(String, nullable=True)  # leaderboard snapshot date (e.g. 2026-06-25)
     quantization = Column(String, nullable=True)  # e.g. "Q4_K_M"; None = unquantized
     updated_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
-
-
-class BenchmarkRun(Base):
-    """A LiveBench benchmark execution, tracked as a background job.
-
-    ``target_kind`` is ``provider`` (benchmark the raw model directly against
-    its provider) or ``profile`` (future: route the benchmark through an LCP
-    profile to measure council / dynamic-routed profiles end-to-end).
-
-    ``target_json`` holds the target spec — ``{"provider": ..., "model": ...}``
-    for provider-kind, ``{"profile": ...}`` for profile-kind.
-    """
-    __tablename__ = "benchmark_runs"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    target_kind = Column(String, nullable=False, default="provider")  # provider | profile
-    target_json = Column(Text, nullable=False)  # JSON object
-    categories_json = Column(Text, nullable=True)  # JSON array, or null = all categories
-    status = Column(String, nullable=False, default="queued")  # queued | running | done | failed
-    started_at = Column(String, nullable=True)
-    finished_at = Column(String, nullable=True)
-    result_json = Column(Text, nullable=True)  # per-category scores + raw output
-    error = Column(Text, nullable=True)
-    created_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class SetupState(Base):

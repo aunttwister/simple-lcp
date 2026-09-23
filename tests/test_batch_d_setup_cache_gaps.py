@@ -4,7 +4,7 @@ Closes error/fallback branches in:
   - src/api/setup.py: _db_path_from_engine duck-engine, memory/router install
     threads (queued join, CalledProcessError/FileNotFoundError/generic excepts,
     pre-download skip, availability-probe failure, tail-detail fallbacks,
-    log trimming), remove_livebench empty-path skip, livebench clean finish,
+    log trimming, memory/router install failure paths,
     capability gate matrix-exception fallback
   - src/api/cost_cache.py: plugin_supports unknown kind, _ensure_loaded race,
     float coercion fallback, _clear_key DB failure, cache payload JSON failure,
@@ -12,6 +12,7 @@ Closes error/fallback branches in:
     start-idempotence / registry exceptions / pass crash / scrape crash /
     quiet path, component services, get_settings/get_cost_cache resolve except
 """
+import contextlib
 import os
 import subprocess
 import tempfile
@@ -28,11 +29,11 @@ from src.api import cost_cache as cc_mod
 @pytest.fixture(autouse=True)
 def _install_state_cleanup():
     for attr in ("_mem_install", "_mem_last", "_router_install",
-                 "_router_last", "_bench_install", "_bench_last"):
+                 "_router_last"):
         setattr(setup_mod, attr, None)
     yield
     for attr in ("_mem_install", "_mem_last", "_router_install",
-                 "_router_last", "_bench_install", "_bench_last"):
+                 "_router_last"):
         setattr(setup_mod, attr, None)
 
 
@@ -63,30 +64,18 @@ class TestSetupHelperGaps:
                 raise RuntimeError("no url")
         assert setup_mod._db_path_from_engine(Explodes()) is None  # 125-126
 
-    def test_remove_livebench_skips_empty_paths(self, db_engine, monkeypatch):
-        monkeypatch.setattr(setup_mod, "livebench_root", lambda: "")
-        calls = []
-        monkeypatch.setattr(setup_mod.shutil, "rmtree",
-                            lambda p, **k: calls.append(p))
-        monkeypatch.setattr(setup_mod.os.path, "isdir", lambda p: False)
-        out = setup_mod.remove_livebench(db_engine)
-        assert out["removed"] is True
-        assert "" not in calls  # 521: empty target skipped
-
     def test_router_blocked_reason_matrix_exception(self, tmp_path):
         db = str(tmp_path / "x.db")
         with patch("src.api.seed_capabilities.load_capability_matrix",
                    side_effect=RuntimeError("db locked")):  # 248-249
-            with patch("src.api.benchmark.benchmark_status",
-                       return_value={"available": False}):
+            with contextlib.nullcontext():
                 assert setup_mod.router_install_blocked_reason(db) is not None
 
     def test_router_blocked_reason_matrix_empty(self, tmp_path):
         db = str(tmp_path / "x.db")
         with patch("src.api.seed_capabilities.load_capability_matrix",
                    return_value={}), \
-             patch("src.api.benchmark.benchmark_status",
-                   return_value={"available": False}):
+             contextlib.nullcontext():
             assert setup_mod.router_install_blocked_reason(db) is not None
 
 
@@ -253,42 +242,7 @@ class TestRouterInstallGaps:
         assert step["installing"]["status"] == "failed"
 
 
-# ── setup.py: livebench install tail ─────────────────────────────────────────
-
-class TestLivebenchInstallGaps:
-    def _prep(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(setup_mod, "livebench_root",
-                            lambda: str(tmp_path / "lb"))
-        monkeypatch.setattr(setup_mod, "livebench_site",
-                            lambda: str(tmp_path / "site"))
-        monkeypatch.setattr(setup_mod.os, "makedirs", lambda *a, **k: None)
-        monkeypatch.setattr(setup_mod.shutil, "rmtree", lambda *a, **k: None)
-        monkeypatch.setattr(setup_mod.os.path, "isdir", lambda p: False)
-        monkeypatch.setattr(setup_mod.os.path, "isfile", lambda p: True)
-
-    def test_livebench_done_no_coding_note(self, db_engine, monkeypatch, tmp_path):
-        self._prep(monkeypatch, tmp_path)
-        monkeypatch.setattr(setup_mod, "_stream", lambda *a, **k: None)
-        monkeypatch.setattr("src.api.benchmark.core_deps_available",
-                            lambda site=None: True)
-        setup_mod._bench_install = _inflight()
-        setup_mod._run_livebench_install(db_engine)
-        last = setup_mod.bench_last()
-        assert last["status"] == "done"
-        assert last["detail"] == "LiveBench installed."  # 1204 (no note branch)
-
-    def test_livebench_filenotfound(self, db_engine, monkeypatch, tmp_path):
-        self._prep(monkeypatch, tmp_path)
-        monkeypatch.setattr(
-            setup_mod, "_stream",
-            lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("git")))
-        setup_mod._bench_install = _inflight()
-        setup_mod._run_livebench_install(db_engine)  # 1207-1208
-        assert setup_mod.bench_last()["status"] == "failed"
-
-    def test_tail_detail_all_whitespace_log(self):
-        setup_mod._bench_install = {"log": [" ", "\t", ""]}
-        assert setup_mod._tail_detail("fb") == "fb"  # 1239→1241
+# ── setup.py: install tail helpers ───────────────────────────────────────────
 
 
 # ── cost_cache.py: SettingsStore + plugin_supports ───────────────────────────

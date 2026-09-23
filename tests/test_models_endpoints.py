@@ -1,6 +1,7 @@
 """Tests for the models-related endpoints (capability, registry, benchmark)
 that were previously uncovered in src/server/endpoints.py."""
 
+import contextlib
 import json
 from unittest.mock import MagicMock, patch
 
@@ -182,64 +183,3 @@ class TestRegistryApi:
 
 
 # ── Benchmark endpoints ──────────────────────────────────────────────────────
-
-class TestBenchmarkEndpoints:
-    def test_list_empty(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark", engine=temp_db[1])
-        h.do_GET()
-        assert _status(h) == 200
-        body = _json_body(h)
-        assert body["runs"] == []
-        assert body["total"] == 0
-
-    def test_status(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark/status", engine=temp_db[1])
-        h.do_GET()
-        assert _status(h) == 200
-        assert "available" in _json_body(h)
-
-    def test_detail_missing(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark/999", engine=temp_db[1])
-        h.do_GET()
-        assert _status(h) == 404
-
-    def test_detail_invalid_id(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark/abc", engine=temp_db[1])
-        h.do_GET()
-        assert _status(h) == 400
-
-    def test_log(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark/1/log", engine=temp_db[1])
-        h.do_GET()
-        assert _status(h) == 200
-        assert "log" in _json_body(h)
-
-    def test_create_missing_fields(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark", method="POST", engine=temp_db[1],
-                        body=json.dumps({"provider": "deepseek"}))
-        h.do_POST()
-        assert _status(h) == 400
-
-    def test_create_bad_categories(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark", method="POST", engine=temp_db[1],
-                        body=json.dumps({"provider": "deepseek", "model": "m", "categories": "notalist"}))
-        h.do_POST()
-        assert _status(h) == 400
-
-    def test_create_queues(self, temp_db):
-        with patch("src.api.benchmark._worker_queue.put"), \
-             patch("src.api.benchmark._ensure_worker"):
-            h = TestHandler(path="/api/models/benchmark", method="POST", engine=temp_db[1],
-                            body=json.dumps({"provider": "deepseek", "model": "deepseek-v4-pro"}))
-            h.do_POST()
-        assert _status(h) == 200
-        body = _json_body(h)
-        assert body["ok"] is True
-        assert body["run"]["status"] == "queued"
-
-    def test_manual_scores(self, temp_db):
-        h = TestHandler(path="/api/models/capability/manual", method="POST", engine=temp_db[1],
-                        body=json.dumps({"model": "m", "scores": {"code_generation": 70.0}}))
-        h.do_POST()
-        assert _status(h) == 200
-        assert _json_body(h)["ok"] is True

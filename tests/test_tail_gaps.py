@@ -67,37 +67,6 @@ class TestMatrixSourcePriority:
 
 # ── benchmark: remaining small branches ─────────────────────────────────────
 
-class TestBenchmarkSmall:
-    def test_coding_deps_available_true(self):
-        import src.api.benchmark as bm
-        with patch.dict("sys.modules", {"tensorflow": MagicMock()}):
-            assert bm.coding_deps_available() is True
-
-    def test_coding_deps_available_false(self):
-        import src.api.benchmark as bm
-        import sys
-        saved = sys.modules.get("tensorflow")
-        sys.modules.pop("tensorflow", None)
-        try:
-            assert bm.coding_deps_available() is False
-        finally:
-            if saved is not None:
-                sys.modules["tensorflow"] = saved
-
-    def test_log_noop_on_empty_line(self):
-        import src.api.benchmark as bm
-        bm._run_logs.clear()
-        bm._log_dir = None
-        bm._log(1, "")  # empty → no buffer entry
-        assert bm.get_run_log(None, 1) == []
-
-    def test_get_run_log_no_file_returns_empty(self, tmp_path):
-        import src.api.benchmark as bm
-        bm._run_logs.clear()
-        bm._log_dir = str(tmp_path)
-        assert bm.get_run_log(None, 999) == []
-        bm._log_dir = None
-
 
 # ── setup: remaining branches ────────────────────────────────────────────────
 

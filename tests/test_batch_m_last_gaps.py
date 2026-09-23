@@ -52,52 +52,6 @@ def db(tmp_path):
 
 # ── benchmark.py 801-802: router-matrix invalidation crash is non-fatal ─────
 
-class TestInvalidateCrash:
-    def test_run_done_despite_invalidate_error(self, tmp_path):
-        from src.api.benchmark import _execute_run, get_run
-        from src.api.models import Base, get_engine, BenchmarkRun, get_session
-
-        engine = get_engine(str(tmp_path / "b.db"))
-        Base.metadata.create_all(engine)
-        with get_session(engine) as session:
-            run = BenchmarkRun(
-                target_kind="provider",
-                target_json=json.dumps({"provider": "deepseek",
-                                        "model": "deepseek-v4-pro"}),
-                categories_json=json.dumps(["coding", "math"]),
-                status="queued")
-            session.add(run)
-            session.commit()
-            rid = run.id
-        root = tmp_path / "livebench"
-        root.mkdir()
-        (root / "all_groups.csv").write_text(
-            "model,coding,math\ndeepseek-v4-pro,80.0,90.0\n")
-
-        class Proc:
-            stdout = iter(["done\n"])
-
-            def wait(self):
-                return 0
-
-            def kill(self):
-                pass
-
-        class Cfg:
-            providers = {"deepseek": {"api_base": "https://api.deepseek.com/v1"}}
-
-            def get_provider_key(self, p):
-                return "sk-test"
-
-        with patch("src.api.benchmark.core_deps_available", return_value=True), \
-             patch("src.api.benchmark.livebench_dir", return_value=str(root)), \
-             patch("src.api.benchmark.subprocess.Popen", return_value=Proc()), \
-             patch("src.api.router.invalidate_router_matrix",
-                   side_effect=RuntimeError("matrix cache locked")):
-            _execute_run(rid, engine, Cfg())
-        run = get_run(engine, rid)
-        assert run["status"] == "done"          # except → pass, run completes
-
 
 # ── __main__ guards with LINE-PADDED exec (coverage maps guard line to N) ───
 
@@ -221,42 +175,8 @@ class TestPreferUnservedAndExplore:
 
 # ── setup.py 1050: bench install log trim ───────────────────────────────────
 
-class TestBenchLogTrim:
-    def test_log_capped(self, monkeypatch):
-        saved = setup_mod._bench_install
-        setup_mod._bench_install = {"log": ["x"] * setup_mod._LOG_MAX_LINES,
-                                    "status": "running", "progress": 0}
-        try:
-            setup_mod._bench_update("one more line")   # 1049-1050
-            assert len(setup_mod._bench_install["log"]) == setup_mod._LOG_MAX_LINES
-            assert setup_mod._bench_install["log"][-1] == "one more line"
-        finally:
-            setup_mod._bench_install = saved
-
 
 # ── endpoints.py 2276: real subtask rows in capability API ──────────────────
-
-class TestSubtaskRows:
-    def test_capability_api_with_subtasks(self, tmp_path):
-        from datetime import datetime, timezone
-        from src.api.models import (get_engine, Base, ModelCapability,
-                                    ModelCapabilitySubtask, get_session)
-        from tests.test_batch_f2_endpoints_apis import TestHandler
-
-        db = str(tmp_path / "cap.db")
-        engine = get_engine(db)
-        Base.metadata.create_all(engine)
-        now = datetime.now(timezone.utc).isoformat()
-        with get_session(engine) as s:
-            s.add(ModelCapabilitySubtask(model="bk1", category="reasoning",
-                                         task="theory_of_mind", score=0.77,
-                                         source="livebench", updated_at=now))
-            s.commit()
-        h = TestHandler(path="/api/models/capability", engine=engine)
-        h._serve_capability_api()
-        body = json.loads(h.wfile.write.call_args[0][0])
-        assert body["subtasks"]["bk1"]["reasoning"]["theory_of_mind"] == 0.77
-        engine.dispose()
 
 
 # ── handler.py 318/348: route dispatch lines ────────────────────────────────

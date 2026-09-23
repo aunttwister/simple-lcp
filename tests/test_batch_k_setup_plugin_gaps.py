@@ -5,6 +5,7 @@ cost_plugins/base.py 398-399; llamacpp.py 181, 196; opencode.py 229-231;
 opencode_api.py 263, 270-271, 285, 356; commandcode_api.py 356-358;
 memory/lancedb_backend.py 201; cost_cache.py 632, 647-649.
 """
+import contextlib
 import subprocess
 import threading
 from unittest.mock import MagicMock, patch
@@ -17,7 +18,7 @@ import src.api.setup as setup_mod
 @pytest.fixture(autouse=True)
 def _reset_setup_state():
     attrs = ("_mem_install", "_mem_last", "_router_install",
-             "_router_last", "_bench_install", "_bench_last")
+             "_router_last")
     saved = {a: getattr(setup_mod, a) for a in attrs}
     for a in attrs:
         setattr(setup_mod, a, None)
@@ -45,7 +46,7 @@ class TestMemoryStepFailed:
                    return_value={"available": False, "removable": False}), \
              patch("src.api.setup.capability_matrix_stats", return_value={}), \
              patch("src.api.setup._db_path_from_engine", return_value=""), \
-             patch("src.api.setup.livebench_root", return_value="/lb"):
+             contextlib.nullcontext():
             out = setup_mod.memory_step()
         assert out["installing"]["status"] == "failed"
 
@@ -106,36 +107,6 @@ class TestRouterInstallFailure:
                    return_value=_Proc(["a", "b", "c", "d", "e", "f"], rc=1)):
             with pytest.raises(subprocess.CalledProcessError):
                 setup_mod._stream_router(["x"], None, 0.0, 10.0, "go")
-
-
-class TestLivebenchInstallGaps:
-    def _run(self, root, files_exist):
-        engine = MagicMock()
-        setup_mod._bench_install = {"log": [], "status": "running",
-                                    "progress": 0}
-        with patch("src.api.setup.livebench_root", return_value=root), \
-             patch("src.api.setup.livebench_site", return_value=root + "/site"), \
-             patch("src.api.setup.os.makedirs"), \
-             patch("src.api.setup.shutil.rmtree") as rr, \
-             patch("src.api.setup.os.path.isdir",
-                   side_effect=lambda p: bool(files_exist) and p == root), \
-             patch("src.api.setup.os.path.isfile",
-                   return_value=bool(files_exist)), \
-             patch("src.api.setup._stream", side_effect=lambda *a, **k: None):
-            setup_mod._run_livebench_install(engine)
-        return rr
-
-    def test_existing_checkout_removed(self, tmp_path):
-        # 1148: root exists → rmtree before clone (install then fails on the
-        # file check — that's fine, we only assert the rmtree fired)
-        rr = self._run(str(tmp_path / "lb"), files_exist=True)
-        rr.assert_any_call(str(tmp_path / "lb"), ignore_errors=True)
-
-    def test_clone_missing_files_raises(self, tmp_path):
-        # 1160: clone finished but files missing → SetupError recorded
-        self._run(str(tmp_path / "lb2"), files_exist=False)
-        assert setup_mod._bench_last["status"] == "failed"
-        assert "missing pyproject.toml" in setup_mod._bench_last["detail"]
 
 
 # ── cost_plugins/base.py: plugin disposer swallows on_shutdown errors ────────

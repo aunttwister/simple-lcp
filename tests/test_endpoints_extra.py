@@ -253,32 +253,23 @@ class TestSetupEndpoints:
             setup_ep._serve_setup_skip_api()
             assert setup_ep._send_json.call_args[0][0]["ok"] is True
 
-    def test_setup_progress_idle(self, setup_ep):
-        with patch("src.api.setup.bench_progress", return_value=None), \
-             patch("src.api.setup.bench_last", return_value=None), \
-             patch("src.api.setup.benchmark_step", return_value={"installed": False}):
-            setup_ep._serve_setup_progress_api()
-            body = setup_ep._send_json.call_args[0][0]
-            assert body["progress"]["status"] == "idle"
-            assert body["installed"] is False
-
     def test_setup_install_unknown_target(self, setup_ep):
         setup_ep._serve_setup_install_api("bogus", "nope")
         assert setup_ep._send_json.call_args[0][1] == 404
 
-    def test_setup_install_router_blocked_without_livebench(self, setup_ep):
-        """Router install refused server-side when LiveBench isn't installed."""
+    def test_setup_install_router_blocked_without_capability_data(self, setup_ep):
+        """Router install refused server-side when there is no capability data."""
         with patch("src.api.setup.router_install_blocked_reason",
-                   return_value="Requires the LiveBench module first"), \
+                   return_value="No capability data to route by"), \
              patch("src.api.setup.start_router_install") as mock_start:
             setup_ep._serve_setup_install_api("module", "router")
         body = setup_ep._send_json.call_args[0][0]
         assert setup_ep._send_json.call_args[0][1] == 400
-        assert "LiveBench" in body["error"]
+        assert "capability data" in body["error"]
         mock_start.assert_not_called()
 
-    def test_setup_install_router_allowed_with_livebench(self, setup_ep):
-        """Router install proceeds once LiveBench is installed."""
+    def test_setup_install_router_allowed_with_capability_data(self, setup_ep):
+        """Router install proceeds once capability data exists."""
         with patch("src.api.setup.router_install_blocked_reason", return_value=None), \
              patch("src.api.setup.start_router_install",
                    return_value={"status": "queued"}) as mock_start:

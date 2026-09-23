@@ -2,6 +2,7 @@
 discover cookie/workspace enrichment, profile update/delete, provider toggle
 degrade, and the remaining setup remove branches."""
 
+import contextlib
 import json
 from unittest.mock import MagicMock, patch
 
@@ -158,26 +159,3 @@ class TestProviderToggleRoute:
 
 
 # ── Setup: module install + remove through the route ────────────────────────
-
-class TestSetupRouteEdges:
-    def test_setup_install_module_livebench(self, temp_db):
-        from tests.test_server import TestHandler
-        with patch("src.api.setup.start_livebench_install", return_value={"installed": True, "module": "livebench"}):
-            h = TestHandler(path="/api/setup/install/module/livebench", method="POST", engine=temp_db, body="{}")
-            h.do_POST()
-        assert h.send_response.call_args[0][0] == 200
-
-    def test_setup_remove_module_livebench(self, temp_db):
-        from tests.test_server import TestHandler
-        with patch("src.api.setup.remove_livebench", return_value={"removed": True, "module": "livebench", "paths": []}):
-            h = TestHandler(path="/api/setup/module/livebench", method="DELETE", engine=temp_db)
-            h.do_DELETE()
-        assert h.send_response.call_args[0][0] == 200
-
-    def test_setup_progress_running(self, temp_db):
-        from tests.test_server import TestHandler
-        with patch("src.api.setup.bench_progress", return_value={"status": "running", "progress": 42.0}):
-            with patch("src.api.setup.benchmark_step", return_value={"installed": True}):
-                h = TestHandler(path="/api/setup/progress", engine=temp_db)
-                h.do_GET()
-        assert h.send_response.call_args[0][0] == 200

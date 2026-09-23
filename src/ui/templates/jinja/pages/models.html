@@ -15,10 +15,6 @@
     <div class="models-sidebar-head">
       <input type="text" id="modelFilter" placeholder="Filter models…" class="capability-filter" style="width:100%">
       <div class="btn-row">
-        <label id="importBtn" class="btn btn-outline" title="Import a LiveBench CSV dataset" style="cursor:pointer">
-          <span id="importBtnText">Import</span>
-          <input type="file" id="importFile" accept=".csv,text/csv" style="display:none">
-        </label>
         <button id="addRegistryBtn" class="btn btn-outline" title="Register a model alias">+ Register model</button>
         <button id="configuredOnlyBtn" class="btn btn-outline" title="Show only models wired into a profile" onclick="toggleConfiguredOnly()">Configured</button>
       </div>
@@ -232,15 +228,6 @@ const API = {
     const r = await fetch('/api/models/capability/manual', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({model, scores, release})
-    });
-    return r.json();
-  },
-  async importDatasets(file) {
-    const fd = new FormData();
-    fd.append('file', file);
-    const r = await fetch('/api/models/capability/import', {
-      method: 'POST',
-      body: fd
     });
     return r.json();
   }
@@ -1120,35 +1107,11 @@ async function runBenchmark(model) {
 
 // ── Wiring ──────────────────────────────────────────────────────────────────
 
-async function importDatasets() {
-  const input = document.getElementById('importFile');
-  const file = input && input.files && input.files[0];
-  if (!file) { alert('Choose a LiveBench CSV dataset file to import first.'); return; }
-  const label = document.getElementById('importBtn');
-  const labelText = document.getElementById('importBtnText');
-  if (!label || !labelText) return;
-  const original = labelText.textContent;
-  label.classList.add('disabled');
-  labelText.textContent = 'Importing…';
-  try {
-    const data = await API.importDatasets(file);
-    if (data.error) { alert('Import failed: ' + data.error); return; }
-    await loadAll();
-    alert('Imported ' + data.materialized + ' rows.');
-  } catch (e) {
-    alert('Import failed: ' + e.message);
-  } finally {
-    label.classList.remove('disabled');
-    labelText.textContent = original;
-    if (input) input.value = '';
-  }
-}
 
 document.getElementById('modelFilter').addEventListener('input', function() {
   STATE.filter = this.value;
   renderModelList();
 });
-document.getElementById('importFile').addEventListener('change', importDatasets);
 document.getElementById('addRegistryBtn').addEventListener('click', addRegistry);
 document.getElementById('addMappingRowBtn').addEventListener('click', function () {
   const wrap = document.getElementById('mappingRows');

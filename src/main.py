@@ -148,15 +148,6 @@ def main():
     except Exception:  # noqa: BLE001 — never block boot
         logger.warning("refresher_start_failed", error=True)
 
-    # Recover benchmark runs left queued/running by a previous process.
-    try:
-        from .api.benchmark import recover_stale_runs
-        recovered = recover_stale_runs(engine)
-        if recovered:
-            logger.info("benchmark_recovered", count=recovered)
-    except Exception as exc:  # noqa: BLE001 — never block boot
-        logger.warning("benchmark_recovery_failed", error=str(exc))
-
     server = create_server(config, engine, port)
     t0 = _startup_step("server_create", t0)
 

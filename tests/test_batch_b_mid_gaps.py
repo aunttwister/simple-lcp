@@ -462,29 +462,6 @@ class TestMainGaps:
              patch("src.api.config.init_config", return_value=cfg):
             src.main.main()  # refresher except (148-149) must not block boot
 
-    def test_main_benchmark_recovery_with_and_without(self, tmp_path):
-        import src.main
-        db = str(tmp_path / "c.db")
-        settings = MagicMock()
-        settings.config_sections.return_value = ["server"]
-        rt = MagicMock()
-        cfg = MagicMock()
-        with patch.dict(os.environ, {"COST_DB": db}), \
-             patch.object(src.main, "create_server", return_value=MagicMock()), \
-             patch.object(src.main, "build_runtime", return_value=rt), \
-             patch("src.api.cost_cache.init_settings", return_value=settings), \
-             patch("src.api.config.init_config", return_value=cfg), \
-             patch("src.api.benchmark.recover_stale_runs", return_value=3):
-            src.main.main()  # recovered>0 → info path (156)
-        with patch.dict(os.environ, {"COST_DB": db}), \
-             patch.object(src.main, "create_server", return_value=MagicMock()), \
-             patch.object(src.main, "build_runtime", return_value=rt), \
-             patch("src.api.cost_cache.init_settings", return_value=settings), \
-             patch("src.api.config.init_config", return_value=cfg), \
-             patch("src.api.benchmark.recover_stale_runs",
-                   side_effect=RuntimeError("no table")):
-            src.main.main()  # recovery except (157-158)
-
     def test_main_entry_guard(self):
         _exec_module_guards("src.main")
 

@@ -1,5 +1,6 @@
 """Remaining setup.py + seed_capabilities.py branch coverage."""
 
+import contextlib
 import os
 from unittest.mock import MagicMock, patch
 
@@ -26,22 +27,6 @@ def temp_db():
 # ── setup: benchmark_step / manifest / load_state branches ──────────────────
 
 class TestSetupManifestBranches:
-    def test_benchmark_step_inflight_install(self):
-        from src.api import setup as setup_mod
-        inflight = {"status": "running", "progress": 10.0}
-        with patch.object(setup_mod, "_bench_install", inflight), \
-             patch("src.api.benchmark.benchmark_status", return_value={"available": False}):
-            step = setup_mod.benchmark_step()
-        assert step["installing"] is inflight
-
-    def test_benchmark_step_failed_last(self):
-        from src.api import setup as setup_mod
-        failed = {"status": "failed", "progress": 0.0}
-        with patch.object(setup_mod, "_bench_install", None), \
-             patch.object(setup_mod, "_bench_last", failed), \
-             patch("src.api.benchmark.benchmark_status", return_value={"available": False}):
-            step = setup_mod.benchmark_step()
-        assert step["installing"] is failed
 
     def test_manifest_returns_modules(self):
         from src.api import setup as setup_mod
@@ -116,38 +101,8 @@ class TestProviderBranches:
         store.set_cookie.assert_called_with("deepseek", "")
         store.set_workspace_id.assert_called_with("deepseek", "")
 
-    def test_remove_livebench_skips_duplicate_paths(self, temp_db, tmp_path, monkeypatch):
-        from src.api import setup as setup_mod
-        monkeypatch.setenv("LCP_MODULES_DIR", str(tmp_path / "mods"))
-        monkeypatch.setattr("os.path.isdir", lambda p: True)
-        removed = []
-        monkeypatch.setattr("shutil.rmtree", lambda p, **k: removed.append(p))
-        result = setup_mod.remove_livebench(temp_db)
-        assert result["removed"] is True
-        # Three unique paths removed (configured + /opt/livebench + default);
-        # no duplicates even when the configured target equals a fallback.
-        assert len(result["paths"]) == len(set(result["paths"]))
-
 
 # ── setup: _tail_detail error-line selection ─────────────────────────────────
-
-class TestTailDetailMore:
-    def test_tail_detail_filters_pip_lines(self, monkeypatch):
-        from src.api import setup as setup_mod
-        monkeypatch.setattr(setup_mod, "_bench_install", {
-            "status": "failed", "progress": 0.0, "detail": "",
-            "log": [
-                "Downloading pip.pypa.io stuff...",
-                "ERROR: real failure",
-                "another normal line",
-            ],
-        })
-        try:
-            detail = setup_mod._tail_detail("Install failed")
-            assert "real failure" in detail
-            assert "pip.pypa.io" not in detail
-        finally:
-            monkeypatch.undo()
 
 
 # ── seed_capabilities: resolution branches ──────────────────────────────────

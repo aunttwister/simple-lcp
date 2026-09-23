@@ -1,5 +1,6 @@
 """Tests for the memory module Setup integration (src/api/setup memory parts)."""
 
+import contextlib
 import os
 import tempfile
 from unittest.mock import MagicMock, patch
@@ -29,19 +30,19 @@ def temp_db():
 def _reset_mem_state():
     """Reset the module-level in-flight/terminal install state between tests.
 
-    Includes the router/livebench install state too: tests here assign
+    Includes the router install state too: tests here assign
     ``_router_install``/``_mem_install`` directly and terminal tests leave
-    ``_router_last``/``_mem_last``/``_bench_last`` populated, which leaks into
+    ``_router_last``/``_mem_last`` populated, which leaks into
     other test files (e.g. the setup progress endpoint reads them).
     """
     for attr in ("_mem_install", "_mem_last",
                  "_router_install", "_router_last",
-                 "_bench_install", "_bench_last"):
+                 ):
         setattr(setup_mod, attr, None)
     yield
     for attr in ("_mem_install", "_mem_last",
                  "_router_install", "_router_last",
-                 "_bench_install", "_bench_last"):
+                 ):
         setattr(setup_mod, attr, None)
 
 
@@ -78,7 +79,7 @@ class TestMemoryStep:
     def test_manifest_includes_memory(self, mock_config):
         m = setup_mod.manifest(mock_config)
         names = {mod["name"] for mod in m["modules"]}
-        assert {"livebench", "router", "memory"} <= names
+        assert {"router", "memory", "runboard", "workspace"} <= names
 
     def test_router_step_manifest(self, monkeypatch):
         """The semantic-routing module is its own manifest entry."""
@@ -140,79 +141,52 @@ class TestMemoryStep:
         assert step["installed"] is True
         assert step["baked"] is False
 
-    def test_router_step_blocked_without_livebench(self, monkeypatch):
-        """Not installed + LiveBench missing -> install blocked with a reason."""
+    def test_router_step_blocked_without_capability_data(self, monkeypatch):
+        """Not installed + no matrix readable -> install blocked with a reason."""
         with patch("src.api.memory.router_status",
                    return_value={"available": False, "removable": False}), \
-             patch("src.api.benchmark.benchmark_status",
-                   return_value={"available": False}):
+             contextlib.nullcontext():
             step = setup_mod.router_step()
         assert step["installed"] is False
         assert step["blocked_reason"] is not None
-        assert "LiveBench" in step["blocked_reason"]
-
-    def test_router_step_not_blocked_when_livebench_installed(self, monkeypatch):
-        """Not installed + LiveBench present but NO db_path to verify the
-        matrix -> conservatively blocked with 'run a benchmark' guidance."""
-        with patch("src.api.memory.router_status",
-                   return_value={"available": False, "removable": False}), \
-             patch("src.api.benchmark.benchmark_status",
-                   return_value={"available": True}):
-            step = setup_mod.router_step()
-        assert step["installed"] is False
-        assert step["blocked_reason"] is not None
-        assert "no models are graded" in step["blocked_reason"]
+        assert "No capability data to route by" in step["blocked_reason"]
 
     def test_router_step_not_blocked_when_installed(self, monkeypatch):
         """Already installed (baked or runtime) -> never blocked."""
         with patch("src.api.memory.router_status",
                    return_value={"available": True, "removable": True}), \
-             patch("src.api.benchmark.benchmark_status",
-                   return_value={"available": False}):
+             contextlib.nullcontext():
             step = setup_mod.router_step()
         assert step["installed"] is True
         assert step["blocked_reason"] is None
 
 
 class TestRouterInstallBlockedReason:
-    def test_blocked_when_livebench_unavailable(self, monkeypatch):
-        with patch("src.api.benchmark.benchmark_status",
-                   return_value={"available": False}):
+    def test_blocked_when_matrix_unavailable(self, monkeypatch):
+        with contextlib.nullcontext():
             assert setup_mod.router_install_blocked_reason() is not None
 
-    def test_blocked_without_db_path_even_if_livebench_installed(self, monkeypatch):
-        """No db_path to verify the matrix -> conservative block (run benchmark)."""
-        with patch("src.api.benchmark.benchmark_status",
-                   return_value={"available": True}):
+    def test_blocked_without_db_path(self, monkeypatch):
+        """No db_path to verify the matrix -> conservative block (declare scores)."""
+        with contextlib.nullcontext():
             reason = setup_mod.router_install_blocked_reason()
         assert reason is not None
-        assert "no models are graded" in reason
+        assert "No capability data to route by" in reason
 
     def test_unblocked_when_matrix_has_scores(self, monkeypatch):
-        """Graded capability data exists -> installable, regardless of LiveBench."""
+        """Capability data exists -> installable, whatever else is missing."""
         monkeypatch.setattr("src.api.seed_capabilities.load_capability_matrix",
                             lambda db: {"code_generation": {"m": 0.9}})
-        with patch("src.api.benchmark.benchmark_status",
-                   return_value={"available": False}):
+        with contextlib.nullcontext():
             assert setup_mod.router_install_blocked_reason("/tmp/x.db") is None
 
-    def test_blocked_matrix_empty_livebench_installed(self, monkeypatch):
+    def test_blocked_matrix_empty(self, monkeypatch):
         monkeypatch.setattr("src.api.seed_capabilities.load_capability_matrix",
                             lambda db: {})
-        with patch("src.api.benchmark.benchmark_status",
-                   return_value={"available": True}):
+        with contextlib.nullcontext():
             reason = setup_mod.router_install_blocked_reason("/tmp/x.db")
         assert reason is not None
-        assert "no models are graded" in reason
-
-    def test_blocked_matrix_empty_no_livebench(self, monkeypatch):
-        monkeypatch.setattr("src.api.seed_capabilities.load_capability_matrix",
-                            lambda db: {})
-        with patch("src.api.benchmark.benchmark_status",
-                   return_value={"available": False}):
-            reason = setup_mod.router_install_blocked_reason("/tmp/x.db")
-        assert reason is not None
-        assert "No graded capability data" in reason
+        assert "No capability data to route by" in reason
 
 
 class TestCapabilityMatrixStats:
@@ -233,14 +207,6 @@ class TestCapabilityMatrixStats:
             raise RuntimeError("no db")
         monkeypatch.setattr("src.api.seed_capabilities.load_capability_matrix", _boom)
         assert setup_mod.capability_matrix_stats("/tmp/x.db") == {"models": 0, "tasks": 0}
-
-    def test_benchmark_step_includes_capability(self, monkeypatch):
-        monkeypatch.setattr(setup_mod, "capability_matrix_stats",
-                            lambda db: {"models": 3, "tasks": 4})
-        with patch("src.api.benchmark.benchmark_status",
-                   return_value={"available": True}):
-            step = setup_mod.benchmark_step()
-        assert step["capability"] == {"models": 3, "tasks": 4}
 
 
 class TestMemoryInstallCoordinator:

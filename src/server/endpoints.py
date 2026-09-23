@@ -2530,17 +2530,12 @@ class DashboardEndpoints:
                 if r.release_label:
                     releases.setdefault(r.task_type, {})[r.model] = r.release_label
 
-            # Per-subtask breakdown (LiveBench all_tasks.csv), keyed by
-            # benchmark_key. The UI canonicalizes these through the registry.
+            # The per-subtask breakdown used to come from the LiveBench
+            # ``all_tasks.csv`` import (``model_capability_subtasks``, dropped in
+            # migration 023). The key stays as an empty map so the response shape
+            # does not change under the current UI; the panels that rendered it
+            # are removed with the rest of the benchmark UI.
             subtasks: dict[str, dict[str, dict[str, float]]] = {}
-            try:
-                from ..api.models import ModelCapabilitySubtask
-                with _gs(self.engine) as session:
-                    sub_rows = session.query(ModelCapabilitySubtask).all()
-                for r in sub_rows:
-                    subtasks.setdefault(r.model, {}).setdefault(r.category, {})[r.task] = r.score
-            except Exception:
-                subtasks = {}
 
             self._send_json({
                 "tasks": tasks,
@@ -2793,119 +2788,6 @@ class DashboardEndpoints:
                 session.commit()
             invalidate_registry_cache()
             self._send_json({"ok": True, "deleted": logical})
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_benchmark_list_api(self):
-        """GET /api/models/benchmark — list benchmark runs (paginated).
-
-        Query params: ``?limit=`` (default 50, max 200), ``?offset=``, and
-        ``?model=`` (filter runs by target model/profile).
-        """
-        from urllib.parse import parse_qs, urlparse
-        from ..api.benchmark import list_runs
-        qs = parse_qs(urlparse(self.path).query)
-        try:
-            limit = int(qs.get("limit", ["50"])[0])
-        except ValueError:
-            limit = 50
-        try:
-            offset = int(qs.get("offset", ["0"])[0])
-        except ValueError:
-            offset = 0
-        model = qs.get("model", [None])[0]
-        try:
-            self._send_json(list_runs(self.engine, limit=limit, offset=offset, model=model))
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_benchmark_status_api(self):
-        """GET /api/models/benchmark/status — whether the runner is installed."""
-        from ..api.benchmark import benchmark_status
-        try:
-            self._send_json(benchmark_status())
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_benchmark_detail_api(self, run_id: str):
-        """GET /api/models/benchmark/{id} — one benchmark run."""
-        from ..api.benchmark import get_run
-        try:
-            rid = int(run_id)
-        except ValueError:
-            self._send_json({"error": "invalid run id"}, 400)
-            return
-        run = get_run(self.engine, rid)
-        if run:
-            self._send_json({"run": run})
-        else:
-            self._send_json({"error": "run not found"}, 404)
-
-    def _serve_benchmark_log_api(self, run_id: str):
-        """GET /api/models/benchmark/{id}/log — live subprocess output."""
-        from ..api.benchmark import get_run_log
-        try:
-            rid = int(run_id)
-        except ValueError:
-            self._send_json({"error": "invalid run id"}, 400)
-            return
-        self._send_json({"run_id": rid, "log": get_run_log(self.engine, rid)})
-
-    def _serve_benchmark_create_api(self):
-        """POST /api/models/benchmark — queue a LiveBench run.
-
-        Body: {"provider": ..., "model": ..., "categories": [...] (optional),
-               "parallel": N (optional, 1..64 concurrent API requests)}
-        The benchmark runs direct-to-provider (not through LCP), so it scores
-        the raw model without tripping the dynamic router.
-        """
-        from ..api.benchmark import queue_benchmark
-        try:
-            body = self._read_body()
-        except Exception:
-            self._send_json({"error": "invalid JSON body"}, 400)
-            return
-
-        provider = (body.get("provider") or "").strip()
-        model = (body.get("model") or "").strip()
-        release = (body.get("release") or "").strip() or None
-        if not provider or not model:
-            self._send_json({"error": "missing 'provider' and/or 'model'"}, 400)
-            return
-
-        categories = body.get("categories")
-        if categories is not None and (
-            not isinstance(categories, list)
-            or not all(isinstance(c, str) for c in categories)
-        ):
-            self._send_json({"error": "'categories' must be a list of strings"}, 400)
-            return
-
-        parallel = body.get("parallel")
-        if parallel is not None:
-            if isinstance(parallel, bool) or not isinstance(parallel, int):
-                self._send_json({"error": "'parallel' must be an integer"}, 400)
-                return
-            if parallel < 1 or parallel > 64:
-                self._send_json({"error": "'parallel' must be between 1 and 64"}, 400)
-                return
-
-        target = {"provider": provider, "model": model}
-        if release:
-            target["release"] = release
-
-        try:
-            run = queue_benchmark(
-                self.engine,
-                self.config,
-                target_kind="provider",
-                target=target,
-                categories=categories or None,
-                parallel=parallel,
-            )
-            self._send_json({"ok": True, "run": run})
-        except ValueError as e:
-            self._send_json({"error": str(e)}, 400)
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 
@@ -3260,11 +3142,9 @@ class SetupEndpoints:
         try:
             if kind == "provider":
                 result = setup_mod.install_provider(self.engine, self.config, name, body)
-            elif kind == "module" and name == "livebench":
-                result = setup_mod.start_livebench_install(self.engine)
             elif kind == "module" and name == "router":
-                # Semantic routing depends on graded capability data (LiveBench
-                # runs or the bundled-snapshot seed). Enforce server-side too.
+                # Semantic routing depends on capability data the router can
+                # rank by (the declared matrix). Enforce server-side too.
                 reason = setup_mod.router_install_blocked_reason(_engine_db_path(self.engine))
                 if reason:
                     raise setup_mod.SetupError(reason)
@@ -3286,14 +3166,12 @@ class SetupEndpoints:
 
         Returns per-module progress (``modules``) plus a back-compat top-level
         ``progress``/``installed`` that reflect any single in-flight module
-        (livebench first, then memory) so older UIs keep working.
+        (router first, then memory) so older UIs keep working.
         """
         from ..api import setup as setup_mod
 
         entries = {}
         for name, prog, last, step in (
-            ("livebench", setup_mod.bench_progress(), setup_mod.bench_last(),
-             setup_mod.benchmark_step),
             ("router", setup_mod.router_progress(), setup_mod.router_last(),
              setup_mod.router_step),
             ("memory", setup_mod.mem_progress(), setup_mod.mem_last(),
@@ -3302,15 +3180,15 @@ class SetupEndpoints:
             entries[name] = prog or last or {"status": "idle", "progress": 0.0}
             entries[name]["installed"] = bool(step()["installed"])
 
-        # Back-compat: the single in-flight/last module (livebench preferred).
+        # Back-compat: the single in-flight/last module (router preferred).
         active = None
-        for name in ("livebench", "router", "memory"):
+        for name in ("router", "memory"):
             state = entries[name]
             if state.get("status") not in (None, "idle"):
                 active = state
                 break
         if active is None:
-            active = entries.get("livebench") or {"status": "idle", "progress": 0.0}
+            active = entries.get("router") or {"status": "idle", "progress": 0.0}
 
         self._send_json({
             "progress": active,
@@ -3335,8 +3213,6 @@ class SetupEndpoints:
         try:
             if kind == "provider":
                 result = setup_mod.remove_provider(self.engine, self.config, name)
-            elif kind == "module" and name == "livebench":
-                result = setup_mod.remove_livebench(self.engine)
             elif kind == "module" and name == "router":
                 result = setup_mod.remove_router(self.engine)
             elif kind == "module" and name == "memory":

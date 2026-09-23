@@ -983,16 +983,6 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_capability_api())
     t.get("api.models.registry", exact("/api/models/registry"),
           lambda h, p: h._serve_registry_api())
-    t.get("api.models.benchmark.status", exact("/api/models/benchmark/status"),
-          lambda h, p: h._serve_benchmark_status_api())
-    t.get("api.models.benchmark.log",
-          regex(r"^/api/models/benchmark/(?P<id>[^/]+)/log$"),
-          lambda h, p: h._serve_benchmark_log_api(h._path_part(h.path, 4)))
-    t.get("api.models.benchmark.detail",
-          regex(r"^/api/models/benchmark/(?P<id>[^/]+)$"),
-          lambda h, p: h._serve_benchmark_detail_api(h._path_part(h.path, 4)))
-    t.get("api.models.benchmark", exact("/api/models/benchmark"),
-          lambda h, p: h._serve_benchmark_list_api())
 
     # ── memory: GET /{profile}/memory/count (last resort, as before) ──
     def _memory_count(h, p):
@@ -1063,8 +1053,6 @@ def _build_routes() -> RouteTable:
            lambda h, p: h._serve_capability_manual_api())
     t.post("api.models.capability.seed", exact("/api/models/capability/seed"),
            lambda h, p: h._serve_capability_seed_api())
-    t.post("api.models.benchmark", exact("/api/models/benchmark"),
-           lambda h, p: h._serve_benchmark_create_api())
 
     t.post("api.cost-plugins.cookie",
            regex(r"^/api/cost-plugins/cookie/(?P<provider>[^/]+)$"),

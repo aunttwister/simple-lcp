@@ -1,6 +1,7 @@
 """Batch F2 — endpoints.py: settings, routing, memory, capability, registry,
 benchmark and setup API branches.
 """
+import contextlib
 import io
 import json
 import os
@@ -266,27 +267,6 @@ class TestPageAndCapabilityApis:
             h.do_GET()
         assert _status(h) == 200                      # 2208-2213 (handler 250 too)
 
-    def test_capability_api_broken_subtasks_and_benchmarks(self, temp_db):
-        now = datetime.now(timezone.utc).isoformat()
-        with get_session(temp_db) as s:
-            s.add(ModelCapability(model="m1", task_type="code_generation",
-                                  score=0.5, source="livebench",
-                                  benchmark_category="coding",
-                                  release_label="2026-01-01", updated_at=now))
-            s.commit()
-
-        h = TestHandler(path="/api/models/capability", engine=temp_db)
-
-        class BrokenSubtask:
-            pass
-
-        with patch("src.api.models.ModelCapabilitySubtask", BrokenSubtask):
-            h._serve_capability_api()                        # 2276-2278
-        body = _json_body(h)
-        assert body["subtasks"] == {}
-        assert body["benchmark_categories"]["code_generation"]["m1"] == "coding"  # 2264
-        assert body["releases"]["code_generation"]["m1"] == "2026-01-01"
-
     def test_capability_api_db_path_crash(self, temp_db):
         class BoomEngine:
             def __getattr__(self, name):
@@ -406,53 +386,6 @@ class TestRegistryUpsert:
 
 # ── Benchmark APIs ───────────────────────────────────────────────────────────
 
-class TestBenchmarkApis:
-    def test_list_bad_limit_and_offset(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark?limit=x&offset=y", engine=temp_db)
-        h._serve_benchmark_list_api()
-        assert _status(h) == 200                              # 2604-2609
-
-    def test_list_crash_500(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark", engine=temp_db)
-        with patch("src.api.benchmark.list_runs", side_effect=RuntimeError("db")):
-            h._serve_benchmark_list_api()                     # 2613-2614
-        assert _status(h) == 500
-
-    def test_status_crash_500(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark/status", engine=temp_db)
-        with patch("src.api.benchmark.benchmark_status", side_effect=RuntimeError("x")):
-            h._serve_benchmark_status_api()                   # 2621-2622
-        assert _status(h) == 500
-
-    def test_detail_found(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark/9", engine=temp_db)
-        with patch("src.api.benchmark.get_run", return_value={"id": 9}):
-            h._serve_benchmark_detail_api("9")                # 2634
-        assert _json_body(h)["run"]["id"] == 9
-
-    def test_log_invalid_id_400(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark/x/log", engine=temp_db)
-        h._serve_benchmark_log_api("x")                       # 2643-2645
-        assert _status(h) == 400
-
-    def test_create_with_release_and_value_error(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark", method="POST", engine=temp_db,
-                        body={"provider": "p", "model": "m", "release": "2026-08"})
-
-        def boom(*a, **k):
-            raise ValueError("bad target")
-        with patch("src.api.benchmark.queue_benchmark", side_effect=boom):
-            h._serve_benchmark_create_api()                   # 2679, 2690-2691
-        assert _status(h) == 400
-
-    def test_create_generic_crash_500(self, temp_db):
-        h = TestHandler(path="/api/models/benchmark", method="POST", engine=temp_db,
-                        body={"provider": "p", "model": "m"})
-        with patch("src.api.benchmark.queue_benchmark",
-                   side_effect=RuntimeError("queue")):
-            h._serve_benchmark_create_api()                   # 2692-2693
-        assert _status(h) == 500
-
 
 # ── Setup install / remove branches ─────────────────────────────────────────
 
@@ -492,17 +425,15 @@ class TestSetupApiBranches:
 
     def test_remove_setup_error_400(self, temp_db):
         from src.api import setup as setup_mod
-        h = TestHandler(path="/api/setup/module/livebench", method="DELETE", engine=temp_db)
-        with patch("src.api.setup.remove_livebench",
-                   side_effect=setup_mod.SetupError("nope")):
-            h._serve_setup_remove_api("module", "livebench")  # 3131-3132
+        h = TestHandler(path="/api/setup/module/router", method="DELETE", engine=temp_db)
+        with patch("src.api.setup.remove_router", side_effect=setup_mod.SetupError("boom")):
+            h._serve_setup_remove_api("module", "router")     # 3131-3132
         assert _status(h) == 400
 
     def test_remove_generic_crash_500(self, temp_db):
-        h = TestHandler(path="/api/setup/module/livebench", method="DELETE", engine=temp_db)
-        with patch("src.api.setup.remove_livebench",
-                   side_effect=RuntimeError("boom")):
-            h._serve_setup_remove_api("module", "livebench")  # 3133-3135
+        h = TestHandler(path="/api/setup/module/router", method="DELETE", engine=temp_db)
+        with patch("src.api.setup.remove_router", side_effect=RuntimeError("boom")):
+            h._serve_setup_remove_api("module", "router")     # 3133-3135
         assert _status(h) == 500
 
 

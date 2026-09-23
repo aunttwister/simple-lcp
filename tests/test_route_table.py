@@ -164,12 +164,6 @@ class TestLiveRouteTable:
         assert get.index("api.providers.presets") < get.index("api.providers")
         assert get.index("api.providers.health") < get.index("api.providers")
 
-    def test_benchmark_status_precedes_detail(self, live_table):
-        """`/benchmark/status` would otherwise match the detail regex."""
-        get = [r.name for r in live_table.rules if r.method == "GET"]
-        assert get.index("api.models.benchmark.status") < get.index(
-            "api.models.benchmark.detail")
-
     def test_required_routes_present(self, live_table):
         names = {r.name for r in live_table.rules}
         for expected in ("health", "api.settings", "static", "memory.count",
