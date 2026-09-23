@@ -214,7 +214,7 @@ fetched, cached, and ignored when choosing a lane.
 | M4 | Deterministic L0–L4 + the 5 invariants as tests (R6) | M3 |
 | M5 | Balance-aware ranking (R12) — needs a `commandcode` balance source (no public API today) | M4 |
 | M6 | Gate (R11) + alerts/budgets by subject (R10) | M4 |
-| M7 | Diagram observability (R7) + strip `conversation_json`, backfill `conversation_id` | M1 |
+| M7 | **Strip `conversation_json`** — ✅ **DONE 2026-09-23** (101.3 MB gone; live staging DB 158.8 MB → 28.6 MB, 130.2 MB reclaimed) · diagram observability (R7) still open | M1 |
 | M8 | Obsolete LiveBench (R13); declared capabilities become the only source | M1 |
 
 M1 is the only gate. M2–M8 are independent of each other and of any repo/naming decision.
