@@ -1,676 +1,424 @@
-# LLM Control Plane (LCP)
+# simple-lcp
 
-**A self-hosted LLM gateway. Route, meter, control — one container, one port, no cloud dependency.**
+**The profile-first control plane.** This is the simplification line of
+[LCP](https://github.com/aunttwister/lcp) — the same idea, cut down to the six things it is actually
+for, with a deterministic router and human-first UI.
 
-[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![Docker](https://img.shields.io/badge/docker-ready-brightgreen.svg)](https://hub.docker.com/)
-[![CI](https://github.com/aunttwister/lcp/actions/workflows/ci.yml/badge.svg)](https://github.com/aunttwister/lcp/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-2259%20passed-brightgreen.svg)](https://github.com/aunttwister/lcp/actions/workflows/ci.yml)
+| | |
+|---|---|
+| Status | **PLANNING** — this repo currently holds the plan and the measurements behind it. No simplification code written yet. |
+| Code state | `main` here is the exact LCP tree at `8016792` (v0.5.0, AGPL-3.0) plus this README. Branches `main`, `dev`, `bugfix`, `harness` and tag `v0.5.0` carried over. |
+| Relationship to LCP | `upstream` = `github.com/aunttwister/lcp`. Nothing is deleted upstream; this is where the cut happens first. |
+| Runtime | This repo **is the staging line**. From 2026-09-23 the homelab staging instance (`lcp-staging`, port `8735`) builds and runs from this tree. Production (`lcp`, port `8734`) still builds from `aunttwister/lcp` until the cut is real. |
+| Source of requirements | The operator's own voice memos of 2026-09-22 — reproduced verbatim in [Appendix A](#appendix-a--memo-1-verbatim) and [Appendix B](#appendix-b--memo-2-verbatim). |
+
+**Why a separate repo instead of a branch.** Production serves 57,223 recorded requests across 6
+profiles. The simplification is structural — tables dropped, 15 pages collapsed to 5, one module
+removed — so the work needs a tree that is allowed to break. Staging gets that tree; prod keeps the
+known-good one. The two no longer share a working directory (they did until now).
+
+**There is no code fork here.** GitHub will not fork a repository into the account that already owns
+it, so this repo was created and then filled with a full mirror push of LCP — same history, same
+branches, same tag. The only thing missing is GitHub's fork-network relation.
 
 ---
 
 ## Contents
 
-- [What is LCP?](#what-is-lcp)
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [VS Code Integration](#vs-code-integration)
-- [Configuration](#configuration)
-- [Benchmarking (LiveBench)](#benchmarking-livebench)
-- [Semantic Dynamic Routing](#semantic-dynamic-routing)
-- [Component Runtime](#component-runtime)
-- [Why LCP over alternatives?](#why-lcp-over-alternatives)
-- [Architecture](#architecture)
-- [Dependencies](#dependencies)
-- [Test Coverage](#test-coverage)
-- [API](#api)
-- [Roadmap](#roadmap)
-- [Status](#status)
+- [North Star](#north-star)
+- [Requirements (R1–R14)](#requirements-r1r14)
+- [What is measured today](#what-is-measured-today)
+- [What is already right](#what-is-already-right)
+- [What is wrong](#what-is-wrong)
+- [The plan](#the-plan)
+- [The deterministic router (R6)](#the-deterministic-router-r6)
+- [The gate (R11)](#the-gate-r11)
+- [Alerts and budgets by subject (R10)](#alerts-and-budgets-by-subject-r10)
+- [A profile document (R2/R3/R4)](#a-profile-document-r2r3r4)
+- [UI target (R8)](#ui-target-r8)
+- [Removals (R1/R9/R13)](#removals-r1r9r13)
+- [Parked decisions](#parked-decisions)
+- [Not established](#not-established)
+- [Running this repo as staging](#running-this-repo-as-staging)
+- [Provenance](#provenance)
+- [Appendix A — memo 1, verbatim](#appendix-a--memo-1-verbatim)
+- [Appendix B — memo 2, verbatim](#appendix-b--memo-2-verbatim)
 
 ---
 
-## What is LCP?
+## North Star
 
-LCP (LLM Control Plane) is a self-hosted LLM gateway that sits between your clients and LLM
-providers. It routes requests, tracks costs, enforces spending limits, and manages API keys —
-all from a single Docker container backed by SQLite. No PostgreSQL. No Redis. No external
-services.
+**LCP is the admin panel for an LLM harness.** Not Hermes-specific — Hermes is the first harness it
+governs, not the thing it is. One environment where the operator:
 
-**Two primary use cases:**
+1. defines **profiles** (what a lane of work is for),
+2. points them at a **pool of providers and models**,
+3. declares **what each model can do**,
+4. sets **routing** (static or dynamic) and **circuit-breaker** behaviour,
+5. sets **gates and budgets** so nothing is spent before it is approved,
+6. watches **what happened** — as diagrams, not log dumps.
 
-- **AI agents** — Route Hermes, Claude Code, or custom agents through LCP to control which
-  tools they can use, how much they can spend, and which providers they hit
-- **VS Code / GitHub Copilot** — Point the [GitHub Copilot LLM Gateway extension](#vs-code-integration)
-  at LCP to make all your profiles appear as model providers in Copilot Chat with full context
-  windows and capabilities
+Everything that is not one of those six is either an optional module or is removed.
 
-It was built for a production multi-agent homelab setup managing 6 Hermes profiles with 15+
-custom skills, where knowing exactly what is being spent, by whom, and with what tools is
-critical. The same instance also serves as the LLM backend for daily VS Code Copilot usage.
+> "the goal of this is to have the control plane of Hermes or other LLM, whatever harness inside of
+> this … environment. It's like an admin panel. It's a control plane over it."
 
-> ✨ **Headline feature: benchmark-driven routing.** Grade your models with LiveBench (or
-> your own benchmark), and LCP classifies every request by task type and routes it to the
-> best-fit (provider, model) — balancing capability, cost, circuit-breaker health, and your
-> own policy/rules — all tunable from the UI, no restarts. See [Benchmarking](#benchmarking-livebench).
+---
 
-<!--
-  Add a real demo here: 2–3 screenshots or a GIF (dashboard, Providers → Routing tab, Usage).
-  e.g. ![Dashboard](docs/screenshots/dashboard.png)
--->
+## Requirements (R1–R14)
 
-```
-Clients (agents, VS Code, scripts, curl)
-          |
-          v
-+--------------------------------------------+
-|             LCP (:8734)                   |
-|                                            |
-|  Auth -> Estimate Cost -> Route            |
-|       -> Circuit Breaker -> Track Cost     |
-|                                            |
-|  Dashboard     API Keys     Budgets        |
-|  (:8734/)      Alerts      Export          |
-+-------------------+------------------------+
-                    |
-        +-----------+-----------+
-        v           v           v
-    DeepSeek    OpenCode    llama.cpp
-```
+Every row is the operator's own framing, not an inference. Quoted fragments are verbatim.
 
-## Features
-
-### Intelligent routing
-- Provider chains with automatic fallback — if one provider fails, the next in chain takes over
-- Circuit breaker with configurable thresholds — degraded providers are probed, dead providers are skipped
-- Profile-based routing by URL path: `/l2`, `/l1`, `/career`, `/coder`, `/cron`
-- SSE streaming passthrough — real-time token delivery, no buffering
-- **Semantic task classification** — every request is classified by *meaning* using an embedding model (bge-small), not exact keywords ([semantic dynamic routing](#semantic-dynamic-routing))
-- Benchmark-driven capability routing — grade each model with LiveBench, then route each request by the model's measured task scores ([benchmarking](#benchmarking-livebench))
-
-### Tool permission control
-- Strip dangerous tools per profile — an L1 triage agent cannot `terminal`, a cron profile strips everything
-- *(Being replaced)* Tool stripping will be decommissioned in favor of a fails-closed permission matrix
-- *(Planned)* Permission matrix — declarative `allow` / `block` / `blocked_globally` rules per profile, with audit trail
-
-### Cost tracking
-- Per-request cost with DeepSeek cache hit/miss breakdown
-- Daily cost summaries per profile, per model, per provider
-- Prompt prefix caching — normalizes messages so repeated system prompts hit the provider cache
-- Cache hits are 120x cheaper than cache misses; LCP tracks both accurately
-
-### API key management
-- Create, rotate, and revoke virtual API keys through the dashboard
-- Per-key spend limits with hard-stop enforcement
-- Per-profile access control — each key can be scoped to specific profiles
-- Usage breakdown per key
-
-### Provider health & credentials
-- **Encrypted provider keys** — paste an upstream API key (DeepSeek, OpenCode, etc.) directly in the Providers → Configuration tab; it is encrypted with Fernet using the `LCP_SECRET_KEY` master key and stored in SQLite, never in the git-tracked `gateway.yaml`
-- No env vars needed — keys come exclusively from the encrypted credential store (UI-managed)
-- **Circuit breaker health** — Providers → Health tab shows live status per provider/profile with failure counts, last error reason, and cooldown timers
-- **Reset cooldown** — force a provider back to healthy with one click instead of waiting out the cooldown
-- Dashboard shows provider health mini-badges (healthy / degraded / dead counts)
-
-### Dashboard
-- Server-rendered HTML — no SPA, no build step, loads instantly
-- Daily cost charts with Chart.js — stacked bars, per-profile views
-- Provider health monitoring with live status
-- Drag-and-drop chain editing — reorder fallback providers in the UI
-- Request log with error inspection
-- Budget alerts with configurable thresholds
-
-### Plugin architecture
-- Provider cost extraction plugins — DeepSeek, OpenCode, Command Code, Local LLM (llama.cpp), OpenAI
-- **Command Code plugin** — subscription usage tracking (rolling 5-hour / weekly / monthly usage windows, monthly credits remaining, plan + status, plus billing-period totals: total tokens, total runs, and monthly usage) via a browser session cookie from the credential store, plus cost history from the gateway `requests` table
-- Memory module — installable from the Setup page: per-profile semantic memory with an embedded [LanceDB](https://github.com/lancedb/lancedb) backend (columnar vector storage, ANN indexing, no separate service)
-- See [features/memory.md](features/memory.md) for the unified memory specification
-
-## Quick Start
-
-```bash
-# Clone
-git clone https://github.com/aunttwister/lcp.git
-cd lcp
-
-# Configure providers — add your API keys
-cp config/.env.example config/.env
-# Edit config/.env: set LCP_SECRET_KEY (used to encrypt provider keys)
-# Provider keys are managed via the dashboard (Providers → Configuration tab)
-# Only LCP_SECRET_KEY needs to be set (used to encrypt stored keys).
-
-# Run
-docker compose up -d
-```
-
-LCP is now running at `http://localhost:8734`. Open the dashboard, send a request:
-
-```bash
-curl http://localhost:8734/l2/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "deepseek-v4-pro",
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "max_tokens": 50
-  }'
-```
-
-## VS Code Integration
-
-Use the [**GitHub Copilot LLM Gateway**](https://marketplace.visualstudio.com/items?itemName=arbs-io.github-copilot-llm-gateway)
-extension by Andrew Butson to make your LCP profiles appear directly in GitHub Copilot Chat as
-model providers. **All your profiles (coder, l2, career, etc.) show up in the Copilot model
-picker with their full context windows and capabilities.**
-
-### Setup
-
-1. Install the extension: `arbs-io.github-copilot-llm-gateway`
-2. In VS Code settings, search for **"Copilot Llm Gateway"** and set:
-   - **Server URL**: `https://lcp.example.com/v1` (or your LCP instance)
-   - **API Key**: your LCP API key (from the Keys dashboard)
-3. (Optional) **Model Context Windows**: if you need to override server-reported context sizes
-4. **Disable "Enable Image Input"** — your LCP profiles use text-only models (deepseek-v4 etc.).
-   The gateway already blocks image requests with a clear error as a safety net.
-
-> **Why this extension?** Unlike OAI Copilot (which requires manually configuring each model
-> and doesn't support automatic discovery), the LLM Gateway extension fetches `/v1/models`
-> from your LCP instance and populates the model picker automatically. Profile entries like
-> `coder`, `l2`, and `career` appear with their correct 1M context windows, tool-calling
-> support, and the `supports_vision: false` flag that the gateway reports.
-
-### Troubleshooting
-
-- **Models don't appear?** Run "GitHub Copilot LLM Gateway: Refresh Models" from the command palette.
-- **128k context instead of 1M?** Ensure your LCP instance is running the latest version that
-  serves `max_model_len` and `context_length` in `/v1/models`.
-- **"model does not support vision" errors?** Make sure "Enable Image Input" is turned **off**
-  in the extension settings — your DeepSeek models are text-only.
-- **Chat errors with "received 0 chars / 0 text parts / 0 tool calls"?** This happens on long
-  agentic tasks when a reasoning model (`deepseek-v4-*`) spends its entire output budget on
-  thinking and produces no answer before hitting the extension's output-token cap. The gateway
-  caps output at **Default Max Output Tokens** (default `4096`) even though LCP reports the full
-  1M context. Raise `github.copilot.llm-gateway.defaultMaxOutputTokens` in VS Code settings
-  (e.g. `8192`–`16384`) so the model has room to finish reasoning and emit a real response.
-- **DeepSeek 400 "reasoning_content must be passed back"?** This happens when an agent / Copilot
-  strips the `reasoning_content` field from thinking-mode assistant turns in multi-turn history.
-  LCP automatically recovers the real reasoning content it saw in earlier responses and
-  re-attaches it. See [Thinking-Mode Reasoning Recovery](features/thinking-mode-recovery.md)
-  for the architecture.
-- **Command Code "This operation was aborted"?** Command Code models (especially `deepseek-v4-pro`
-  via `commandcode`) can take over 60s on complex agentic tasks, exceeding the extension's default
-  HTTP timeout. Set **Request Timeout** to `120000` (2 minutes) and raise **Default Max Output
-  Tokens** to `32000` so the model has room for both reasoning and a full response:
-  - `github.copilot.llm-gateway.requestTimeout`: `120000`
-  - `github.copilot.llm-gateway.defaultMaxOutputTokens`: `32768`
-
-## Configuration
-
-Configuration is **DB-backed** (stored in the SQLite `settings` table as JSON
-blobs under `gateway_config:<section>`). There is no `gateway.yaml` and no
-hot-reload: on first boot the gateway seeds the DB from a built-in Python
-default (`src/api/config.py` → `SEED_CONFIG`), and all edits via the UI
-(Providers, Profiles, Routing, Cache) are written straight to the DB and
-persist across restarts.
-
-The only env vars needed to bootstrap are the DB path and listen port
-(`COST_DB`, `LISTEN_PORT`) — everything else is configurable at runtime.
-
-The shape of each section (for reference, matching `SEED_CONFIG` and the
-tracked `config/gateway.example.yaml`):
-
-```yaml
-server:
-  port: 8734
-  default_profile: l2
-profiles:
-  l2:
-    forbidden_tools: [write_file, patch, cronjob]
-    chain:
-      - provider: opencode
-        model: deepseek-v4-pro
-      - provider: deepseek                       # fallback
-        model: deepseek-v4-pro
-  cron:
-    forbidden_tools: null                        # null = strip ALL tools
-    chain:
-      - provider: deepseek
-        model: deepseek-v4-flash
-providers:
-  deepseek:
-    # API key is entered via the dashboard (Providers → Configuration tab),
-    # encrypted with LCP_SECRET_KEY and stored in SQLite — no env vars here.
-    cache:
-      strategy: prefix
-      savings: cost
-      hit_field: prompt_cache_hit_tokens
-pricing:
-  - provider: deepseek
-    model: deepseek-v4-pro
-    cache_hit: 0.003625
-    cache_miss: 0.435
-    output: 0.87
-```
-
-## Benchmarking (LiveBench)
-
-LCP's dynamic router is driven by **benchmark grades, not vibes**. Each model's
-capability scores (`model_capabilities`) are produced exclusively by running
-[LiveBench](https://livebench.ai/) against the **raw provider model** — never
-through LCP's own routing, which would contaminate the very scores the router
-relies on.
-
-Benchmarking is an **opt-in plugin**: the base image stays lean, and the runner
-simply reports "not installed" until you enable it.
-
-### How it works
-
-1. You queue a run for a provider model (e.g. `deepseek` / `deepseek-v4-pro`) from
-   the Models page or the API. LCP resolves the provider's `api_base` and
-   credential-store API key, then runs LiveBench as a subprocess **directly
-   against the provider**.
-2. LiveBench generates answers and ground-truth judgments per category, and LCP
-   parses `all_groups.csv` into per-category 0–100 scores.
-3. Scores are upserted into `model_capabilities` with `source="lcp_benchmark"`,
-   keyed to the model's registry `benchmark_key`. The router's task classifier
-   then uses those graded scores (plus a cost bias) to pick the best model for
-   each request.
-
-Only the six non-Docker categories are run; `agentic_coding` is deliberately
-excluded because it requires Docker.
-
-| LiveBench category | LCP task type |
-|---|---|
-| `reasoning` | `reasoning_chain` |
-| `coding` | `code_generation` |
-| `math` | `reasoning_chain` |
-| `data_analysis` | `research_deep` |
-| `language` | `casual_chat` |
-| `instruction_following` | `planning` |
-
-### Installation
-
-**Option A — bake it into the image (recommended for Docker):**
-
-```bash
-docker compose build --build-arg WITH_BENCH=1 lcp
-```
-
-This clones LiveBench into `${LCP_MODULES_DIR}/livebench` (default
-`/opt/lcp-modules/livebench`) and installs the core package plus the
-`code_runner/requirements_eval.txt` extras. Those extras (TensorFlow, scipy,
-etc., ~GBs) are only needed to **grade the `coding` category**, which executes
-generated code. Core-only covers the other five categories.
-
-**Option B — point LCP at a local checkout:**
-
-```bash
-export LCP_MODULES_DIR=/opt/lcp-modules
-git clone --depth 1 https://github.com/LiveBench/LiveBench.git "$LCP_MODULES_DIR/livebench"
-cd "$LCP_MODULES_DIR/livebench" && pip install -e .
-# optional, only for the `coding` category:
-pip install -r code_runner/requirements_eval.txt
-```
-
-LCP also falls back to `run_livebench.py` on `PATH`.
-
-### Seeding scores without running benchmarks
-
-Running full 150-question LiveBench on every model is expensive. LCP therefore
-supports **three tiers** of model data:
-
-1. **Bulk seed (free, baseline).** A snapshot of the public LiveBench
-   leaderboard (`2026-06-25`) ships in
-   `src/api/data/table_2026_06_25.csv` (the raw LiveBench task table). The
-   import pipeline (`src/api/benchmark_import.py`) reads it into the
-   `capability_metrics` table and materializes the typed `model_capabilities`
-   + `model_capability_subtasks` rows the router and Models page query.
-   Top-level category scores are derived from the per-subtask rows (same
-   aggregation livebench.ai uses), so models that only have subtask-level
-   data get their top-level scores derived automatically. Seed it in
-   milliseconds for a zero-cost baseline per model:
-
-   ```bash
-   # in the container: seed registry + LiveBench snapshot
-   python -m src.api.seed_capabilities --db /app/data/costs.db
-   # registry only / LiveBench only
-   python -m src.api.seed_capabilities --db /app/data/costs.db --registry-only
-   python -m src.api.seed_capabilities --db /app/data/costs.db --livebench-only --release 2026-06-25
-   # import a LiveBench CSV dataset directly
-   python -m src.api.benchmark_import --db /app/data/costs.db --file path/to/table_2026_06_25.csv
-   ```
-
-   **Modular datasets.** The importer reads LiveBench CSV task tables from two
-   places: bundled files under `src/api/data/*.csv`, and any installable
-   module under `LCP_MODULES_DIR` (default `/opt/lcp-modules`) that ships a
-   `data/*.csv` file. A module dataset overrides the bundled one, so
-   benchmark plugins can drop in their own leaderboard data without forking
-   LCP.
-
-   **Upload a dataset from the UI.** On the Models page, the **Import**
-   button opens a file picker — choose a LiveBench CSV (`table_*.csv`). LCP
-   uploads it via `multipart/form-data` to
-   `POST /api/models/capability/import`, writes `capability_metrics`, and
-   materializes the typed rows.
-
-2. **Incremental benchmark (accurate, opt-in).** Run LiveBench for a single
-   model + release when a new model appears or a new release ships (e.g.
-   `deepseek-v4-pro` 2026-08-13). This is the "Run benchmark" button — it
-   targets one provider/model, never all models at once.
-
-3. **Manual override (your own numbers).** The "+ Add score" button on the
-   Models page stores `source="manual"` scores that always outrank the other
-   tiers.
-
-### Model identity, version & provider mapping
-
-A model is identified by its **logical name** (e.g. `deepseek-v4-pro`), which
-is what routing and pricing use. It has:
-
-- **benchmark_key** — the stable, release-independent key used in
-  `model_capabilities`;
-- **provider_mappings** — the exact provider-side model ID per provider, so
-  `deepseek-v4-pro` served by `deepseek`, `opencode`, and `commandcode`
-  (`deepseek/deepseek-v4-pro`) resolves to ONE identity and ONE scoring. The
-  provider keys are also the model's "providers" list in the UI;
-- **active_release** — the CURRENT model version (e.g. `2026-08-13` for
-  DeepSeek V4 Pro 0813) whose scores feed the router;
-- **benchmark_release** — the LiveBench leaderboard snapshot date the scores
-  came from (e.g. `2026-06-25`).
-
-The router resolves `provider-side model ID → logical → benchmark_key`, applies
-the active version's scores, and routes the single resulting identity.
-
-### Module install path
-
-All runtime-installed modules live under the **module root** controlled by
-`LCP_MODULES_DIR` (default `/opt/lcp-modules`). The in-UI runtime installer
-(Setup → LiveBench) clones to `$LCP_MODULES_DIR/livebench`. Set this to a
-Docker volume mount so installs survive container recreation:
-
-```bash
-export LCP_MODULES_DIR=/app/data/modules
-```
-
-### Runtime status
-
-The runner degrades gracefully. `GET /api/models/benchmark/status` reports:
-
-- `available` — whether a LiveBench checkout is reachable
-- `coding_supported` — whether the `coding` category can be graded
-  (probes for the heavyweight `code_runner` deps)
-- `reason` — a human-readable explanation when unavailable
-
-The Models page uses this status to show a clear "not installed" notice instead
-of a Run button, and to flag when `coding` is unsupported — while still listing
-past runs.
-
-## Semantic Dynamic Routing
-
-Every request is classified into a **task type by meaning, not keywords**. The
-embedding-based classifier (`BAAI/bge-small-en-v1.5`, 384-dim) embeds the
-user's intent and matches it against per-task exemplar centroids, so
-"why does this throw a KeyError?" routes as `debugging` while "write a pytest
-for this" routes as `unit_tests` — regardless of the exact words used.
-
-The classifier is an **installable module** (Setup → Semantic routing), like
-memory and LiveBench — the default image is lean and installs it at runtime;
-`WITH_ROUTER=1` bakes it in instead. When unavailable, routing degrades
-gracefully to heuristic classification.
-
-**It depends on benchmark capabilities.** Semantic routing classifies *what*
-the task is; the router then routes by the model's per-task capability grades.
-The Setup page therefore blocks installing Semantic routing until **graded
-capability data exists** — produced either by a LiveBench run or by the
-one-click **"Seed baseline scores"** action (imports the bundled LiveBench
-leaderboard snapshot, no benchmarks run).
-
-**The router is context-aware.** A model whose context window can't hold the
-request is excluded and routing falls to the next-best model that fits — so a
-205k-token request never 400s against a 200k-context model. `/v1/models`
-advertises the profile's *maximum* routable context (honest, because the
-router guarantees a fitting model for any request up to that size), and a
-request larger than every chain model's context returns a clean `413`.
-
-See [Semantic Dynamic Routing](docs/semantic-routing.md) for the full
-classifier, config, and module-lifecycle details.
-
-## Component Runtime
-
-LCP wires itself through a **declarative component runtime** instead of a
-hand-sequenced bootstrap: 13 components (circuit breaker, key manager, cost
-cache, dynamic router, memory, cost plugins, …) each declare what they need
-(`requires`) and publish (`provides`), and return their own cleanup. The
-runtime topologically sorts them, starts them, and tears them down in reverse
-(LIFO) — so startup order bugs and teardown leaks are structurally impossible,
-and a failed optional module degrades instead of crashing boot.
-
-See [Component Runtime](docs/component-runtime.md) for the contract, the full
-component graph, and the request-path resolution model.
-
-## Why LCP over alternatives?
-
-| | LCP | LiteLLM | OpenRouter | one-api |
-|---|---|---|---|---|
-| **Benchmark-driven routing** | ✅ per-request, by task type | ⚠️ model weights only | ⚠️ provider-only | ❌ |
-| **Circuit breaker + health** | ✅ per (provider, profile) | ⚠️ basic retries | ⚠️ partial | ❌ |
-| **Agent tool permission enforcement** | ✅ per profile | ❌ | ❌ | ❌ |
-| **Per-agent budgets & virtual keys** | ✅ | ✅ keys only | ❌ | ✅ |
-| **Deployment** | One container, SQLite | Container + PG + Redis | SaaS | Container + DB |
-| **Credentials** | Encrypted at rest (UI-managed) | Env vars | SaaS-managed | Env vars |
-| **Dashboard / UI** | Server-rendered, no build | React SPA | SaaS | Web UI |
-| **License** | AGPL-3.0, everything included | MIT core + enterprise | SaaS | MIT |
-
-What makes LCP different isn't just proxying — it's **decisions**:
-
-- **Every request is classified and routed to the best (provider, model) for that task**, using
-  LiveBench/benchmark capability scores plus cost bias, circuit-breaker health, and your own
-  rules — all editable live in the UI.
-- **Agent-native control**: per-profile tool permissions, budgets, and keys, so you can run
-  many agents (Hermes, Claude Code, Copilot, cron) behind one gateway and know exactly who
-  spent what, with what tools.
-- **Zero external services**: one container, SQLite, DB-backed config. No Postgres, no
-  Redis, no cloud.
-
-## Architecture
-
-```
-LCP (:8734) — single process, single port
-|
-+-- Python stdlib (http.server) — no framework overhead
-+-- SQLite (costs.db) — zero-infrastructure persistence
-+-- DB-backed config — editable from the UI, no hot-reload files
-+-- Server-rendered dashboard — Chart.js, no SPA
-+-- Plugin architecture — provider costs, memory backends
-+-- Component runtime — declarative startup + LIFO teardown
-+-- Docker — python:3.11-slim
-```
-
-LCP deliberately avoids PostgreSQL, Redis, Next.js, pnpm, Kubernetes, and the broader
-TypeScript ecosystem. SQLite handles millions of cost rows at homelab scale. One container,
-one port, one `docker compose up`.
-
-## Dependencies
-
-Every runtime dependency and what it does in LCP:
-
-| Package | Role in LCP |
-|---|---|
-| **`structlog`** | Structured JSON logging to stdout. Every request, error, budget breach, and startup step is a machine-readable log line — `docker logs lcp` is grep-friendly. |
-| **`sqlalchemy`** | SQLite ORM for the `requests`, `budgets`, `alerts`, and `api_keys` tables. All cost history, spend limits, and alert state lives here. No external database. |
-| **`alembic`** | Database schema migrations. Every schema change (alerts table, API keys, error_detail column) gets a numbered migration in `alembic/versions/`. Run automatically on container startup via `alembic upgrade head`. |
-| **`pyyaml`** | Reads the seed config and `config/gateway.example.yaml`. The live config is DB-backed (SQLite `settings` table), editable from the UI — no file hot-reload needed. |
-| **`tiktoken`** | Exact BPE token counts using the `cl100k_base` encoding (same tokenizer used by DeepSeek and OpenAI models). Powers the pre-request `X-Estimated-Cost` header and the dynamic flash/pro router. The ~1 MB vocabulary file is pre-downloaded at Docker build time and persisted to a volume — zero CDN dependency at runtime. |
-| **`jinja2`** | Server-rendered HTML templates for the dashboard, profiles page, providers, API keys, alerts, and logs. No SPA, no build step, no npm — pages load instantly from the server. Shared partials for sidebar, modals, and JS utilities. |
-
-Optional modules (installed at runtime from the Setup page, **not baked into the
-lean image by default**):
-
-| Package | Role in LCP |
-|---|---|
-| **`sentence-transformers` + `torch`** | The embedding model powering semantic task classification (router module) and semantic memory recall (memory module). Installed per-module into `<LCP_MODULES_DIR>/<module>`; bake in with `WITH_ROUTER=1` / `WITH_MEMORY=1`. |
-| **`lancedb`** | Embedded vector store (memory module only) — columnar storage + ANN indexing, no separate service. |
-| **LiveBench** (`git clone` + pip) | The benchmark runner (benchmark module) — a checkout under `<LCP_MODULES_DIR>/livebench`; bake in with `WITH_BENCH=1` (optionally with the `coding`-grading extras). See [Benchmarking (LiveBench)](#benchmarking-livebench). |
-
-The three modules map to one **build flag** each. The flags are Docker build
-args (image build time, not runtime env vars) that decide whether a module's
-deps ship in the image — all default to `0` (lean, runtime-install):
-
-| Flag | Bakes into the image | Powers |
+| # | requirement | source |
 |---|---|---|
-| `WITH_ROUTER=1` | `sentence-transformers`/`tokenizers`/`torch` + pre-downloaded `bge-small` model | Semantic task classification |
-| `WITH_MEMORY=1` | `lancedb` (+ shared `sentence-transformers`/`torch`) | Memory plugin (LanceDB vector bank) |
-| `WITH_BENCH=1` | A LiveBench checkout + its eval deps | Benchmark-driven routing grades |
+| R1 | Drop proof-of-concept features — *"it's quite cheap to do that"* | memo 1 |
+| R2 | Profile-based configuration: a profile defines a **pool** of models/providers | memo 1 |
+| R3 | Circuit-breaker pattern defined **per profile**, over that pool | memo 1 |
+| R4 | Per profile: routing mode = static chain **or** dynamic | memo 1 |
+| R5 | **Intents declared per profile** (l2 → code planning; an architect profile → architecture planning); the semantic router scores only that profile's intents | memo 1 |
+| R6 | Dynamic routing *"world class"*: a **very deterministic algorithm** — *"merit order … sortation … this list needs to be very deterministic"* | memo 2 |
+| R7 | Observability as **VSM-style diagrams** — *"attractive to the eye. We should put effort there"* | memo 2 |
+| R8 | Human-first UI — *"the nav bar is huge amounts of different configuration pages, complicated and messed up"* | memo 1 |
+| R9 | Drop per-profile API keys — *"is that necessary? in my opinion no"* | memo 1 |
+| R10 | **Alerts stay.** Alerts and budgets are defined **per subject**: provider · profile · API key — on their own **alerts page and budgets page**, *"not on profile or API key. That doesn't work like that"* | memo 2 |
+| R11 | A **gate before committing** — *"some sort of gate before committing"*; LCP is the control plane over the harness | memo 2 |
+| R12 | **Balance-aware routing** — *"we're not taking into account the available balances. We're only reacting if we have insufficient balance"* — rank across subscriptions (opencode, commandcode, …) by remaining balance | memo 2 |
+| R13 | **Obsolete LiveBench inside LCP** — *"testing a model on LiveBench is insane via this app"* — declare model capabilities by hand, then select | memo 2 |
+| R14 | This work is the **`simplify-lcp`** task, on the L2 profile; it retires the in-progress `llm-control-plane` task | memo 2 |
 
-Baking makes a module available instantly (larger image); with the flag unset,
-the same module installs on demand from the Setup page.
+---
 
-Dev-only dependencies (`pip install .[dev]`):
+## What is measured today
 
-| Package | Role |
+All figures below were read live from `costs.db` (read-only) on 2026-09-22/23 against LCP `main`
+`8016792`. They are measurements, not estimates — they are what makes the cut list safe to act on.
+
+### Tables, with verdicts
+
+| table | rows | verdict |
+|---|---|---|
+| `requests` | 57,223 | **KEEP** — the spine |
+| `routing_decisions` | 34,133 | **KEEP** — but 124.4 MB of duplicated transcripts inside it → strip |
+| `conversations` | 1,409 | **KEEP** — the R7 spine |
+| `failover_events` | 287 | **KEEP** |
+| `model_registry` | 15 | **KEEP — the pool primitive** |
+| `provider_health` / `provider_credentials` | 11 / 7 | **KEEP** |
+| `daily_summary` | 45 | keep (or recompute on read) |
+| `capability_metrics` / `model_capability_subtasks` / `model_capabilities` | 496 / 434 / 116 | **CUT** — all three are `source=livebench` (R13) |
+| `alerts` | **0** | **KEEP** — R10 wants it; implemented, never used, needs restructuring |
+| `api_keys` | 11 | **CUT** — no enforcement path exists (`auth_required: false` on 4 of 6 profiles) |
+| `audit_logs` | **0** | **CUT** — the gate records into `requests` + `routing_decisions` instead |
+| `budgets` | **0** | **CUT as shaped** — user/team-shaped; R10 re-forms it per subject |
+| `users` / `teams` | **0 / 0** | **CUT** — Phase 5 multi-tenant |
+| `routing_judgments` | **0** | **CUT** — verify the 02:00 routing-assessment cron's write target first |
+
+### Profiles by real traffic
+
+| profile | requests | first | last | verdict |
+|---|---|---|---|---|
+| `l2` | 38,925 | 2026-06-15 | live | keep |
+| `coder` | 12,347 | 2026-07-27 | 2026-09-20 | keep |
+| `l1` | 5,932 | 2026-09-04 | live | keep |
+| `naptune-admin` | 11 | 2026-08-29 | 2026-08-30 | dead (one day) |
+| `career` | 8 | 2026-08-04 | 2026-09-18 | effectively dead |
+
+### Providers actually serving (14 days) — why R12 matters
+
+| provider / model | n | avg TPS | cost | $/request |
+|---|---|---|---|---|
+| commandcode / deepseek-v4-flash | 11,980 | 688.6 | $213.28 | **$0.0178** |
+| opencode / deepseek-v4-flash | 4,445 | 313.9 | $147.44 | **$0.0332** |
+| llamacpp / qwen3.8-flash-next | 4,454 | 1,320.2 | $0.00 | $0 |
+| opencode / deepseek-v4-pro | 8 | — | — | — |
+| deepseek / deepseek-v4-flash | 2 | — | — | — |
+| **unknown / unknown** | **800** | — | — | defect to fix while in here |
+
+### Bloat found while measuring
+
+`routing_decisions.conversation_json` holds **124,430,043 bytes** across 33,916 rows — 73% of the
+169 MB database — as a second copy of the Hermes transcripts. Separately, `requests.conversation_id`
+is NULL on 4,084 of 57,236 rows (93% link correctly).
+
+---
+
+## What is already right
+
+### The pool primitive already exists: `model_registry`
+
+`model_registry` maps **one logical model → many provider IDs**:
+
+```json
+{"logical_name": "deepseek-v4-pro",
+ "provider_mappings_json": {"deepseek": "deepseek-v4-pro",
+                            "opencode": "deepseek-v4-pro",
+                            "commandcode": "deepseek/deepseek-v4-pro"}}
+```
+
+That is exactly the *"pool of models/providers"* R2 asks for — already in the schema, already
+populated for 15 models. Today `gateway_config:profiles` re-declares a chain per profile with
+`api_base` pasted inline. simple-lcp points profiles at the registry instead of restating it.
+
+### Dynamic routing's headline move is worth keeping
+
+24,417 semantic decisions in 14 days. The dominant effect is **one** move:
+
+| from | to | times |
+|---|---|---|
+| l2: opencode/deepseek-v4-flash | commandcode/deepseek/deepseek-v4-flash | **12,036** |
+| l1: (none) | local-zgx/qwen3.8-flash-next | 7,922 |
+| l2: (none) | opencode/deepseek-v4-flash | 3,896 |
+
+And it earns its keep: **2.2× faster, 1.9× cheaper** per request (see the provider table above).
+
+---
+
+## What is wrong
+
+**The router's justification is noise.** The outcome is right, the reasoning behind it is not:
+
+| metric | value |
 |---|---|
-| `pytest` | Test runner — 2259 tests covering routing (incl. benchmark-driven capability routing, semantic task classification, the runtime enable toggle, per-profile routing overrides, `unit_tests` taxonomy), budgets, alerts, cost estimation, auth enforcement, circuit breaker, encrypted credentials, provider plugins (DeepSeek, OpenCode, Command Code, Local LLM), the benchmark/import pipeline, the memory plugin, the component runtime, and the plugin system |
-| `pytest-cov` | Coverage reports — `pytest --cov=src --cov-report=term-missing` |
-| `pytest-mock` | Mocking utilities for the `unittest.mock` patch system |
+| top-1 vs top-2 intent-score margin | **median 0.0236** (p10 0.005, p90 0.046, max 0.281) |
+| decisions with margin < 0.05 | **91.7%** |
+| decisions with margin < 0.02 | **39.4%** |
+| `routing_min_score` gate | 0.35 — never fires; cosine sims sit ≥ 0.5 |
 
-## Test Coverage
+Mechanism: `bge-small-en-v1.5` cosine similarity against **8 global exemplar centroids**
+(`src/api/task_classifier.py`, `TASK_EXEMPLARS`). The labels are global, so an infrastructure-ops
+profile gets labelled `code_generation` 9,842 times, and the winner on the two-character message
+"Soo?" was `casual_chat`, whose exemplars are literally "hello" / "thanks!". The label is *stable*,
+not *separating*: the top five sit in a 0.11 band.
 
-**99% overall** — 9,489 of 9,505 statements covered (2259 tests, 15 deselected integration tests).
+**The rules engine is nearly unused.** `routing_rules` = 3 entries, all `prefer deepseek-v4-flash`
+**for `coder` only**; `rules_json` is `[]` on every l2 decision. `action=prefer` fired 157× against
+11,822 `reorder`s.
 
-Run: `.venv/bin/python -m pytest --cov=src --cov-report=term-missing -q`
+**Balances are collected and never used for routing (R12).** `fetch_balance()` exists in the cost
+plugins (`deepseek` → `/user/balance`; `opencode` → scraped; `commandcode` → always `None`, no public
+API) and `cost_cache.py` stores the payloads. The **only** place balance affects routing is
+`benchmark.py:770`, which treats `"insufficient balance"` as a fallback trigger. Balance data is
+fetched, cached, and ignored when choosing a lane.
 
-| Module | Coverage |
+**Config lives in two namespaces.** 11 `gateway_config:*` sections *plus* 6 bare `routing_*` keys.
+
+---
+
+## The plan
+
+| # | milestone | gate |
+|---|---|---|
+| M1 | **Confirm the cut list** and the removals-vs-module split | operator |
+| M2 | Profile-first UI — 15 pages → 5, one profile page as the entry point (R8/R2/R3/R4) | M1 |
+| M3 | Per-profile intents + the margin gate (R5, L2 below) | M1 |
+| M4 | Deterministic L0–L4 + the 5 invariants as tests (R6) | M3 |
+| M5 | Balance-aware ranking (R12) — needs a `commandcode` balance source (no public API today) | M4 |
+| M6 | Gate (R11) + alerts/budgets by subject (R10) | M4 |
+| M7 | Diagram observability (R7) + strip `conversation_json`, backfill `conversation_id` | M1 |
+| M8 | Obsolete LiveBench (R13); declared capabilities become the only source | M1 |
+
+M1 is the only gate. M2–M8 are independent of each other and of any repo/naming decision.
+
+---
+
+## The deterministic router (R6)
+
+Determinism means: **same request + same state ⇒ same decision**, reason recorded, replayable.
+
+```
+L0  HARD FILTER    drop candidates on capability mismatch, dead/degraded breaker,
+                   missing credential, G2/G3 floors.   (no scoring, no randomness)
+L1  EXPLICIT RULES priority-ordered, first non-empty layer wins:
+                   {priority, match:{profile, task, intent, tool, prompt_regex},
+                    action: pin | prefer | deny}
+                   ordered by (priority, rule index)
+L2  PER-PROFILE INTENT   score ONLY against this profile's declared intents (R5)
+                   gate: (top1 - top2) < intent_margin_gate  -> DO NOT REORDER
+L3  RANK           total order over survivors:
+                   (role_rank, -declared_quality, balance_headroom, cost_bias*cost, chain_index)
+                   chain_index is the FINAL tiebreak -> total order, no ties, no RNG
+L4  RECORD         {layer, rule_id, intent, margin, scores, balances, from, to, reason}
+                   one replayable row
+```
+
+Invariants — property tests, not examples:
+
+1. permuting the input pool never changes the winner unless `chain_index` decides it;
+2. replaying L4 on a recorded row reproduces the same winner;
+3. margin < gate ⇒ output == static chain head, always;
+4. no `random`, no wall-clock, no dict-iteration-order dependence anywhere in L0–L3;
+5. with all balances equal, the result equals the pre-balance-aware result (R12 is additive).
+
+The single highest-value change is L2's gate: it deletes the 39.4% of decisions that are currently
+coin flips, and costs nothing measurable — the move in [What is already
+right](#what-is-already-right) came from L1→L3 in the first place.
+
+---
+
+## The gate (R11)
+
+A preflight gate evaluated **before** the request is released to a provider:
+
+```
+G0 capability   model supports vision / context / thinking required by this request
+G1 breaker      target not dead/degraded
+G2 budget       profile + subject budgets have headroom        -> else deny or downgrade
+G3 balance      provider balance above its floor               -> else re-rank, not fail
+G4 intent gate  intent margin >= gate                          -> else keep static order
+-> PASS (carry the chosen lane) | DOWNGRADE (a named cheaper lane) | DENY (explicit code)
+```
+
+Every verdict is written to `routing_decisions` with its layer id, so the R7 diagram can show the
+gate outcome. It fails **loud** — an explicit code, never a silent pass, matching the existing
+`LCP-4001` style already in the codebase.
+
+---
+
+## Alerts and budgets by subject (R10)
+
+`alerts` today is subject-agnostic (`rule, severity, dedup_key, metadata_json, status,
+acknowledged`). Extend with `subject_type ∈ {provider, profile, api_key}` + `subject_id`, and give
+each subject its own page.
+
+| subject | what is watched | example |
+|---|---|---|
+| **provider** | balance, error rate, breaker state, spend rate | "commandcode balance < $5" |
+| **profile** | spend vs budget, tokens, blocked-tool attempts | "l2 over $40/day" |
+| **api_key** | spend, request rate, last used | "key X unused 30 days" |
+
+Budgets reuse the same three subjects. The existing `budgets` table is user/team-shaped (0 rows) and
+is replaced by this, not dropped as a capability.
+
+---
+
+## A profile document (R2/R3/R4)
+
+| field | today | simple-lcp |
+|---|---|---|
+| `intents` | 8 global labels, one shared taxonomy | **per-profile list**, each with exemplars |
+| `pool` | `chain` re-declaring `api_base` inline | ordered pool of **`model_registry` logical names**, each tagged `role`: workhorse / escalation / free-local |
+| `routing` | `routing_enabled`, `routing_policy`, `routing_min_score`, plus `routing_enabled:<profile>` keys in a *second* settings namespace | `mode: static \| dynamic` + `intent_margin_gate` + `cost_bias` + balance weights |
+| `breaker` | global thresholds only | per-profile override over its own pool |
+| `permissions` | `forbidden_tools` (fails open) | allow-list, fails closed |
+| `budget`/`alerts` | n/a | **not here** — R10 puts them on their own pages |
+| `surfaces` | separate top-level product (`work_*`, 3,645 LOC) | **module**, enabled per profile |
+
+---
+
+## UI target (R8)
+
+Measured today: **9 sidebar entries, 15 pages**, configuration spread across 5 of them.
+
+| today (page LOC) | after |
 |---|---|
-| `src/__init__.py` | 100% |
-| `src/api/__init__.py` | 100% |
-| `src/api/alert_manager.py` | 100% |
-| `src/api/benchmark.py` | 99% |
-| `src/api/benchmark_import.py` | 100% |
-| `src/api/circuit_breaker.py` | 100% |
-| `src/api/component.py` | 100% |
-| `src/api/config.py` | 100% |
-| `src/api/cost_cache.py` | 100% |
-| `src/api/cost_estimator.py` | 100% |
-| `src/api/cost_plugins/__init__.py` | 100% |
-| `src/api/cost_plugins/base.py` | 100% |
-| `src/api/cost_plugins/commandcode.py` | 99% |
-| `src/api/cost_plugins/commandcode_api.py` | 100% |
-| `src/api/cost_plugins/deepseek.py` | 97% |
-| `src/api/cost_plugins/llamacpp.py` | 100% |
-| `src/api/cost_plugins/opencode.py` | 97% |
-| `src/api/cost_plugins/opencode_api.py` | 100% |
-| `src/api/credential_store.py` | 100% |
-| `src/api/crypto.py` | 100% |
-| `src/api/exceptions.py` | 100% |
-| `src/api/key_manager.py` | 100% |
-| `src/api/livebench_tasks.py` | 100% |
-| `src/api/logging_config.py` | 100% |
-| `src/api/memory/__init__.py` | 100% |
-| `src/api/memory/base.py` | 100% |
-| `src/api/memory/embeddings.py` | 100% |
-| `src/api/memory/harness.py` | 100% |
-| `src/api/memory/lancedb_backend.py` | 100% |
-| `src/api/models.py` | 100% |
-| `src/api/prompt_cache.py` | 100% |
-| `src/api/reasoning_store.py` | 100% |
-| `src/api/request_pipeline.py` | 100% |
-| `src/api/router.py` | 99% |
-| `src/api/runtime.py` | 100% |
-| `src/api/seed_capabilities.py` | 100% |
-| `src/api/setup.py` | 100% |
-| `src/api/task_classifier.py` | 100% |
-| `src/api/token_verifier.py` | 100% |
-| `src/main.py` | 100% |
-| `src/server/__init__.py` | 100% |
-| `src/server/endpoints.py` | 100% |
-| `src/server/handler.py` | 100% |
-| `src/server/server.py` | 100% |
-| `src/server/sse_helpers.py` | 100% |
-| `src/ui/__init__.py` | 100% |
-| `src/ui/dashboard.py` | 100% |
-| `src/ui/pages.py` | 100% |
-| `src/ui/render.py` | 100% |
+| models 1,257 · dashboard 1,079 · usage 999 · providers 958 · work_tasks 550 · setup 404 · profiles 357 · logs 314 · work_cron 312 · alerts 174 · work_conversations 144 · keys 139 · work_fleet 135 · work_decisions 135 · work_config 131 | **Profiles · Providers & Models · Routing · Alerts & Budgets · Logs** (+ per-profile page as the entry point) |
 
-## API
+Per conversation, the R7 render target is one timeline — the shape to draw, not a log table:
 
-| Endpoint | Description |
+```
+message "Soo?"
+  gate      : PASS  (budget 82% headroom, provider healthy, capability match)
+  routing   : ON — profile l2, mode dynamic
+  intent    : casual_chat 0.7202 · margin 0.0236 · gate 0.05 → BELOW GATE → static order kept
+  pool      : opencode/flash (workhorse) · commandcode/flash (fast) · local-zgx (free)
+  balance   : opencode $12.40 · commandcode $3.05 · local-zgx n/a
+  choice    : commandcode  reason: L3 balance_term (most headroom of the two paid lanes)
+  result    : 4,120 in / 812 out · $0.021 · 3.4 s · tools 12 allowed / 0 blocked
+```
+
+Every field already exists in `routing_decisions` (20 columns), `requests` (16) and `conversations`.
+The work is **join + render + the two data fixes**, not new instrumentation.
+
+---
+
+## Removals (R1/R9/R13)
+
+| remove | measured footprint |
 |---|---|
-| `POST /{profile}/v1/chat/completions` | OpenAI-compatible chat completions |
-| `GET /health` | Provider health and circuit breaker status |
-| `GET /v1/models` | Available models across all providers |
-| `GET /` | Dashboard |
-| `GET /api/daily-costs` | JSON cost data |
-| `POST /api/keys` | Create API key |
-| `GET /api/keys` | List API keys |
-| `GET /api/models/benchmark/status` | Whether the benchmark runner is installed |
-| `GET /api/models/benchmark` | List benchmark runs (paginated: `?limit=&offset=&model=`) |
-| `POST /api/models/benchmark` | Queue a LiveBench run (direct-to-provider) |
-| `GET /api/models/benchmark/{id}` | Benchmark run detail |
+| LiveBench inside LCP (R13) | `benchmark.py` 906 + `benchmark_import.py` 466 + `livebench_tasks.py` 601 = **1,973 LOC** src, **1,314 LOC** tests, 2 migrations, 3 tables |
+| Phase 5 multi-tenant | `users`, `teams`, `budgets` schema + migration 002 |
+| `api_keys` (R9) | 11 rows, `key_manager.py` 306 LOC, `keys.html` 139 LOC |
+| `audit_logs` | schema + migration; replaced by the gate record |
+| `routing_judgments` | table (0 rows) — verify the 02:00 assessment's write target first |
+| `conversation_json` dual storage | **124 MB** of the 169 MB DB |
+| the `/work*` surface as a top-level product | 3,645 LOC python + ~1.5k LOC of Jinja pages → **module** |
+| `naptune-admin`, `career` profiles | 19 requests ever, between them |
 
-See [PLAN.md](PLAN.md) for the full API reference.
+---
 
-## Roadmap
+## Parked decisions
 
-### Shipped
-- OpenAI-compatible chat completions API (`/{profile}/v1/chat/completions`)
-- Profile-based routing with provider chains and automatic fallback
-- Circuit breaker — degraded (probed) and dead (skipped) provider states
-- Per-request cost tracking with DeepSeek cache hit/miss breakdown
-- Prompt prefix caching — deterministic message ordering for maximum cache-hit rate
-- Server-rendered dashboard — Chart.js, budget cards, provider health, alert badge
-- Budget system — per-profile and per-key budgets, unified spend tracking
-- Budget enforcement — pre-LLM block (HTTP 429), post-request spend increment + threshold alerts
-- Alerting — DB-persisted alerts, webhook dispatch, acknowledge/resolve, alert history page
-- API key management — create, rotate, revoke; per-key spend limits; profile access scoping
-- SSE streaming passthrough — real-time token delivery, no buffering
-- Provider plugins — DeepSeek (balance API), OpenCode (web API), Command Code (subscription usage API), llama.cpp (local /models)
-- Provider model discovery — auto-detect models from `/v1/models` with metadata
-- tiktoken integration — exact BPE token counts, pre-downloaded at build time
-- Startup observability — per-step timing logs in `docker logs`
-- Benchmark runner — opt-in LiveBench integration; queue runs against provider models and parse per-category scores into `model_capabilities`
-- Capability router — task classifier routes by benchmark-graded scores with a cost bias
-- Dynamic routing controls — runtime enable toggle (Providers → Routing), policies (`eager` / `cost_first` / `explore` + min-score floor), UI rules (`prefer` / `block` / `policy`), and a `unit_tests` task taxonomy derived from `code_generation`
+| # | decision | default |
+|---|---|---|
+| D1 | fork to a new repo vs branch in place | **done** — separate repo (`this one`), staging builds from it; prod stays on `aunttwister/lcp` |
+| D2 | per-profile API keys | **cut** (R9; 11 rows, no enforcement) |
+| D3 | where the work surface goes | **module** (a `plugins` block and the `/opt/lcp-modules` mount already exist) |
+| D4 | editing skills from LCP | browse + review only for now — `profiles` mounts read-only; the only writable work path is the cron-ops spool |
+| D5 | `commandcode` balance | no public API; needs a scraper or a manual override before M5 can rank it |
+| D6 | repo name | **`simple-lcp`** (the operator's words: *"we'll call it simple LCP"*) |
 
-### Scope boundary
-- **Credit limits** — already covered by per-key budgets (spend caps with hard-stop)
-- **Alerting** — already covered by the alert system (threshold breaches, webhooks)
-- **Multi-tenant teams/users** — out of scope. LCP stays a single-instance, single-org
-  gateway; we will not build org/team membership, per-user billing, or role management.
+---
 
-### Planned
-- Permission matrix — declarative `allow` / `block` / `blocked_globally` rules,
-  replaces tool stripping ([spec](features/permission-plugin.md))
-- Logging enhancements — structured request telemetry, token-usage logging
-  ([spec](features/logging-enhancements.md))
-- Provider health dashboard — richer uptime/health surfacing
-  ([spec](features/provider-health.md))
-- Memory module hardening — index management, hybrid FTS, time-decay, consolidation, tag auto-suggest, and a unified `/v1/memories` endpoint
-  ([spec](features/memory.md))
-- Dashboard enhancements — backlog from the original dashboard plan
-  ([spec](features/enhancements.md))
-- Rate limiting — *only if needed*: budgets already cap spend, but they do not
-  cap request frequency. A per-key/per-profile requests-per-minute limiter is a
-  separate feature, only worth building if throughput (not cost) becomes a concern.
+## Not established
 
-Full details in [PLAN.md](PLAN.md).
+- Whether anyone outside the homelab uses the public repo. Contributors from git history: aunttwister
+  ×465 + 2 agent commits.
+- Whether the 800 `unknown/unknown` requests are a routing defect or a logging gap.
+- Whether `routing_judgments` is truly unused (0 rows) or written by the 02:00 assessment outside this DB.
+- What "VSM" means to the operator — flow/sequence diagram of the request pipeline, or value-stream
+  map (queue time, wait states, handoff cost per stage). It changes the renderer, not the data.
 
-## Status
+---
 
-LCP runs continuously in production, routing all LLM traffic for a multi-agent homelab
-(6 Hermes profiles, 15+ custom skills, daily cron jobs) and serving as the LLM backend
-for daily VS Code Copilot usage. It handles approximately 200 requests per day across 5
-profiles with real cost tracking, budget enforcement, and alerting.
+## Running this repo as staging
 
-## AI Attribution
+The homelab staging instance serves **this tree** on port `8735`. Production is a different compose
+project on `8734` and must not be touched.
 
-This project was built with significant assistance from AI coding agents (Hermes Agent with
-DeepSeek V4). Architecture decisions, code, tests, and documentation were produced in
-collaboration between a human operator and AI. The bugs are mine; the architecture is ours.
+```bash
+cd /your/data/docker-apps/simple-lcp
 
-## License
+# refresh from this repo, then rebuild
+git pull
+docker compose -f docker-compose.staging.yml -p lcp-staging up -d --build   # never `down`/`stop`
 
-[GNU Affero General Public License v3.0](LICENSE) — you can use, modify, and
-distribute LCP freely. If you modify it and offer it as a network service
-(e.g. a hosted LLM gateway SaaS), you must make your modified source code
-available to users under the same license. This protects the project from
-being wrapped into proprietary services without contributing improvements
-back to the community.
+# verify
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8735/health
+```
+
+| property | value |
+|---|---|
+| compose project | `lcp-staging` |
+| container | `lcp-staging` |
+| host port | `8735` → container `8734` |
+| data volume | `/your/data/app/lcp-staging/data` (its own DB; not prod's) |
+| modules | `/your/data/app/lcp/modules` — shared with prod on purpose (~12 GB of installed deps) |
+| `.env` | required, git-ignored: `LCP_SECRET_KEY`, `LCP_MODELS_PATHS` |
+
+Read-only mounts (`board ledger`, task tree, profiles) and the writable cron-ops spool are documented
+inline in `docker-compose.staging.yml`.
+
+---
+
+## Provenance
+
+Written from the `simplify-lcp` task plan (`PLAN.md`, 2026-09-22, homelab-expert-l2 profile). Every
+number above was measured live against `costs.db` and the repo at `8016792`; nothing here is
+estimated. The two memos below are the operator's requirements in his own words and outrank any
+summary of them — including this one.
+
+
+---
+
+## Appendix A — memo 1, verbatim
+
+_Operator voice memo, 2026-09-22. Transcription, unedited apart from removing the speech-to-text prefix marker. Source: `homelab-expert-l2` session `20260922_140751_49233eb9`._
+
+> So, I'm trying to summarize the, you know, I'm reviewing LCP and I'm trying to summarize like the good parts and the bad parts. The parts that I want to focus on and the parts that were, you know, maybe a proof of concept or something like that. You know, certain things have been developed up until now, but I think it's time to, you know, drop them off. It's quite cheap to do that, you know. So, I was thinking, you know, to just say here the number of things or features I like about LCP and we're going to make it like, you know, compact or something, LCP, not compact, but it's going to be a true LCP or something like that, which is going to have only a subset of features, right? So first things first, like the, the, because I'm using Hermes so much, but this is not, I believe, necessarily, you know, related to Hermes. I would like to have a, you know, profile-based, you know, configuration setup, right now what we have in the nav bar is huge amounts of different configuration pages, types of configurations. It's all complicated and messed up. I feel like least human, you know, and UI for humans. So again, only the main, mainly making it for humans, but the UI is like, okay, you want to make a profile and profile, you want to define a pool of, you know, models slash providers, you want to define circuit breaker pattern, you know, with the models, you want to say whether this profile will be dynamically routed or statically routed via circuit breaker, you know, approach. Then, you know, promote profile, you're going to have tasks, you're going to have API keys. I think, you know, having API keys for multiple profiles is like, what the fuck? Is that necessary in my opinion? You know, stuff like that, cron jobs, tasks and et cetera, you know, so it's going to be, you know, and also we're going to pull skills, we're going to review skills. You know, edit them maybe and stuff like that. The idea is to give, you know, a user this clear experience into what profile is, what is profile consistent of, what is the intent to profile and purpose of the profile, et cetera. We're also going to define the intents for a certain profile, so for example, you know, for L2, we're going to define intents, you know, for code planning for this, but for some architect profile, we're going to define architecture planning and et cetera. So based on the profile, the dynamic router or this, you know, semantic embedded decision making for what's the intent of a message is going to also take into the account the available intents of a certain profile, so it can be more precise, right? Then the dynamic router is something that I really want to focus on. I feel like it's, you know, we're getting there, but it's not, you know, complete at all. There needs to be a certain, so to say, algorithm and like very deterministic way of how the rules are applied and how the things are, you know, how the merit to order to order lists or the sortation of, you know, different parameters that's going to decide in how and where the message is going to be routed, this list needs to be very deterministic, you know, and we are somewhere there, but not really, you know, it's not very clear yet, so we need to put more focus on that, observability, logs, I want, you know, decent logs, I want conversations, I want a conversation that starts from, you know, a message, you know, decision to make an intent, you know, see, I mean, I want to diagram literally that's going to be like message, dynamic routing is on or off if it's on, you know, decide was the intent, this is the intent is routed to this profile based on this, and then, you know, the message tool calls everything that, you know, Hermes already shows.
+
+---
+
+## Appendix B — memo 2, verbatim
+
+_Operator voice memo, 2026-09-22 (follow-up in the same thread). Transcription, unedited apart from removing the speech-to-text prefix marker._
+
+> I think alerts are okay. I do want to make some sort of, how to say, like, I forgot the word. Like some sort of gate, you know, before committing. I mean, Hermes already has a gate. But I want to, the goal of this is to have the control plane of Hermes or other LLM, whatever harness inside of this, you know, environment that's somehow my goal. It's like an admin panel. It's a control plane over it, you know. So, overall, if you can go on and create a task that's going to be like, hey, you should, you know, state all of these things. And I know that routing, dynamic routing is working, but I want to make it word class. I want to have a very deterministic, like, algorithm, you know. For example, in our dynamic routing, we're not taking into the account the available balances. You know, we're only reacting if, you know, we have insufficient balance. So, stuff like that, you know, we can, you know, if we have both open code and command code and blah blah blah, and other, you know, subscriptions, we can, you know, react differently. And, you know, aim at the, you know, one that has less balance or more balance and etcetera. So, make a task that's going to simplify LCP, call it like that. And then we're going to retire this LCP task, which is in progress. And this simplify LCP is going to be on L2, you know, expert profile task. And it's going to, yeah, it's going to have a description of the things that I just said or we just said are important. And then also the, you know, what we shall remove. Also, I don't know if I mentioned, so logs for observability and should be displayed in the manner that I said, like VSM diagrams, like it should be nice. It should be attractive to the eye. Like we should put effort there. Second, we need to have, I want to have alerts. I want to have budgets, but for a profile, for example, or provider or stuff like that. And then these budgets and alerts need to be set up on alerts page and budgets page. Not on, you know, profile or API key. That doesn't work like that. So, we need to have a different ways how to set alerts and budgets. So, we should say provider alert, not model, but provider alert. We need to say the, oh my God. The API key alert, profile alert. So, you know, for example, three different layers of alerts or ways or subjects of measurement, something like that. And then what else? Yeah, providers and models. We need to define the, you know, capability of a model. Livebench is good, but you know, testing a model on a livebench is insane via this app. Like, what the fuck? We should not do that. We should, you know, obsolete that in this new version. You know, we'll call it simple LCP. And yeah, we're just going to define, you know, the capabilities of different models that we decide. Then we select and that's all, you know. So yeah, make a task.

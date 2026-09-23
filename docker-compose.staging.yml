@@ -1,7 +1,8 @@
-# LCP REVIEW / STAGING INSTANCE — built from the feat/runboard-merge branch.
+# LCP STAGING INSTANCE — built from THIS repo: github.com/aunttwister/simple-lcp
 #
-# Purpose: let the admin inspect runboard-merge changes OUTSIDE production.
-# Prod (`lcp`, 8734) is untouched by this file.
+# Purpose: the staging line for the simple-lcp simplification. What runs on :8735 is this
+# working tree, so a change here is visible in staging after `git pull && up -d --build`.
+# Prod (`lcp`, 8734) is untouched by this file and keeps building from aunttwister/lcp.
 #
 # Deliberate differences from docker-compose.yml (ALL required to avoid
 # colliding with prod):
@@ -15,7 +16,8 @@
 # in normal operation writes there except the Setup page's module installer.
 #
 # NEVER run `down`/`stop` against the prod project from this file. Bring this
-# instance up with:
+# instance up with (from the simple-lcp checkout):
+#   cd /your/data/docker-apps/simple-lcp
 #   docker compose -f docker-compose.staging.yml -p lcp-staging up -d --build
 services:
   lcp-staging:
