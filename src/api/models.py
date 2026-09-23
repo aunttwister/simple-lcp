@@ -379,9 +379,10 @@ class RoutingDecision(Base):
     semantic_json = Column(Text, nullable=True)  # top-5 (task, score) JSON, or None
     min_score = Column(Float, nullable=True)  # semantic gate applied (plugins.router.min_score)
     sem_available = Column(Boolean, nullable=True)  # embedder was up when classified
-
-    # ── Input capture (routing judgment) ────────────────────────────────────
-    conversation_json = Column(Text, nullable=True)  # shape-preserving trimmed messages
+    # No transcript capture here. `conversation_json` used to hold a trimmed copy of the request
+    # messages: 101 MB of a 139 MB DB (73%), all of it duplicating what the harness's own session
+    # stores already hold. The text that drove the decision is in `intent_text` above, and the
+    # conversation key is `conversation_id`. Stripped in simplify-lcp M7 (alembic 021).
 
 
 class RoutingJudgment(Base):

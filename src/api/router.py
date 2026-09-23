@@ -713,7 +713,6 @@ class CapabilityRouter:
             "semantic_json": json.dumps(detail.semantic) if detail.semantic else None,
             "min_score": detail.min_score,
             "sem_available": detail.sem_available,
-            "conversation_json": json.dumps(_summarize_conversation(messages), ensure_ascii=False),
         }
 
     def _record_decision(self, decision: dict) -> None:
@@ -746,7 +745,6 @@ class CapabilityRouter:
                     semantic_json=decision.get("semantic_json"),
                     min_score=decision.get("min_score"),
                     sem_available=decision.get("sem_available"),
-                    conversation_json=decision.get("conversation_json"),
                 ))
                 session.commit()
         except Exception:  # noqa: BLE001 — persistence must never break routing
@@ -783,7 +781,6 @@ class CapabilityRouter:
                         "intent_text": r.intent_text,
                         "semantic_json": r.semantic_json,
                         "min_score": r.min_score, "sem_available": r.sem_available,
-                        "conversation_json": r.conversation_json,
                     } for r in rows]
         except Exception:  # noqa: BLE001 — fall back to in-memory
             pass

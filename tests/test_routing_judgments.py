@@ -13,8 +13,11 @@ def test_create_all_makes_judgment_table_and_columns(temp_db):
     _db_path, engine = temp_db
     cols = _columns(engine, "routing_decisions")
     for c in ("path", "keyword", "intent_text", "semantic_json",
-              "min_score", "sem_available", "conversation_json"):
+              "min_score", "sem_available"):
         assert c in cols, f"routing_decisions missing new column {c}"
+    # M7 stripped the transcript blob: 101 MB of a 139 MB DB, duplicating the
+    # harness's own session stores. It must not come back via create_all.
+    assert "conversation_json" not in cols
     assert sqlalchemy.inspect(engine).has_table("routing_judgments")
 
 

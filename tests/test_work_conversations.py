@@ -30,7 +30,7 @@ def db(tmp_path, monkeypatch):
             action VARCHAR NOT NULL, provider VARCHAR, model VARCHAR, score FLOAT,
             rules_json TEXT, from_provider VARCHAR, from_model VARCHAR, note TEXT,
             path VARCHAR, keyword VARCHAR, intent_text TEXT, semantic_json TEXT,
-            min_score FLOAT, sem_available BOOLEAN, conversation_json TEXT);
+            min_score FLOAT, sem_available BOOLEAN);
         CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
     """)
     con.commit()
@@ -49,12 +49,18 @@ def _req(con, ts, profile="l2", model="m", provider="p", **kw):
 
 
 def _route(con, ts, profile="l2", task="research", action="keep_default", **kw):
+    """Insert a routing decision.
+
+    ``intent=`` is the classified user instruction. It replaced the old
+    ``conversation_json=`` blob in simplify-lcp M7: that blob was 73% of the
+    DB, and the instruction it carried is already stored here.
+    """
     con.execute(
         "INSERT INTO routing_decisions (ts, profile, task, policy, action, "
-        "provider, model, score, conversation_json) VALUES (?,?,?,?,?,?,?,?,?)",
+        "provider, model, score, intent_text) VALUES (?,?,?,?,?,?,?,?,?)",
         (ts, profile, task, "policy", action, kw.get("provider", "opencode"),
          kw.get("model", "m"), kw.get("score", 0.8),
-         kw.get("conv", '[]')))
+         kw.get("intent", "")))
 
 
 class TestBackfill:
@@ -84,7 +90,7 @@ class TestBackfill:
 
     def test_routing_joins_request_window(self, db):
         rid = _req(db, "2026-09-19T10:00:00+00:00")
-        _route(db, "2026-09-19T10:00:30+00:00", conv="[]")
+        _route(db, "2026-09-19T10:00:30+00:00", intent="")
         db.commit()
         got = wc.backfill_conversations()
         assert got["requests"] == 1 and got["routing"] == 1
@@ -131,9 +137,8 @@ class TestSync:
     def test_generates_and_persists_name_summary(self, db):
         wc.ensure_schema()
         _req(db, "2026-09-19T10:00:00+00:00", profile="l2", model="a")
-        _route(db, "2026-09-19T10:00:30+00:00", conv=json.dumps(
-            [{"role": "user", "content": "Please analyze the zgx metrics now"}])
-        )
+        _route(db, "2026-09-19T10:00:30+00:00",
+               intent="Please analyze the zgx metrics now")
         db.commit()
         wc.backfill_conversations()
         got = wc.sync_conversations()
@@ -163,12 +168,8 @@ class TestSync:
     def test_task_based_name_when_no_text(self, db):
         wc.ensure_schema()
         _req(db, "2026-09-19T10:00:00+00:00", profile="l2", model="a")
-        _route(db, "2026-09-19T10:00:30+00:00", task="debugging",
-               conv=json.dumps([{"role": "tool", "content": "result"}])
-               )
-        _route(db, "2026-09-19T10:00:31+00:00", task="research",
-               conv=json.dumps([{"role": "tool", "content": "x"}])
-               )
+        _route(db, "2026-09-19T10:00:30+00:00", task="debugging", intent="")
+        _route(db, "2026-09-19T10:00:31+00:00", task="research", intent="")
         db.commit()
         wc.backfill_conversations()
         wc.sync_conversations()
@@ -182,7 +183,7 @@ class TestViews:
         _req(db, "2026-09-19T10:01:00+00:00", profile="l2", model="a")
         _req(db, "2026-09-19T11:00:00+00:00", profile="l1", model="b")
         _route(db, "2026-09-19T10:00:30+00:00", profile="l2", task="research",
-               conv=json.dumps([{"role": "user", "content": "hello there long prompt"}]))
+               intent="hello there long prompt")
         db.commit()
         wc.backfill_conversations()
         v = wc.conversations_view({"per": "10"})

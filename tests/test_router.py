@@ -1746,9 +1746,14 @@ def test_summarize_preserves_leading_user_request_instruction():
     assert detail.intent_text == "Start implementation"
 
 
-def test_record_decision_persists_rationale_and_conversation(registry_db):
-    import json
-    from src.api.router import CapabilityRouter, classify_task_detail, _extract_intent_text
+def test_record_decision_persists_rationale_without_the_transcript(registry_db):
+    """M7: the rationale survives; the transcript capture does not.
+
+    `conversation_json` held a trimmed copy of the request messages and was
+    101 MB of a 139 MB DB (73%), duplicating the harness's own session stores.
+    `intent_text` is what carries the driver, and it is what the check asserts.
+    """
+    from src.api.router import CapabilityRouter, classify_task_detail
     router = CapabilityRouter(enabled=True, db_path=registry_db)
     msgs = [{"role": "user", "content": "debug this traceback"}]
     detail = classify_task_detail(msgs)
@@ -1760,12 +1765,11 @@ def test_record_decision_persists_rationale_and_conversation(registry_db):
     decs = router.recent_decisions(5)
     assert decs and decs[0]["task"] == "debugging"
     assert decs[0]["path"] == "semantic"
-    assert decs[0]["intent_text"]
     assert decs[0]["note"] == "note here"
     assert decs[0]["profile"] == "l2"
-    assert decs[0]["conversation_json"]
-    conv = json.loads(decs[0]["conversation_json"])
-    assert _extract_intent_text(conv)[0] == "debug this traceback"
+    assert "debug this traceback" in decs[0]["intent_text"]
+    # the 101 MB field is gone from the record, not merely empty
+    assert "conversation_json" not in decs[0]
 
 
 # ── Deterministic routing: rule path == scoring path (unified resolver) ─────

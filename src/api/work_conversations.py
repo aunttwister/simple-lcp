@@ -183,10 +183,13 @@ def sync_conversations(force: bool = False) -> Dict[str, int]:
             head = None
             task = None
             route = con.execute(
-                "SELECT conversation_json, task FROM routing_decisions "
+                "SELECT task, intent_text FROM routing_decisions "
                 "WHERE conversation_id=? ORDER BY ts DESC LIMIT 1", (cid,)).fetchone()
             if route:
-                head = _conversation_head(route["conversation_json"])
+                # M7: the head comes from `intent_text` — the newest genuine user
+                # instruction the classifier saw — instead of from the old
+                # `conversation_json` transcript blob (73% of the DB, now gone).
+                head = (route["intent_text"] or "").strip() or None
                 task = route["task"]
             name = _generate_name(head, cid, task, r["last_seen"])
             summary = "%s · %d calls · $%.4f" % (
