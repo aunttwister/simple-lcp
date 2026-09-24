@@ -651,6 +651,11 @@ class LCPHandler(
         elif self.path.startswith("/api/chains/") and len(self.path.split("/")) == 4:
             profile = self.path.split("/")[3]
             self._serve_chain_reorder(profile)
+        elif self.path == "/api/profiles/mapping/seed":
+            # M2d: derive the lane -> agent-profile mapping and optionally store it.
+            # Must come before the generic /api/profiles/ branches: this path has
+            # five segments and would otherwise fall through to the 404 default.
+            self._serve_profile_mapping_seed()
         elif self.path.startswith("/api/profiles/") and self.path.endswith("/budget"):
             # PUT /api/profiles/{name}/budget
             parts = self.path.split("/")

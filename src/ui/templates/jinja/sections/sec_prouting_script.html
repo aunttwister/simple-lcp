@@ -1,0 +1,129 @@
+{#- M2d — script for the profile Routing tab (section: sec_prouting_script).
+
+    Talks to the routing endpoints the Models page already uses
+    (/api/routing/policy, /api/routing/rules), scoped to this profile by passing
+    `profile` in every body. Nothing new on the server: this is the same machinery,
+    reachable from where the profile it acts on is defined. -#}
+
+{% if tab == 'routing' %}
+<script id="prouting-init" type="application/json">{{ routing | tojson }}</script>
+<script>
+(function () {
+  // The section is not rendered for an agent profile (it owns no lane, so it owns no
+  // routing settings) — but this script is included with the page either way, and
+  // running it there would throw on the first missing node. Guard, then work.
+  if (!document.getElementById('prouRules')) return;
+  var ROUTING = JSON.parse(document.getElementById('prouting-init').textContent || '{}');
+  var PROFILE = ROUTING.profile || '';
+
+  function el(id) { return document.getElementById(id); }
+
+  function say(node, text, ok) {
+    if (!node) return;
+    node.textContent = text || '';
+    node.style.color = ok ? 'hsl(var(--green-fg))' : (text ? 'hsl(var(--red-fg))' : '');
+  }
+
+  // A rule is stored with the profile it applies to, so what this page writes can
+  // only ever affect this profile.
+  function renderRules() {
+    var rows = ROUTING.rules || [];
+    var html = '<table class="data-table prou-table"><thead><tr>' +
+      '<th>Task</th><th>Action</th><th>Provider</th><th>Model</th><th>Profile</th><th></th>' +
+      '</tr></thead><tbody>';
+    if (!rows.length) {
+      html += '<tr><td colspan="6" class="empty">No rules for this profile.</td></tr>';
+    }
+    rows.forEach(function (r, i) {
+      html += '<tr>' +
+        '<td class="mono">' + esc(r.task) + '</td>' +
+        '<td>' + esc(r.action) + '</td>' +
+        '<td class="mono">' + esc(r.provider) + '</td>' +
+        '<td class="mono">' + esc(r.model || '(any)') + '</td>' +
+        '<td class="mono">' + esc(r.profile || '(any profile)') + '</td>' +
+        '<td><button class="btn-sm" onclick="prouRemoveRule(' + i + ')">\u2715</button></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    el('prouRules').innerHTML = html;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c];
+    });
+  }
+
+  function persistRules() {
+    say(el('prouRuleStatus'), 'Saving\u2026');
+    api('POST', '/api/routing/rules', { rules: ROUTING.rules, profile: PROFILE })
+      .then(function (d) {
+        if (d && d.error) { say(el('prouRuleStatus'), d.error); return; }
+        say(el('prouRuleStatus'), 'Saved \u2014 applies to new requests immediately.', true);
+      })
+      .catch(function (e) { say(el('prouRuleStatus'), 'Save failed: ' + (e.message || e)); });
+  }
+
+  window.prouToggle = function (box) {
+    var on = box.checked;
+    say(el('prouPolicyStatus'), 'Saving\u2026');
+    api('POST', '/api/routing/policy', { enabled: on, profile: PROFILE }).then(function (d) {
+      if (d && d.error) {
+        say(el('prouPolicyStatus'), d.error);
+        box.checked = !on;  // put the switch back where it was
+        return;
+      }
+      el('prouEnabledLabel').textContent = on
+        ? 'ON \u2014 score the chain for every request'
+        : 'OFF \u2014 walk the chain in order';
+      say(el('prouPolicyStatus'), 'Saved.', true);
+    });
+  };
+
+  window.prouSavePolicy = function () {
+    var body = {
+      policy: el('prouPolicy').value,
+      min_score: parseFloat(el('prouMinScore').value) || 0,
+      profile: PROFILE
+    };
+    say(el('prouPolicyStatus'), 'Saving\u2026');
+    api('POST', '/api/routing/policy', body).then(function (d) {
+      say(el('prouPolicyStatus'), (d && d.error) ? d.error : 'Saved.', !(d && d.error));
+    });
+  };
+
+  window.prouClearOverride = function () {
+    if (!confirm('Drop this profile\u2019s routing settings and inherit the global ones?')) return;
+    api('POST', '/api/routing/policy', { profile: PROFILE, clear_profile: true }).then(function (d) {
+      if (d && d.error) { say(el('prouPolicyStatus'), d.error); return; }
+      location.reload();
+    });
+  };
+
+  window.prouAddRule = function () {
+    var task = (el('prouRuleTask').value || '').trim();
+    if (!task) { say(el('prouRuleStatus'), 'Name the task the rule matches (or * for all).'); return; }
+    el('prouRuleTask').value = '';
+    ROUTING.rules = (ROUTING.rules || []).concat([{
+      task: task,
+      action: el('prouRuleAction').value,
+      provider: el('prouRuleProvider').value || '*',
+      model: (el('prouRuleModel').value || '').trim(),
+      profile: PROFILE,
+      enabled: true
+    }]);
+    el('prouRuleModel').value = '';
+    renderRules();
+    persistRules();
+  };
+
+  window.prouRemoveRule = function (i) {
+    ROUTING.rules.splice(i, 1);
+    renderRules();
+    persistRules();
+  };
+
+  renderRules();
+})();
+</script>
+{% endif %}

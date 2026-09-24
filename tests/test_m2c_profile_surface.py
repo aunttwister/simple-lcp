@@ -378,11 +378,22 @@ def test_a_traversing_name_renders_the_not_found_page(cfg, engine, bad):
 
 
 def test_an_agent_profile_that_is_not_a_lane_is_labelled(cfg, engine, agent_root):
-    """Visible but not routable is a real state, and the page says which it is."""
+    """An agent profile that owns no lane says where its traffic actually goes.
+
+    M2d superseded the old label ("Agent profile, not a gateway lane"): the agent is
+    now described by its relationship to a lane — routed through one, or nowhere —
+    rather than by what it is not.
+    """
     from src.ui import pages
+    html = pages.render_profile_detail_page(cfg, engine, "blog-writer", {})
+    assert "routes through" in html and "l2" in html
+    assert "profile without an agent" not in html
+
     html = pages.render_profile_detail_page(cfg, engine, "lonely", {})
-    assert "Agent profile, not a gateway lane" in html
-    assert "no gateway lane" in html
+    assert "routes nowhere" in html
+    # and it is not framed as a profile with something missing
+    for bad in ("no agent directory", "not a gateway lane"):
+        assert bad not in html
 
 
 def test_a_bare_directory_is_not_a_profile(cfg, engine, profiles_root):
@@ -608,7 +619,11 @@ def test_an_agent_profile_is_reachable_and_shows_its_own_artefacts(cfg, engine, 
     html = pages.render_profile_detail_page(cfg, engine, "blog-writer", {"tab": "skills"})
     assert html.count('class="skill-row"') == 1
     assert "blog-writer-skill" in html
-    assert "Agent profile, not a gateway lane" in html
+    # M2d: the banner describes the profile by what it does. It used to lead with
+    # "Agent profile, not a gateway lane", which framed it by what it lacks.
+    assert "Agent profile <span class=\"mono\">blog-writer</span>" in html
+    assert "come from this profile's own directory" in html
+    assert "not a gateway lane" not in html
 
 
 def test_an_agent_profile_points_its_keys_at_the_lane_it_routes_through(cfg, engine, agent_root):
@@ -626,22 +641,47 @@ def test_a_lane_scopes_its_keys_to_itself(cfg, engine, agent_root):
     assert 'var KEY_SCOPE="l2";' in html
 
 
-def test_every_agent_profile_that_is_not_a_lane_still_gets_a_card(cfg, engine, agent_root):
+def test_every_hermes_profile_is_visible_somewhere_on_the_grid(cfg, engine, agent_root):
+    """The M2c invariant, kept through the M2d regrouping.
+
+    M2c listed every agent profile as its own card. M2d groups instead: the cards are
+    the LCP profiles, and the Hermes profiles no profile claims are listed under
+    "Hermes profiles without a profile of their own". What must NOT change is the
+    invariant underneath — no profile is silently dropped from the page.
+    """
     from src.ui import pages
     html = pages.render_profiles_page(cfg, engine, {})
-    names = re.findall(r'<span class="pc-name">([^<]+)</span>', html)
-    # lanes first (config order), then the other agent profiles
-    assert names[:2] == ["l2", "l1"]
-    assert "blog-writer" in names and "homelab-expert-l2" in names and "lonely" in names
-    # and the lane that borrows an agent profile says so on its card
-    assert "gateway lane \u00b7 agent homelab-expert-l2" in html
+    cards = re.findall(r'<span class="pc-name">([^<]+)</span>', html)
+    uncovered = re.findall(r'<span class="pu-name mono">([^<]+)</span>', html)
+
+    # cards are the LCP profiles, in config order — no agent-only names among them
+    assert cards[:2] == ["l2", "l1"]
+    assert "blog-writer" not in cards and "lonely" not in cards
+
+    # every Hermes profile in the fixture is accounted for: either it is the agent a
+    # card names, or it is a row in the uncovered list
+    assert "homelab-expert-l2" in html          # named as l2's agent
+    assert "blog-writer" in uncovered           # routes through someone else's lane
+    assert "lonely" in uncovered                # routes nowhere
+    for name in ("homelab-expert-l2", "blog-writer", "lonely"):
+        assert name in html, name
+
+    # the lane whose agent profile differs from its own name says which one it is
+    assert "homelab-expert-l2" in html and "Agent artefacts" in html
 
 
-def test_a_lane_with_no_agent_writeup_says_it_has_no_description(cfg, engine, agent_root):
+def test_a_profile_description_beats_the_agent_summary(cfg, engine, agent_root):
+    """The profile's own description wins; the agent's SOUL.md is the fallback.
+
+    Both halves matter. `l2` has a description of its own, so that is what its card
+    shows. An LCP-only profile has no description and no agent to borrow one from,
+    so its card offers to take one rather than showing another profile's words.
+    """
     from src.ui import pages
     html = pages.render_profiles_page(cfg, engine, {})
-    assert "No description yet" in html          # the coder lane
-    assert "homelab-expert-l2 agent for the house" in html   # the agent's own SOUL.md
+    assert "Routes the L2 homelab expert" in html            # l2's own description
+    assert "homelab-expert-l2 agent for the house" not in html  # not borrowed over it
+    assert "No description yet" in html                       # a profile with neither
 
 
 def test_an_agent_summary_drops_the_second_person(agent_root):

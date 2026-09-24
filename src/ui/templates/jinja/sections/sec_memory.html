@@ -22,7 +22,7 @@
 <div class="empty">
   <b>No memory files yet.</b>
   <div style="margin-top:0.25rem">{{ memory.reason }}.</div>
-  <div style="margin-top:0.5rem;font-size:0.75rem">Looked for <span class="mono">MEMORY.md</span> and <span class="mono">USER.md</span> in this profile's <span class="mono">memories/</span> directory.</div>
+  <div style="margin-top:0.5rem;font-size:0.75rem">{% if profile is defined and profile.kind == 'lcp_only' %}This profile has no agent behind it, so it carries no memory of its own &mdash; it exists to route for other things.{% else %}Looked for <span class="mono">MEMORY.md</span> and <span class="mono">USER.md</span> in this profile's <span class="mono">memories/</span> directory.{% endif %}</div>
 </div>
 {% endif %}
 </div>

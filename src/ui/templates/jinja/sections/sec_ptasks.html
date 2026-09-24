@@ -125,6 +125,11 @@
   <div class="empty">
     <strong>{{ view.empty.reason }}</strong><br>
     <span class="muted">{{ view.empty.hint }}</span>
+    {# M2d: an LCP-only profile has no task tree of its own, and that is what kind of
+       profile it is — not a profile with something missing. #}
+    {% if profile is defined and profile.kind == 'lcp_only' %}
+    <div style="margin-top:0.5rem;font-size:0.75rem">This profile has no agent behind it, so it has no task tree of its own &mdash; it exists to route for other things.</div>
+    {% endif %}
   </div>
 {% else %}
 

@@ -21,12 +21,14 @@
   <div style="margin-top:0.25rem">It is neither a gateway profile nor a directory under the profiles root.</div>
 </div>
 {% elif not profile.configured %}
+{# Only an agent profile that owns no gateway profile reaches this. It is described
+   by what it does — its artefacts come from its own directory, and its requests are
+   served by a lane — not by the absence of a lane of its own. #}
 <div class="empty" style="margin-bottom:1rem">
-  <b>Agent profile, not a gateway lane</b>
+  <b>Agent profile <span class="mono">{{ profile.name }}</span></b>
   <div style="margin-top:0.25rem">
-    Skills, memory, tasks and cron jobs come from this profile's own directory.{% if profile.lane %}
-    It routes through lane <span class="mono">{{ profile.lane }}</span>, so its API keys are that lane's.{% else %}
-    It names no gateway lane, so it has no API keys of its own.{% endif %}
+    Skills, memory, tasks and cron jobs come from this profile's own directory.
+    {% if profile.lane %}Its requests are routed by <a class="mono" href="/profiles/{{ profile.lane }}">{{ profile.lane }}</a>, which holds the API keys it calls with.{% else %}Its requests are not pointed at a gateway profile, so no chain serves it yet.{% endif %}
   </div>
 </div>
 {% endif %}
@@ -39,19 +41,39 @@
     {% if profile.words %}
     <p class="subtitle">{{ profile.description }}</p>
     {% else %}
-    <p class="subtitle pd-nodesc">{% if profile.kind == 'lane' %}No description yet — add one from Edit on the profiles list.{% else %}No summary in this profile's SOUL.md.{% endif %}</p>
+    {# M2d: a profile without an agent behind it is a different kind, not an incomplete
+       one — so it is offered a description rather than told it is missing a summary. #}
+    <p class="subtitle pd-nodesc">{% if profile.kind == 'lcp_only' %}No description yet &mdash; add one from Edit on the profiles list.{% elif profile.kind == 'profile' %}No description yet &mdash; add one from Edit on the profiles list.{% else %}No summary in this profile's SOUL.md.{% endif %}</p>
     {% endif %}
     <p class="pd-facts">
       <span>{{ profile.kind_label }}</span>
-      {% if profile.kind == 'lane' %}
-      {% if profile.agent %}<span class="pd-sep">·</span><span>artefacts: <a class="mono" href="/profiles/{{ profile.agent }}">{{ profile.agent }}</a></span>{% else %}<span class="pd-sep">·</span><span>no agent directory</span>{% endif %}
+      {% if profile.kind == 'lcp_only' %}
+      {# An LCP-only profile is a kind of profile, not one missing its agent: it says
+         what it does (routes, holds keys, has a chain) without apologising. #}
       <span class="pd-sep">·</span><span>{{ profile.auth_label }}</span>
       {% if profile.budget_label %}<span class="pd-sep">·</span><span>{{ profile.budget_label }}</span>{% endif %}
+      {% if profile.routing_label %}<span class="pd-sep">·</span><span>{{ profile.routing_label }} routing</span>{% endif %}
+      <span class="pd-sep">·</span><span class="mono">/{{ profile.name }}/chat/completions</span>
+      {% elif profile.kind == 'profile' %}
+      {% if profile.agent %}<span class="pd-sep">·</span><span>artefacts: <a class="mono" href="/profiles/{{ profile.agent }}">{{ profile.agent }}</a></span>{% endif %}
+      {% if profile.mapping_source == 'suggested' %}<span class="pd-sep">·</span><span class="pc-suggest">mapping read from that profile's config &mdash; confirm in Edit</span>{% endif %}
+      <span class="pd-sep">·</span><span>{{ profile.auth_label }}</span>
+      {% if profile.budget_label %}<span class="pd-sep">·</span><span>{{ profile.budget_label }}</span>{% endif %}
+      {% if profile.routing_label %}<span class="pd-sep">·</span><span>{{ profile.routing_label }} routing</span>{% endif %}
       <span class="pd-sep">·</span><span class="mono">/{{ profile.name }}/chat/completions</span>
       {% else %}
-      {% if profile.lane %}<span class="pd-sep">·</span><span>lane <span class="mono">{{ profile.lane }}</span></span>{% endif %}
+      {# An agent profile that owns no gateway profile: describe it by where its
+         traffic goes, which is the fact that matters about it. #}
+      {% if profile.lane %}<span class="pd-sep">·</span><span>routes through <span class="mono">{{ profile.lane }}</span> <a class="mono" href="/profiles/{{ profile.lane }}">(its chain)</a></span>{% else %}<span class="pd-sep">·</span><span>routes nowhere yet</span>{% endif %}
+      <span class="pd-sep">·</span><span>no chain of its own</span>
       {% endif %}
     </p>
+    {% if profile.routed_by %}
+    <p class="pd-note">Also routed here by {{ profile.routed_by|join(', ') }} &mdash; their traffic is served by this profile's chain.</p>
+    {% endif %}
+    {% if profile.intents %}
+    <p class="pd-note">Intents: {% for it in profile.intents %}<span class="pc-badge">{{ it }}</span> {% endfor %}</p>
+    {% endif %}
   </div>
   <div class="pd-avatar-actions">
     <input type="file" id="pdAvatarFile" accept="image/png,image/jpeg,image/webp" style="display:none">
@@ -76,12 +98,21 @@
 {% include "sections/sec_ptasks.html" %}
 {% include "sections/sec_cron.html" %}
 {% include "sections/sec_keys.html" %}
+{% include "sections/sec_prouting.html" %}
+{% include "sections/sec_pmodels.html" %}
 {% endblock %}
 
 {% block scripts %}
+{#- Config on init (M2d): the profile's configuration is sent with the page rather
+    than fetched by each tab. The tabs that edit it (Routing, Models) therefore start
+    from the declared values, and anything else on the page that needs to know how
+    this profile behaves has it without a round trip. -#}
+<script id="profile-config" type="application/json">{{ profile_config | tojson }}</script>
 {% include "sections/sec_ptasks_script.html" %}
 {% include "sections/sec_cron_script.html" %}
 {% include "sections/sec_keys_script.html" %}
+{% include "sections/sec_prouting_script.html" %}
+{% include "sections/sec_pmodels_script.html" %}
 <script>
 // ── Avatar upload (M2c) ──────────────────────────────────────────────────
 // The file is read in the browser and posted as base64 JSON: the server is a

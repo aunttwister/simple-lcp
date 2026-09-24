@@ -50,6 +50,10 @@ SECTION_TAB = {
     "sec_skills": "skills",
     "sec_memory": "memory",
     "sec_ptasks": "tasks",
+    # M2d: likewise level-3 only — the routing controls and the model pool act on one
+    # profile, which is what the level-3 page is.
+    "sec_prouting": "routing",
+    "sec_pmodels": "models",
 }
 
 NAV = ["/profiles", "/models", "/activity", "/usage", "/alerts", "/setup",

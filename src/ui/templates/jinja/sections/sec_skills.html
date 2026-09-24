@@ -52,7 +52,8 @@
 <div class="empty">
   <b>No skills to show.</b>
   <div style="margin-top:0.25rem">{{ skills.reason }}.</div>
-  <div style="margin-top:0.5rem;font-size:0.75rem">Skills live in this profile's <span class="mono">skills/</span> directory. LCP reads them; it does not install them.</div>
+  {# M2d: a profile without an agent behind it is a different kind, not a gap. #}
+  <div style="margin-top:0.5rem;font-size:0.75rem">{% if profile is defined and profile.kind == 'lcp_only' %}This profile has no agent behind it, so it has no skills of its own &mdash; it exists to route for other things.{% else %}Skills live in this profile's <span class="mono">skills/</span> directory. LCP reads them; it does not install them.{% endif %}</div>
 </div>
 {% endif %}
 </div>

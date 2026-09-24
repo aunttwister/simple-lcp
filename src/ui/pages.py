@@ -50,15 +50,19 @@ def _profile_budgets(engine) -> dict:
     return budgets
 
 
-def _profile_card(config, name, pcfg, budgets, agent="", lane="", kind="lane") -> dict:
-    """One card for the profiles grid (M2c).
+def _profile_card(config, name, pcfg, budgets, agent="", kind="profile",
+                  mapping_source="none", routed_by=None, lane="") -> dict:
+    """One card for the profiles grid (M2d).
 
-    Two kinds of card, one builder. A **lane** card is a gateway profile: a chain,
-    a gateway URL, API keys. An **agent** card is a directory that owns skills,
-    memory and a task tree but is not itself routed. They are different names for
-    related things — ``l2`` routes, ``homelab-expert-l2`` owns the artefacts — and
-    more than one agent profile can share a lane, so both kinds get a card and
-    neither name is presented as the whole story.
+    One kind of card, one builder, since M2d the grid is grouped by *what a profile
+    is* rather than by which side of the lane/agent link a name comes from:
+
+    * a **profile** declares the agent profile behind it (`agent_profile`) — the
+      gateway lanes that have an agent, whose skills, memory and task tree the card
+      leads to;
+    * an **lcp_only** profile is a gateway profile with no agent behind it. That is
+      a kind of profile, not an incomplete one: it routes, it holds API keys, it has
+      a chain. Nothing about it is missing.
 
     The description is clamped to ten words *here* rather than in CSS: a clamp that
     only exists in a stylesheet still ships the whole paragraph in the page source.
@@ -68,8 +72,8 @@ def _profile_card(config, name, pcfg, budgets, agent="", lane="", kind="lane") -
         pcfg = pcfg or {}
         desc = str(pcfg.get("description") or "").strip()
         if not desc and agent:
-            # No lane description written yet: the agent's own SOUL.md says what it
-            # is for, which is exactly what the card is asking.
+            # No description written yet: the agent's own SOUL.md says what it is
+            # for, which is exactly what the card is asking.
             desc = profile_data.agent_summary(agent)
         words = desc.split()
         short = " ".join(words[:10]) + ("\u2026" if len(words) > 10 else "")
@@ -85,17 +89,19 @@ def _profile_card(config, name, pcfg, budgets, agent="", lane="", kind="lane") -
         budget_label = ""
         if pb:
             budget_label = "$%.2f/$%.0f (%s%%)" % (pb["current_spend"], pb["amount"], pb["spend_pct"])
-        if kind == "lane":
-            kind_label = "gateway lane"
-            if agent:
-                kind_label += " \u00b7 agent " + agent
+        routing = str(pcfg.get("routing") or "static")
+        intents = list(pcfg.get("intents") or [])
+        # A routing mode is only a *choice* when there is more than one model to
+        # choose between; one step means the dynamic router has nothing to decide.
+        routing_effective = routing if len(chain) > 1 else "static"
+        if kind == "lcp_only":
+            kind_label = "profile without an agent"
         else:
-            kind_label = "agent profile"
-            if lane:
-                kind_label += " \u00b7 lane " + lane
-            else:
-                kind_label += " \u00b7 no lane"
-        # The photo belongs to a name; a lane whose artefacts live under an agent
+            kind_label = "profile"
+            if mapping_source == "suggested":
+                kind_label += " \u00b7 mapping suggested"
+        others = [n for n in (routed_by or []) if n != agent and n != name]
+        # The photo belongs to a name; a profile whose artefacts live under an agent
         # profile reads (and writes) that profile's picture rather than showing a
         # broken image at its own URL.
         avatar_name = name
@@ -107,8 +113,13 @@ def _profile_card(config, name, pcfg, budgets, agent="", lane="", kind="lane") -
             "href": "/profiles/" + name,
             "kind": kind,
             "kind_label": kind_label,
-            "lane": lane,
+            # `lane` is the gateway path a request arrives on. An LCP profile IS one
+            # (its name is the path segment); an agent profile that owns none has the
+            # lane it borrows; an LCP-only profile is a profile in its own right.
+            "lane": (lane if kind == "agent" else (name if kind == "profile" else "")),
             "agent": agent,
+            "mapping_source": mapping_source,
+            "routed_by": others,
             "description": desc,
             "short_description": short,
             "words": len(words),
@@ -117,40 +128,65 @@ def _profile_card(config, name, pcfg, budgets, agent="", lane="", kind="lane") -
             "auth_label": "key required" if auth_required else "public",
             "budget_label": budget_label,
             "chain_label": " \u2192 ".join(steps),
+            "chain_steps": len(steps),
+            "routing": routing,
+            "routing_effective": routing_effective,
+            "routing_label": "dynamic" if routing_effective == "dynamic" else "static",
+            "intents": intents,
+            "intents_label": ", ".join(intents) if intents else "",
         }
     except profile_data.BadProfileName:
         return None
 
 
-def _profile_cards(config, budgets) -> list:
-    """Every profile worth a card: the gateway lanes, then the agent profiles.
+def _profile_groups(config, budgets) -> dict:
+    """The profiles grid, grouped by what a profile is (M2d).
 
-    Lanes first because that is the order the page has always used and it is what
-    the gateway is configured with; the agent profiles that are not themselves
-    lanes follow, so a profile with skills, memory and a task tree is never
-    reachable only by guessing its name.
+    Three groups, and only the first two are LCP profiles:
+
+    ``declared``    — gateway profiles, each with the agent behind it. The mapping
+                      is the declared ``agent_profile`` when there is one; when there
+                      is not, the proposal derived from the Hermes side is shown and
+                      flagged, so a suggestion is never mistaken for a decision.
+    ``lcp_only``    — gateway profiles with no agent at all (they were created in
+                      LCP and route for other things). First-class, not incomplete.
+    ``uncovered``   — Hermes profiles no profile claims: the candidates the create
+                      flow offers. `routes_through` says where that profile's traffic
+                      goes today, which is the interesting part — a profile routing
+                      through someone else's profile is the one worth its own.
+
+    `effective` (declared, falling back to the proposal) is what decides coverage:
+    if a profile's card already presents an agent, that agent is not also "uncovered".
     """
     from ..api import profile_data
+    from ..api.config import validate_profile_fields
     profiles = config.profiles if (config is not None and hasattr(config, "profiles")) else {}
     lanes = list(profiles.keys())
     agents = profile_data.agent_profiles(lanes)
+    proposals = profile_data.mapping_suggestions(lanes, agents)
 
-    cards = []
+    declared, lcp_only, effective = [], [], {}
     for lane in lanes:
-        agent = profile_data.primary_agent_for_lane(lane, agents)
-        card = _profile_card(config, lane, profiles.get(lane), budgets,
-                             agent=agent, lane=lane, kind="lane")
+        pcfg = profiles.get(lane) or {}
+        try:
+            fields = validate_profile_fields(lane, pcfg)
+        except Exception:  # never blank the grid on one bad profile
+            fields = {"agent_profile": "", "routing": "static", "intents": [],
+                      "description": str(pcfg.get("description") or "")}
+        agent = fields["agent_profile"]
+        source = "declared"
+        if not agent:
+            agent = proposals.get(lane, "")
+            source = "suggested" if agent else "none"
+        effective[lane] = agent
+        card = _profile_card(config, lane, pcfg, budgets, agent=agent,
+                             kind="profile" if agent else "lcp_only",
+                             mapping_source=source,
+                             routed_by=profile_data.agents_for_lane(lane, agents))
         if card:
-            cards.append(card)
-    named = {c["name"] for c in cards}
-    for name in sorted(agents):
-        if name in named:
-            continue
-        card = _profile_card(config, name, {}, budgets,
-                             agent=name, lane=agents[name].get("lane", ""), kind="agent")
-        if card:
-            cards.append(card)
-    return cards
+            (declared if agent else lcp_only).append(card)
+    uncovered = profile_data.uncovered_agents(lanes, mapping=effective, agents=agents)
+    return {"declared": declared, "lcp_only": lcp_only, "uncovered": uncovered}
 
 
 def _logs_view(params) -> dict:
@@ -217,12 +253,19 @@ def render_profiles_page(config, engine=None, params=None) -> str:
     params = dict(params or {})
     tab = _tab(params, ("profiles", "config"), "profiles")
     budgets = _profile_budgets(engine)
+    groups = _profile_groups(config, budgets)
+    # Every Hermes profile directory, for the Edit modal's Agent Profile selector: a
+    # profile may legitimately be mapped to any of them, including the legacy copies.
+    from ..api import profile_data
     names = list(config.profiles.keys()) if (config is not None and hasattr(config, "profiles")) else []
+    agent_choices = sorted(profile_data.agent_profiles(names))
     crumbs = (_crumbs(("Profiles", "/profiles"), ("Config", None)) if tab == "config"
               else _crumbs(("Profiles", None)))
     ctx = {"active_page": "profiles", "tab": tab, "params": params,
            "profile_budgets": budgets,
-           "profile_cards": _profile_cards(config, budgets),
+           "profile_cards": groups["declared"] + groups["lcp_only"],
+           "profile_groups": groups,
+           "agent_choices": agent_choices,
            "crumbs": crumbs}
     if tab == "config":
         ctx["view"] = _work_config_view()
@@ -470,6 +513,139 @@ def render_work_conversations_page(config, engine=None, params=None) -> str:
                        active_page="work_conversations", view=view)
 
 
+def _profile_config_payload(config, name, pcfg) -> dict:
+    """The profile's declared configuration, as the page init payload carries it.
+
+    Normalised through the same contract the config loader and the write API use, so
+    the payload cannot describe a profile differently from the way it is stored.
+    """
+    from ..api.config import validate_profile_fields
+    try:
+        fields = validate_profile_fields(name, pcfg or {})
+    except Exception:
+        fields = {"agent_profile": "", "routing": "static", "intents": [],
+                  "description": ""}
+    chain = (pcfg or {}).get("chain", []) or []
+    steps = []
+    for st in chain:
+        if isinstance(st, dict):
+            steps.append({"provider": st.get("provider", ""), "model": st.get("model", ""),
+                          "base_url": st.get("base_url", "")})
+    return {
+        "name": name,
+        "agent_profile": fields["agent_profile"],
+        "routing": fields["routing"],
+        "intents": fields["intents"],
+        "description": fields["description"],
+        "auth_required": bool((pcfg or {}).get("auth_required", True)),
+        "forbidden_tools": list((pcfg or {}).get("forbidden_tools", []) or []),
+        "chain": steps,
+        "chain_steps": len(steps),
+    }
+
+
+def _profile_routing_view(config, name) -> dict:
+    """The Routing tab's view: this profile's effective dynamic-routing settings.
+
+    The router already computes them and already scopes them per profile
+    (`routing_enabled:<profile>`, `routing_policy:<profile>`,
+    `routing_min_score:<profile>`, `routing_rules:<profile>`), so this reads that
+    rather than re-deriving anything. `has_override` is the honest part: it says
+    whether what you are looking at is a decision made for this profile or the
+    global default inherited by it.
+    """
+    out = {"available": False, "profile": name, "enabled": None, "policy": "",
+           "min_score": None, "rules": [], "has_override": False,
+           "tasks": [], "decisions": [], "reason": ""}
+    try:
+        from ..api.router import routing_status
+        status = routing_status(config) or {}
+    except Exception as e:
+        out["reason"] = "%s: %s" % (type(e).__name__, e)
+        return out
+    per_profile = (status.get("per_profile") or {}).get(name)
+    if per_profile is None:
+        out["reason"] = "the router has no entry for this profile"
+        return out
+
+    # Every value is coerced to a JSON primitive here because the view is embedded in
+    # a <script type="application/json"> block: one non-serialisable value (a router
+    # that returned a Decimal, a settings object, anything) would break the page
+    # rather than the value. The coercion is cheap; the failure it prevents is not.
+    def _str(v):
+        return "" if v is None else str(v)
+
+    def _num(v):
+        try:
+            return round(float(v), 4)
+        except (TypeError, ValueError):
+            return None
+
+    rules = []
+    for r in (per_profile.get("rules") or []):
+        if not isinstance(r, dict):
+            continue
+        rules.append({k: (_str(v) if not isinstance(v, (int, float, bool)) else v)
+                      for k, v in r.items()})
+
+    out.update({
+        "available": True,
+        "enabled": bool(per_profile.get("enabled")),
+        "policy": _str(per_profile.get("policy")),
+        "min_score": _num(per_profile.get("min_score")),
+        "rules": rules,
+        "has_override": bool(per_profile.get("has_override")),
+        "tasks": [str(t) for t in sorted(
+            set((status.get("per_task") or {}).keys())
+            | {str(r.get("task")) for r in rules if r.get("task") and r.get("task") != "None"})],
+    })
+    decisions = []
+    for d in (status.get("recent_decisions") or []):
+        if not isinstance(d, dict) or d.get("profile") != name:
+            continue
+        decisions.append({k: (_str(v) if not isinstance(v, (int, float, bool)) else v)
+                          for k, v in d.items()})
+    out["decisions"] = decisions[:12]
+    out["providers"] = [str(p) for p in sorted(status.get("providers") or [])]
+    return out
+
+
+def _profile_pool_view(config, name) -> dict:
+    """The Models tab's view: the chain, and everything it could be picked from.
+
+    The pool *is* the chain — the router scores exactly these `(provider, model)`
+    steps — so there is no second list to drift out of sync. What is new is that the
+    chain is presented as a selection from the registry: every provider, every model
+    it offers, and whether that provider's key is present (a model you cannot call is
+    worth seeing, marked, rather than hidden).
+    """
+    profiles = config.profiles if (config is not None and hasattr(config, "profiles")) else {}
+    pcfg = profiles.get(name) or {}
+    catalogue = []
+    providers = config.providers if (config is not None and hasattr(config, "providers")) else {}
+    import os
+    for pname in sorted(providers or {}):
+        pdata = providers[pname] or {}
+        env_var = pdata.get("api_key_env") or ""
+        models = []
+        for m in (pdata.get("models") or []):
+            models.append(str(m))
+        catalogue.append({
+            "provider": pname,
+            "api_base": pdata.get("api_base", ""),
+            "models": models,
+            "has_key": bool(os.environ.get(env_var)) if env_var else True,
+            "key_env": env_var,
+        })
+    chain = []
+    for st in (pcfg.get("chain") or []):
+        if isinstance(st, dict):
+            chain.append({"provider": st.get("provider", ""), "model": st.get("model", "")})
+    return {"chain": chain, "catalogue": catalogue,
+            "providers": [c["provider"] for c in catalogue],
+            "model_count": sum(len(c["models"]) for c in catalogue)}
+
+
 def render_profile_detail_page(config, engine=None, name=None, params=None) -> str:
     """Render one profile — level 3 of the profile surface (M2c).
 
@@ -487,7 +663,8 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     from ..api import profile_data
 
     params = dict(params or {})
-    tab = _tab(params, ("skills", "memory", "tasks", "cron", "keys"), "skills")
+    tab = _tab(params, ("skills", "memory", "tasks", "cron", "keys",
+                        "routing", "models"), "skills")
     wanted = (name or "").strip()
     profiles = config.profiles if (config is not None and hasattr(config, "profiles")) else {}
     try:
@@ -511,21 +688,49 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     artefacts = agent or wanted
 
     budgets = _profile_budgets(engine)
-    card = _profile_card(config, wanted, profiles.get(wanted), budgets,
-                         agent=agent, lane=lane, kind=kind or "lane") if kind else None
+    if not kind:
+        card = None
+    elif kind == "lane":
+        # An LCP profile: what the grid shows for it, including whether the mapping
+        # to an agent is declared or only derived from the Hermes side.
+        pcfg = profiles.get(wanted) or {}
+        from ..api.config import validate_profile_fields
+        try:
+            declared = validate_profile_fields(wanted, pcfg)["agent_profile"]
+        except Exception:
+            declared = ""
+        shown = declared or agent
+        card = _profile_card(config, wanted, pcfg, budgets, agent=shown,
+                             kind="profile" if shown else "lcp_only",
+                             mapping_source="declared" if declared else ("suggested" if shown else "none"),
+                             routed_by=profile_data.agents_for_lane(wanted, agents))
+    else:
+        # An agent profile directory that is not itself a gateway profile. It owns a
+        # skills tree, memory and tasks — but no chain, so the Routing and Models tabs
+        # describe that rather than offering controls that would write a chain onto a
+        # name that is not a profile.
+        card = _profile_card(config, wanted, {}, budgets, agent=wanted, kind="agent",
+                             lane=lane)
     exists = card is not None
     if card is None:
         profile = {"name": wanted, "exists": False, "configured": False, "initials": "?",
                    "avatar": False, "avatar_name": wanted, "words": 0, "description": "",
                    "short_description": "", "kind": "", "kind_label": "", "lane": "", "agent": "",
-                   "auth_label": "", "budget_label": "", "chain_label": ""}
+                   "auth_label": "", "budget_label": "", "chain_label": "",
+                   "routing_label": "", "intents": [], "chain_steps": 0, "mapping_source": ""}
     else:
         profile = dict(card)
         profile["exists"] = True
-        profile["configured"] = kind == "lane"
+        # `configured` means "this is a gateway profile" — not which kind of gateway
+        # profile it is. An agent-only directory is the one that is not.
+        profile["configured"] = kind in ("profile", "lcp_only")
 
     labels = (("skills", "Skills"), ("memory", "Memory"), ("tasks", "Tasks"),
-              ("cron", "Cron"), ("keys", "API Keys"))
+              ("cron", "Cron"), ("keys", "API Keys"),
+              # M2d: how this profile routes (the toggle, policy, min-score and the
+              # rules that act on its chain) and what it may choose from (the chain,
+              # picked from every registered provider and model).
+              ("routing", "Routing"), ("models", "Models"))
     tabs = [{"id": tid, "label": lbl, "count": None, "active": tid == tab,
              "href": "/profiles/%s?tab=%s" % (wanted, tid)} for tid, lbl in labels]
     tab_label = dict(labels).get(tab, "Profile")
@@ -533,6 +738,14 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     ctx = {"active_page": "profiles", "tab": tab if exists else "missing",
            "params": params, "profile": profile, "tabs": tabs, "tab_label": tab_label,
            "key_scope": lane or wanted,
+           # M2d: the profile's own configuration travels with the page. Every tab
+           # gets it in the initial payload, so nothing has to re-fetch what the
+           # server already knows at render time — and a tab that edits it (Routing,
+           # Models) starts from the declared values rather than from a guess.
+           # Only a gateway profile has this: an agent profile directory is not a
+           # routing entry, so its payload is empty by design.
+           "profile_config": _profile_config_payload(config, wanted, profiles.get(wanted))
+           if wanted in profiles else {},
            "crumbs": (_crumbs(("Profiles", "/profiles"),
                               (wanted, "/profiles/" + wanted), (tab_label, None))
                       if exists else _crumbs(("Profiles", "/profiles"), ("Not found", None)))}
@@ -555,6 +768,16 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
         ctx["view"] = _profile_tasks_view(artefacts, params)
     elif tab == "cron":
         ctx["view"] = _work_cron_view({"profile": artefacts or wanted})
+    elif tab == "routing":
+        ctx["routing"] = (_profile_routing_view(config, wanted) if wanted in profiles
+                          else {"available": False, "profile": wanted, "rules": [],
+                                "reason": "this is an agent profile, not a gateway "
+                                          "profile, so it has no routing settings of "
+                                          "its own"})
+    elif tab == "models":
+        ctx["pool"] = (_profile_pool_view(config, wanted) if wanted in profiles
+                       else {"chain": [], "catalogue": [], "providers": [],
+                             "model_count": 0})
     # The API Keys tab fetches /api/keys itself and filters rows against
     # `key_scope` — the section is the same interactive one the global keys page
     # used, so create/show/revoke keep working per profile.

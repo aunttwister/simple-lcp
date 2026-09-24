@@ -1370,6 +1370,17 @@ class ProviderEndpoints:
         if not isinstance(new_chain, list):
             self._send_json({"error": "missing 'chain' list"}, 400)
             return
+        # A profile cannot end up with no models. The config loader requires every
+        # profile to keep a non-empty chain, and a stored section that fails
+        # validation makes the loader fall back to the seed — which would silently
+        # replace every real profile with the defaults. Refusing the write here keeps
+        # that state unreachable, instead of discovering it at the next restart.
+        if not new_chain:
+            self._send_json({
+                "error": "a profile needs at least one model in its chain; "
+                         "add a step instead of removing the last one"
+            }, 400)
+            return
         # Preserve base_url from existing chain entries
         old_chain = cfg.raw["profiles"][profile].get("chain", [])
         old_by_prov = {}
@@ -1401,7 +1412,15 @@ class ProfileEndpoints:
     _read_body: Any
 
     def _serve_profiles_list(self):
-        """Return all profiles with their gateway URLs."""
+        """Return all profiles with their gateway URLs.
+
+        Since M2d the list also carries what the profile *is*: the agent profile it
+        declares (`agent_profile`), the routing mode, and its intents. The declared
+        mapping is authoritative — a lane with no mapping is a lane of its own kind
+        (an LCP-only profile), not a lane with something missing. A lane that has
+        none yet gets a `suggested_agent_profile` derived from the Hermes side, which
+        the UI offers as a one-click confirm rather than applying silently.
+        """
         profiles = {}
         host = self.headers.get("Host", "localhost:8735")
         scheme = "https" if (
@@ -1410,7 +1429,13 @@ class ProfileEndpoints:
         ) else "http"
         base = f"{scheme}://{host}"
         from ..api import profile_data
+        from ..api.config import validate_profile_fields
+        lanes = list(self.config.profiles.keys())
+        agents = profile_data.agent_profiles(lanes)
+        suggestions = profile_data.mapping_suggestions(lanes, agents)
         for pname, pcfg in self.config.profiles.items():
+            fields = validate_profile_fields(pname, pcfg)
+            declared = fields["agent_profile"]
             profiles[pname] = {
                 "chain": pcfg.get("chain", []),
                 "url": f"{base}/{pname}/chat/completions",
@@ -1419,10 +1444,62 @@ class ProfileEndpoints:
                 # M2c: the card's description and its picture slot. The list is
                 # what the Edit modal reads, so the field has to be here for the
                 # modal to round-trip it.
-                "description": pcfg.get("description", ""),
+                "description": fields["description"],
                 "avatar": bool(profile_data.avatar_for(pname)),
+                # M2d: what this profile is, declared.
+                "agent_profile": declared,
+                "routing": fields["routing"],
+                "intents": fields["intents"],
+                # Who else sends traffic here (read from the Hermes side). The
+                # declared agent is whose artefacts the profile presents; these are
+                # the other callers, which is information, not a defect.
+                "routed_by": profile_data.agents_for_lane(pname, agents),
+                "suggested_agent_profile": "" if declared else suggestions.get(pname, ""),
             }
         self._send_json({"profiles": profiles})
+
+    def _serve_profile_mapping_seed(self):
+        """POST /api/profiles/mapping/seed {"apply": bool}
+
+        Derive the lane -> agent-profile mapping from the Hermes side and, when
+        ``apply`` is true, store it. Proposals are what each agent profile's own
+        config says (its gateway base URL ends in the lane), which is the only place
+        the link is written down today — so this runs once to seed the declared
+        field, and is then idempotent: an existing declaration is never overwritten,
+        because a hand-set mapping beats a derived one.
+        """
+        try:
+            body = self._read_body()
+        except Exception:
+            body = {}
+        apply_changes = bool(body.get("apply"))
+        from ..api import profile_data
+        cfg = self.config
+        lanes = list(cfg.profiles.keys())
+        agents = profile_data.agent_profiles(lanes)
+        suggestions = profile_data.mapping_suggestions(lanes, agents)
+        applied, kept, derived_blank = {}, {}, []
+        for lane in lanes:
+            current = (cfg.raw["profiles"].get(lane) or {}).get("agent_profile", "") or ""
+            proposal = suggestions.get(lane, "")
+            if current:
+                kept[lane] = current
+                continue
+            if not proposal:
+                derived_blank.append(lane)
+                continue
+            applied[lane] = proposal
+            if apply_changes:
+                cfg.raw["profiles"].setdefault(lane, {})["agent_profile"] = proposal
+        if apply_changes and applied:
+            cfg.save()
+        self._send_json({
+            "ok": True,
+            "applied": applied,
+            "already_declared": kept,
+            "no_agent_found": derived_blank,
+            "applied_to_disk": bool(apply_changes and applied),
+        })
 
     def _serve_profile_create(self):
         try:
@@ -1438,10 +1515,38 @@ class ProfileEndpoints:
         if name in cfg.profiles:
             self._send_json({"error": f"profile '{name}' already exists"}, 409)
             return
-        cfg.raw["profiles"][name] = {
-            "chain": [],
-            "forbidden_tools": [],
+        # M2d: a profile is created *from* an uncovered Hermes profile — that is
+        # what the create flow offers — so `agent_profile` is what the caller
+        # picked, and it is validated like any other write (a name that could not
+        # be loaded must not be storable).
+        from ..api.config import validate_profile_fields, ConfigError
+        # The chain starts as a copy of the default profile's. It cannot start empty:
+        # the config loader requires every profile to have a non-empty chain, and a
+        # stored section that fails validation makes the loader fall back to the
+        # seed — which would silently replace every real profile with the defaults.
+        default_name = (cfg.raw.get("server") or {}).get("default_profile") or ""
+        donor = cfg.raw["profiles"].get(default_name) or {}
+        seeded_chain = [dict(step) for step in (donor.get("chain") or [])]
+        draft = {
+            "chain": seeded_chain,
+            "forbidden_tools": list(donor.get("forbidden_tools") or []),
+            "agent_profile": body.get("agent_profile", "") or "",
+            "routing": body.get("routing", "static") or "static",
+            "intents": body.get("intents", []) or [],
+            "description": body.get("description", "") or "",
         }
+        if not draft["chain"]:
+            self._send_json({
+                "error": "cannot create a profile: no chain to seed it with "
+                         f"(default profile '{default_name or 'unset'}' has none)"
+            }, 409)
+            return
+        try:
+            fields = validate_profile_fields(name, draft)
+        except ConfigError as exc:
+            self._send_json({"error": str(exc)}, 400)
+            return
+        cfg.raw["profiles"][name] = dict(fields)
         cfg.save()
         self._send_json({"ok": True, "profile": name})
 
@@ -1472,6 +1577,23 @@ class ProfileEndpoints:
                 self._send_json({"error": "description must be a string"}, 400)
                 return
             pcfg["description"] = desc.strip()[:120]
+        # M2d fields: agent_profile / routing / intents. Validated through the same
+        # contract the config loader uses, so a stored value is always a loadable one
+        # (a value the loader would reject makes the whole profiles section fall back
+        # to the seed, which would be silent and severe).
+        if any(k in body for k in ("agent_profile", "routing", "intents")):
+            from ..api.config import validate_profile_fields, ConfigError
+            candidate = dict(pcfg)
+            for key in ("agent_profile", "routing", "intents"):
+                if key in body:
+                    candidate[key] = body[key]
+            try:
+                fields = validate_profile_fields(name, candidate)
+            except ConfigError as exc:
+                self._send_json({"error": str(exc)}, 400)
+                return
+            for key in ("agent_profile", "routing", "intents"):
+                pcfg[key] = fields[key]
         cfg.save()
         self._send_json({"ok": True, "profile": name})
 

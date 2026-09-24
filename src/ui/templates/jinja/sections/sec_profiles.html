@@ -7,9 +7,17 @@
   <button class="btn-sm btn-primary" onclick="openAddProfile()">+ Add Profile</button>
 </div>
 
+{# M2d — the grid is grouped by what a profile is, not by which name it came from.
+
+   profile_cards = the gateway profiles: those with an agent behind them (declared
+   `agent_profile`, or a suggestion derived from the Hermes side and flagged as such)
+   plus the LCP-only ones. Both are LCP profiles: editable, routable, key-bearing.
+   The LCP-only card says "profile without an agent" and nothing more — having no
+   skills directory is a property of that kind, not a gap. #}
+{% if profile_cards %}
 <div class="profile-grid">
   {% for c in profile_cards %}
-  <div class="profile-card">
+  <div class="profile-card{% if c.kind == 'lcp_only' %} pc-lcp-only{% endif %}">
     <a class="pc-head" href="{{ c.href }}">
       <span class="pc-avatar">
         {% if c.avatar %}<img src="/api/profiles/{{ c.avatar_name }}/avatar" alt="">{% else %}<span class="pc-initials">{{ c.initials }}</span>{% endif %}
@@ -21,30 +29,63 @@
     </a>
     {% if c.words %}
     <p class="pc-desc" title="{{ c.description }}">{{ c.short_description }}</p>
-    {% elif c.kind == 'lane' %}
-    <p class="pc-desc pc-desc-empty">No description yet &mdash; add one from Edit.</p>
     {% else %}
-    <p class="pc-desc pc-desc-empty">No summary in this profile's SOUL.md.</p>
+    <p class="pc-desc pc-desc-empty">No description yet &mdash; add one from Edit.</p>
     {% endif %}
-    {% if c.kind == 'lane' and c.chain_label %}<div class="pc-chain" title="{{ c.chain_label }}">{{ c.chain_label }}</div>{% endif %}
+    <div class="pc-badges">
+      <span class="pc-badge">{{ c.routing_label }} routing</span>
+      <span class="pc-badge">{{ c.chain_steps }} model{% if c.chain_steps != 1 %}s{% endif %}</span>
+      {% if c.intents %}<span class="pc-badge">{{ c.intents|length }} intent{% if c.intents|length != 1 %}s{% endif %}</span>{% endif %}
+    </div>
+    {% if c.chain_label %}<div class="pc-chain" title="{{ c.chain_label }}">{{ c.chain_label }}</div>{% endif %}
+    {% if c.agent %}
+    <div class="pc-agent">
+      Agent artefacts: <b>{{ c.agent }}</b>
+      {% if c.mapping_source == 'suggested' %}<span class="pc-suggest">read from that profile's config &mdash; confirm in Edit</span>{% endif %}
+    </div>
+    {% else %}
+    <div class="pc-agent pc-agent-none">No agent behind it &mdash; this profile routes for other things.</div>
+    {% endif %}
+    {% if c.routed_by %}<div class="pc-routed">Also routed here by {{ c.routed_by|join(', ') }}</div>{% endif %}
     <div class="pc-foot">
-      {% if c.kind == 'lane' %}
       <span class="pc-url mono" title="Gateway URL">/{{ c.name }}/chat/completions</span>
       <span class="pc-actions">
         <button class="btn-sm" onclick="editProfile('{{ c.name }}')">Edit</button>
         <button class="btn-sm btn-danger" onclick="deleteProfile('{{ c.name }}')">Delete</button>
       </span>
-      {% else %}
-      {# An agent profile is a directory, not a routing entry: there is nothing to
-         edit or delete here, only to open. #}
-      <span class="pc-url mono" title="Profile directory">{{ c.name }}/</span>
-      <span class="pc-actions"><a class="btn-sm" href="{{ c.href }}">Open</a></span>
-      {% endif %}
     </div>
   </div>
   {% endfor %}
 </div>
-{% if not profile_cards %}<div class="empty">No profiles configured yet.</div>{% endif %}
+{% else %}<div class="empty">No profiles configured yet.</div>{% endif %}
+
+{% set uncovered_agents = (profile_groups or {}).get('uncovered', []) %}
+{# Hermes profiles no profile claims — and therefore exactly what the create flow
+   offers. `routes_through` is where that profile's traffic goes today; a profile
+   routing through someone else's is the interesting one, and the reason this list
+   is worth showing rather than hiding in a dropdown. #}
+<div class="profile-uncovered" id="profileUncovered">
+  <h2 class="pu-title">Hermes profiles without a profile of their own
+    <span class="pu-count">{{ uncovered_agents|length }}</span>
+  </h2>
+  <p class="pu-hint">Creating a profile starts from one of these, so this is what the create flow offers.</p>
+  {% if uncovered_agents %}
+  <ul class="pu-list">
+    {% for u in uncovered_agents %}
+    <li class="pu-row">
+      <span class="pu-name mono">{{ u.name }}</span>
+      {% if u.routes_through and u.lane_served %}<span class="pu-route">routes through <b>{{ u.routes_through }}</b></span>
+      {% elif u.routes_through %}<span class="pu-route pu-unserved" title="No profile serves this lane, so the gateway answers this profile's requests with 400 unknown profile in path">routes through <b>{{ u.routes_through }}</b> &mdash; no profile serves it</span>
+      {% else %}<span class="pu-route pu-none">routes nowhere</span>{% endif %}
+      <span class="pu-sum" title="{{ u.summary }}">{{ u.summary }}</span>
+      <button class="btn-sm" onclick="openAddProfile('{{ u.name }}')">+ Create profile</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty">Every Hermes profile has a profile of its own.</div>
+  {% endif %}
+</div>
 
 <!-- Profile Edit Modal -->
 <div class="modal-overlay dialog-overlay" id="profileEditModal">
@@ -63,6 +104,37 @@
       <textarea id="pemDescription" rows="2" maxlength="120" placeholder="e.g. Routes the homelab expert agents"
         style="width:100%;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem;font-family:inherit;resize:vertical"></textarea>
       <div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.125rem">Shown on the profile card &middot; ten words is the sweet spot, two lines the limit</div>
+    </div>
+    <div style="margin-bottom:0.75rem">
+      <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Agent Profile</label>
+      <select id="pemAgentProfile" style="width:100%;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+        <option value="">&mdash; none (a profile LCP only routes for) &mdash;</option>
+        {% for a in agent_choices %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
+      </select>
+      <div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.125rem">
+        The Hermes profile whose skills, memory and tasks this profile presents. Declared here, not guessed from a name.
+      </div>
+    </div>
+    <div style="margin-bottom:0.75rem">
+      <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Routing</label>
+      <label class="toggle" id="pemRoutingWrap" title="Off: walk the chain top to bottom. On: let the router score the chain for each request.">
+        <input type="checkbox" id="pemRoutingDynamic" onchange="onRoutingToggle()">
+        <span class="toggle-track" aria-hidden="true"></span>
+        <span class="toggle-label" id="pemRoutingLabel">Static &mdash; walk the chain in order</span>
+      </label>
+      <div id="pemRoutingHint" style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.125rem"></div>
+    </div>
+    <div style="margin-bottom:0.75rem">
+      <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Intents</label>
+      <div id="pemIntentsList" class="rule-chips" style="margin-bottom:0.375rem"></div>
+      <div style="display:flex;gap:0.375rem">
+        <input id="pemNewIntent" placeholder="e.g. code planning" onkeydown="if(event.key==='Enter'){event.preventDefault();addIntent();}"
+          style="flex:1;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+        <button class="btn-sm btn-primary" onclick="addIntent()">+ Add</button>
+      </div>
+      <div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.125rem">
+        What this profile is for. When routing is dynamic, the message's intent is weighed against these.
+      </div>
     </div>
     <div style="margin-bottom:0.75rem">
       <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Access Control</label>

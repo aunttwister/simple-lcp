@@ -337,6 +337,34 @@ def lane_in_config_text(text: str, lanes) -> str:
     return ""
 
 
+def lane_from_config(name: str) -> str:
+    """The gateway lane this profile's own config points at — known or not.
+
+    ``lane_in_config_text`` can only recognise a lane it is told to look for, which is
+    right when the question is "does this profile route through l2?". This asks the
+    other question — "where does this profile's traffic actually go?" — so it accepts
+    any first path segment that is not a provider endpoint. That matters in practice:
+    a profile pointing at a lane no gateway profile serves gets a 400 "unknown profile
+    in path" from the gateway, and that is worth surfacing rather than hiding.
+    """
+    path = profile_dir(name)
+    if not path:
+        return ""
+    cfg = os.path.join(path, "config.yaml")
+    try:
+        with open(cfg, "r", errors="replace") as fh:
+            text = fh.read(_CONFIG_READ_LIMIT)
+    except OSError:
+        return ""
+    for m in _LANE_URL_RE.finditer(text):
+        seg = (m.group(1) or m.group(2) or "").strip()
+        # `/v1` is OpenAI's path, not a lane: a config that talks to a provider
+        # directly (or to LCP's root) must not be read as naming a profile.
+        if seg and seg.lower() not in ("v1",):
+            return seg
+    return ""
+
+
 def agent_profiles(lanes=None) -> Dict[str, Dict[str, Any]]:
     """Every Hermes agent profile directory, with the lane it routes through.
 
@@ -383,6 +411,81 @@ def primary_agent_for_lane(lane: str, agents) -> str:
         return ""
     exact = [n for n in sharing if n.lower().endswith("-" + lane.lower()) or n.lower() == lane.lower()]
     return sorted(exact or sharing, key=lambda n: (n != n.lower(), n))[0]
+
+
+def agents_for_lane(lane: str, agents=None) -> List[str]:
+    """Every agent profile whose own config routes through *lane*.
+
+    A lane can be used by more than one agent profile — several agent profiles point
+    their gateway base URL at the same lane path. That is a fact about the Hermes
+    side, and the lane's page shows it: the declared `agent_profile` is whose
+    artefacts the lane presents, not the only traffic it serves.
+    """
+    if not lane:
+        return []
+    # Build the view with this lane in hand: `agent_profiles` can only recognise a
+    # lane it is told to look for, because a config also names providers (`…/v1`).
+    agents = agents if agents is not None else agent_profiles([lane])
+    found = [n for n, info in (agents or {}).items()
+             if (info or {}).get("lane") == lane]
+    return sorted(found, key=lambda n: (n != n.lower(), n))
+
+
+def mapping_suggestions(lanes, agents=None) -> Dict[str, str]:
+    """Propose an `agent_profile` for each lane, derived from the Hermes side.
+
+    The link between a lane and an agent profile is written down in exactly one
+    place today: the agent profile's own config, whose gateway base URL ends in
+    the lane. So the proposal is derived from there, and — this is the migration —
+    **stored on the lane as `agent_profile`**. After that the UI reads a declared
+    field and never has to guess. The reader is deliberately one-shot: it exists to
+    seed the field, and to suggest a mapping for a profile that has none yet.
+    """
+    agents = agents if agents is not None else agent_profiles(lanes)
+    # Only lanes that actually matched: a lane with no agent behind it is *omitted*,
+    # not present with an empty value, so `lane in suggestions` answers the question a
+    # caller is really asking ("does anything route through here?").
+    out = {}
+    for lane in (lanes or ()):
+        found = primary_agent_for_lane(lane, agents)
+        if found:
+            out[lane] = found
+    return out
+
+
+def uncovered_agents(lanes, mapping=None, agents=None) -> List[Dict[str, Any]]:
+    """Hermes profiles that no lane declares as its own.
+
+    These are the candidates for a new LCP profile: a profile that exists on the
+    Hermes side, routes somewhere (or nowhere), and has no lane of its own. The
+    caller passes the *declared* mapping, so what comes back is the honest
+    complement of the config — not of a guess.
+
+    `routes_through` says where that profile's traffic goes today, which is the
+    interesting part: a profile routing through someone else's lane is exactly the
+    one worth giving a lane of its own.
+    """
+    agents = agents if agents is not None else agent_profiles(lanes)
+    declared = {str(v) for v in (mapping or {}).values() if v}
+    serving = {str(l) for l in (lanes or ()) if l}
+    out: List[Dict[str, Any]] = []
+    for name, info in sorted(agents.items()):
+        if name in declared:
+            continue
+        # The lane comes from the profile's own config, not from the set the gateway
+        # knows: "routes through career, and no profile serves career" is the useful
+        # sentence, and it is invisible if the lane is only detected when it exists.
+        lane = lane_from_config(name) or (info or {}).get("lane", "") or ""
+        out.append({
+            "name": name,
+            "routes_through": lane,
+            "lane_served": bool(lane) and lane in serving,
+            "summary": agent_summary(name),
+        })
+    # Profiles whose traffic is served come first: they are the ones a lane would
+    # actually take over. Then alphabetical, which is stable and easy to scan.
+    out.sort(key=lambda u: (not u["routes_through"], u["name"]))
+    return out
 
 
 def agent_summary(name: str, words: int = 10) -> str:

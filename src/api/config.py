@@ -10,6 +10,7 @@ they persist across restarts.
 """
 
 import os
+import re
 from typing import Any, Optional
 
 from .exceptions import ConfigError
@@ -240,6 +241,89 @@ def _env_port() -> int:
     return int(os.environ.get("LISTEN_PORT", str(SEED_CONFIG["server"]["port"])))
 
 
+# `intents` are short human labels ("code planning", "architecture planning").
+INTENT_MAX_LEN = 64
+INTENTS_MAX = 32
+
+# `routing` is the per-profile choice between walking the chain in order and
+# letting the dynamic router score it. Static is the pre-existing behaviour.
+ROUTING_MODES = ("static", "dynamic")
+
+# Matches the API's cap on the card description.
+PROFILE_DESC_MAX = 120
+
+
+def validate_profile_fields(name: str, prof: dict) -> dict:
+    """Validate a profile's optional fields; return the normalised copy.
+
+    One contract, used by both the config loader and the profile write API, so a
+    value that can be stored is always a value that can be loaded. Every field is
+    optional — absent means "not declared", which is different from empty.
+    """
+    out = dict(prof)
+
+    agent = prof.get("agent_profile", "")
+    # Whitespace is noise, not a value: `"   "` means "not declared", the same as ""
+    # or absent. It is stripped before the emptiness test so the three agree.
+    if isinstance(agent, str):
+        agent = agent.strip()
+    if agent is not None and agent != "":
+        if not isinstance(agent, str):
+            raise ConfigError(
+                f"Profile '{name}': 'agent_profile' must be a Hermes profile name"
+            )
+        # Delegated deliberately: this field names a directory under the profiles
+        # root, so it is held to exactly the shape a profile name is held to
+        # (profile_data.validate_name — no separators, no "." or "..", ≤64 chars).
+        # A second regex here would be a second contract, free to drift from that one.
+        from .profile_data import BadProfileName, validate_name
+        try:
+            out["agent_profile"] = validate_name(agent)
+        except BadProfileName as e:
+            raise ConfigError(
+                f"Profile '{name}': 'agent_profile' must be a Hermes profile name "
+                f"({e})"
+            ) from e
+    else:
+        out["agent_profile"] = ""
+
+    routing = prof.get("routing", "static")
+    if routing not in ROUTING_MODES:
+        raise ConfigError(
+            f"Profile '{name}': 'routing' must be one of {list(ROUTING_MODES)}"
+        )
+    out["routing"] = routing
+
+    intents = prof.get("intents", [])
+    if intents is None:
+        intents = []
+    if not isinstance(intents, list) or len(intents) > INTENTS_MAX:
+        raise ConfigError(
+            f"Profile '{name}': 'intents' must be a list of at most {INTENTS_MAX} labels"
+        )
+    cleaned = []
+    for it in intents:
+        if not isinstance(it, str) or not it.strip():
+            raise ConfigError(f"Profile '{name}': every intent must be a non-empty string")
+        it = it.strip()
+        if len(it) > INTENT_MAX_LEN:
+            raise ConfigError(
+                f"Profile '{name}': intent '{it[:20]}…' exceeds {INTENT_MAX_LEN} chars"
+            )
+        if it not in cleaned:
+            cleaned.append(it)
+    out["intents"] = cleaned
+
+    desc = prof.get("description", "")
+    if desc is None:
+        desc = ""
+    if not isinstance(desc, str):
+        raise ConfigError(f"Profile '{name}': 'description' must be a string")
+    out["description"] = desc.strip()[:PROFILE_DESC_MAX]
+
+    return out
+
+
 def _validate(section: str, data: Any) -> None:
     """Validate a loaded section; raise ConfigError on structural problems."""
     if section == "server":
@@ -255,6 +339,9 @@ def _validate(section: str, data: Any) -> None:
                 raise ConfigError(f"Profile '{name}' missing 'chain'")
             if not prof["chain"]:
                 raise ConfigError(f"Profile '{name}' has empty 'chain'")
+            # agent_profile / routing / intents / description — one contract,
+            # shared with the profile write API.
+            validate_profile_fields(name, prof)
     elif section == "pricing":
         if not isinstance(data, list):
             raise ConfigError("'pricing' must be a list")

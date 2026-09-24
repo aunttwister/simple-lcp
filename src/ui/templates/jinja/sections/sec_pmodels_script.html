@@ -1,0 +1,121 @@
+{#- M2d — script for the profile Models tab (section: sec_pmodels_script).
+
+    Writes the profile's chain through the endpoint the Edit modal already uses
+    (PUT /api/chains/<profile>), so there is one write path for the chain and the
+    model-sync behaviour (a stored model the provider no longer offers snaps to one
+    it does) is identical in both places. -#}
+
+{% if tab == 'models' %}
+<script id="ppool-init" type="application/json">{{ pool | tojson }}</script>
+<script>
+(function () {
+  // Same guard as the routing tab: an agent profile owns no chain, so the picker is
+  // not rendered and there is nothing here to initialise.
+  if (!document.getElementById('ppChain')) return;
+  var POOL = JSON.parse(document.getElementById('ppool-init').textContent || '{}');
+  var PROFILE = document.getElementById('profilePool').getAttribute('data-profile');
+  var chain = (POOL.chain || []).map(function (s) { return {provider: s.provider, model: s.model}; });
+
+  function el(id) { return document.getElementById(id); }
+  function say(t, ok) {
+    var n = el('ppStatus');
+    n.textContent = t || '';
+    n.style.color = ok ? 'hsl(var(--green-fg))' : (t ? 'hsl(var(--red-fg))' : '');
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c];
+    });
+  }
+
+  function renderChain() {
+    var html = '<table class="data-table pp-table"><thead><tr>' +
+      '<th style="width:2rem">#</th><th>Provider</th><th>Model</th><th style="width:6rem">Order</th><th></th>' +
+      '</tr></thead><tbody>';
+    if (!chain.length) {
+      html += '<tr><td colspan="5" class="empty">No models in the chain.</td></tr>';
+    }
+    chain.forEach(function (s, i) {
+      html += '<tr>' +
+        '<td class="mono">' + (i + 1) + '</td>' +
+        '<td class="mono">' + esc(s.provider) + '</td>' +
+        '<td class="mono">' + esc(s.model) + '</td>' +
+        '<td>' +
+          '<button class="btn-sm" ' + (i === 0 ? 'disabled' : '') + ' onclick="ppMove(' + i + ',-1)">\u2191</button>' +
+          '<button class="btn-sm" ' + (i === chain.length - 1 ? 'disabled' : '') + ' onclick="ppMove(' + i + ',1)">\u2193</button>' +
+        '</td>' +
+        '<td><button class="btn-sm" onclick="ppRemove(' + i + ')">\u2715</button></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    el('ppChain').innerHTML = html;
+  }
+
+  function renderPicker() {
+    var provs = (POOL.catalogue || []).map(function (c) { return c.provider; });
+    el('ppProvider').innerHTML = provs.map(function (p) {
+      return '<option value="' + esc(p) + '">' + esc(p) + '</option>';
+    }).join('');
+    renderModels();
+  }
+
+  function modelsFor(p) {
+    var hit = (POOL.catalogue || []).filter(function (c) { return c.provider === p; })[0];
+    return hit ? (hit.models || []) : [];
+  }
+
+  function renderModels() {
+    var ms = modelsFor(el('ppProvider').value);
+    el('ppModel').innerHTML = ms.length
+      ? ms.map(function (m) { return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('')
+      : '<option value="">(provider offers no models)</option>';
+    // A provider whose key is absent is shown, marked, rather than hidden: it is a
+    // fact about the pool, not a reason to pretend the model does not exist.
+    var hit = (POOL.catalogue || []).filter(function (c) { return c.provider === el('ppProvider').value; })[0];
+    el('ppKeyNote').textContent = (hit && !hit.has_key)
+      ? 'no ' + hit.key_env + ' in the gateway\u2019s environment \u2014 calls to this provider will fail until it is set'
+      : '';
+  }
+
+  function save() {
+    say('Saving\u2026');
+    return api('PUT', '/api/chains/' + PROFILE, { chain: chain }).then(function (d) {
+      if (d && d.error) { say(d.error); return; }
+      say('Saved.', true);
+    }).catch(function (e) { say('Save failed: ' + (e.message || e)); });
+  }
+
+  window.ppMove = function (i, delta) {
+    var j = i + delta;
+    if (j < 0 || j >= chain.length) return;
+    var tmp = chain[i]; chain[i] = chain[j]; chain[j] = tmp;
+    renderChain(); save();
+  };
+
+  window.ppRemove = function (i) {
+    if (chain.length === 1) {
+      // The gateway needs at least one model to route to, and the server refuses an
+      // empty chain — so say why here rather than let the save fail.
+      say('A profile needs at least one model; add another before removing the last one.');
+      return;
+    }
+    chain.splice(i, 1);
+    renderChain(); save();
+  };
+
+  window.ppAdd = function () {
+    var p = el('ppProvider').value;
+    var m = el('ppModel').value;
+    if (!p || !m) { say('Pick a provider and a model.'); return; }
+    var dup = chain.some(function (s) { return s.provider === p && s.model === m; });
+    if (dup) { say(p + '/' + m + ' is already in the chain.'); return; }
+    chain.push({provider: p, model: m});
+    renderChain(); save();
+  };
+
+  el('ppProvider').addEventListener('change', renderModels);
+  renderPicker();
+  renderChain();
+})();
+</script>
+{% endif %}

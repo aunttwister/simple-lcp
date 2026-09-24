@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -145,6 +145,31 @@ class ClassifyResult:
     sem_available: bool = False         # embedder was up
     tool_count: int = 0
     token_count: int = 0
+
+
+def _profile_intents(config: Any, profile: Optional[str]) -> list:
+    """The intents a profile declares, normalised — or [] when it declares none.
+
+    ``[]`` is the meaningful default: a profile that says nothing about what it is
+    for is routed however the classifier sees fit, exactly as before intents
+    existed. Tolerant of a duck-typed config so a test double cannot break routing.
+    """
+    if not profile or config is None:
+        return []
+    try:
+        profiles = config.profiles
+    except Exception:  # noqa: BLE001 — routing must never break on a config shape
+        return []
+    try:
+        pcfg = profiles.get(profile) or {}
+    except Exception:  # noqa: BLE001
+        return []
+    try:
+        from .config import validate_profile_fields
+        return list(validate_profile_fields(profile, pcfg).get("intents") or [])
+    except Exception:  # noqa: BLE001
+        raw = pcfg.get("intents") if isinstance(pcfg, dict) else None
+        return [str(i) for i in raw if str(i).strip()] if isinstance(raw, list) else []
 
 
 def classify_task_detail(
@@ -1354,6 +1379,41 @@ class CapabilityRouter:
 
         return candidates, fired
 
+    def _narrow_to_intents(self, detail: "ClassifyResult", profile: Optional[str],
+                           config: Any = None) -> "ClassifyResult":
+        """Confine this profile's routing to the tasks it declares.
+
+        The operator's model: *"each profile has its own intents"* — a profile says
+        what it is for, and the router stays inside that. Before this, the classifier
+        was profile-blind, so any profile could be routed to any task.
+
+        Three properties worth stating, because they are deliberate:
+
+        * A profile that declares **no** intents is returned untouched. That is the
+          off switch, and it is why nothing changes for a profile until intents are
+          declared for it.
+        * Narrowing **never invents** a task. It re-picks from the tasks that
+          actually scored for this message (the classifier's own top-N), restricted
+          to the declared set — so a declaration cannot conjure a task the message
+          had no signal for.
+        * When no declared intent scored at all, the first declared one is used,
+          deterministically, and recorded as such (``intent_declared`` rather than
+          ``intent_narrowed``), so a narrow chain's behaviour is explainable from the
+          decision log alone.
+        """
+        intents = _profile_intents(config, profile)
+        if not intents:
+            return detail
+        task = (detail.task or "").strip()
+        if task in intents:
+            return detail
+        allowed = set(intents)
+        scored = [(t, s) for t, s in (detail.semantic or [])
+                  if t in allowed and isinstance(s, (int, float))]
+        if scored:
+            return replace(detail, task=scored[0][0], path="intent_narrowed")
+        return replace(detail, task=intents[0], path="intent_declared")
+
     def select_step(self, messages: list[dict], tools: Optional[list[dict]] = None,
                     max_tokens: int = 1024, chain: Optional[list[dict]] = None,
                     profile: Optional[str] = None, config: Optional[object] = None,
@@ -1397,6 +1457,10 @@ class CapabilityRouter:
         except TypeError:
             policy, min_score = self._effective_policy(config)
         detail = classify_task_detail(messages, tools, max_tokens)
+        # M2d: a profile that declares what it is for is routed inside that
+        # declaration. A profile that declares nothing is untouched, so this line
+        # changes nothing until an `intents` list is set on a profile.
+        detail = self._narrow_to_intents(detail, profile, config)
         task = detail.task
         # Context-aware routing: the request's token count (from the classifier,
         # which strips client-injected context). Models whose context window

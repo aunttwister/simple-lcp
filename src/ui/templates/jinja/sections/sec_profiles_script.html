@@ -7,11 +7,14 @@
 {% raw %}
 var _addProfileMode = false;
 
-function openAddProfile() {
+// M2d: `prefillAgent` is the uncovered Hermes profile the operator clicked, so the
+// create flow starts from the thing they picked rather than from an empty name.
+function openAddProfile(prefillAgent) {
   _addProfileMode = true;
   _editProfileName = '';
   _editProfileTools = [];
   _editProfileChain = [];
+  _editProfileIntents = [];
   api('GET', '/api/providers').then(function(d) {
     _allProviders = d.providers || {};
     _allChains = d.profile_chains || {};
@@ -27,10 +30,17 @@ function openAddProfile() {
     document.getElementById('pemBudgetSpend').value = '';
     document.getElementById('pemSaveStatus').textContent = '';
     document.getElementById('pemSaveBtn').textContent = 'Create Profile';
+    document.getElementById('pemAgentProfile').value = prefillAgent || '';
+    document.getElementById('pemRoutingDynamic').checked = false;
+    onRoutingToggle();
     renderPemTools();
     renderPemChain();
+    renderPemIntents();
     openDialog('profileEditModal');
-    document.getElementById('pemName').focus();
+    // With an agent prefilled the name is the next thing to decide; without one it
+    // is the first.
+    if (prefillAgent) document.getElementById('pemName').focus();
+    else document.getElementById('pemName').focus();
   });
 }
 
@@ -54,8 +64,64 @@ function deleteProfile(name) {
 var _editProfileName = '';
 var _editProfileTools = [];
 var _editProfileChain = [];
+var _editProfileIntents = [];
 var _allProviders = {};
 var _allChains = {};
+
+// M2d: a profile's intents — what it is for. Free-text chips, because the labels
+// are the operator's own words ("code planning", "architecture planning") and the
+// router matches a message's intent against them.
+function renderPemIntents() {
+  var html = '';
+  _editProfileIntents.forEach(function(it, i) {
+    html += '<span style="display:inline-flex;align-items:center;gap:0.1875rem;padding:0.125rem 0.5rem;background:hsl(var(--secondary));color:hsl(var(--foreground));border:1px solid hsl(var(--card-border));border-radius:9999px;font-size:0.6875rem">' +
+      escHtml(it) +
+      '<button onclick="removeIntent(' + i + ')" style="background:none;border:none;color:inherit;cursor:pointer;font-size:0.75rem;padding:0;line-height:1">\u2715</button>' +
+    '</span>';
+  });
+  if (!html) html = '<span style="font-size:0.6875rem;color:hsl(var(--muted-foreground))">no intents declared \u2014 the router classifies without them</span>';
+  document.getElementById('pemIntentsList').innerHTML = html;
+}
+
+function addIntent() {
+  var el = document.getElementById('pemNewIntent');
+  var v = (el.value || '').trim();
+  if (!v) return;
+  if (_editProfileIntents.length >= 32) { alert('32 intents is the limit'); return; }
+  if (_editProfileIntents.indexOf(v) < 0) _editProfileIntents.push(v);
+  el.value = '';
+  renderPemIntents();
+}
+
+function removeIntent(i) {
+  _editProfileIntents.splice(i, 1);
+  renderPemIntents();
+}
+
+// Dynamic routing needs something to choose between: with a single model in the
+// chain the router has no decision to make, so the toggle says so rather than
+// pretending the profile is routed dynamically.
+function onRoutingToggle() {
+  var on = document.getElementById('pemRoutingDynamic').checked;
+  var label = document.getElementById('pemRoutingLabel');
+  var hint = document.getElementById('pemRoutingHint');
+  label.textContent = on ? 'Dynamic \u2014 score the chain for every request' : 'Static \u2014 walk the chain in order';
+  var steps = _editProfileChain.length;
+  if (on && steps < 2) {
+    hint.textContent = steps === 1
+      ? 'One model in the chain: the router has nothing to choose between yet.'
+      : 'No models in the chain yet.';
+    hint.style.color = 'hsl(var(--amber-fg))';
+  } else {
+    hint.textContent = '';
+  }
+}
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+  });
+}
 
 function editProfile(name) {
   _addProfileMode = false;
@@ -67,6 +133,7 @@ function editProfile(name) {
     api('GET', '/api/profiles').then(function(pd) {
       var prof = (pd.profiles || {})[name] || {};
       _editProfileTools = (prof.forbidden || []).slice();
+      _editProfileIntents = (prof.intents || []).slice();
       document.getElementById('pemProfileTitle').textContent = 'Edit Profile: ' + name.toUpperCase();
       document.getElementById('pemNameRow').style.display = 'none';
       document.getElementById('pemDescription').value = prof.description || '';
@@ -75,8 +142,14 @@ function editProfile(name) {
       var authReq = prof.auth_required !== false;
       document.getElementById('pemAuthRequired').checked = authReq;
       document.getElementById('pemAuthLabel').textContent = authReq ? 'API key required' : 'No key required (public)';
+      // The declared mapping wins; when there is none the derived proposal is
+      // shown, so confirming it is one Save rather than typing a name.
+      document.getElementById('pemAgentProfile').value = prof.agent_profile || prof.suggested_agent_profile || '';
+      document.getElementById('pemRoutingDynamic').checked = (prof.routing === 'dynamic');
+      onRoutingToggle();
       renderPemTools();
       renderPemChain();
+      renderPemIntents();
       // Load profile budget
       loadProfileBudget(name);
       openDialog('profileEditModal');
@@ -150,6 +223,7 @@ function renderPemChain() {
     });
   }
   document.getElementById('pemChainList').innerHTML = html;
+  if (typeof onRoutingToggle === 'function' && document.getElementById('pemRoutingDynamic')) onRoutingToggle();
   var listEl = document.getElementById('pemChainList');
   if (listEl && typeof Sortable !== 'undefined') {
     new Sortable(listEl, {
@@ -193,7 +267,13 @@ function saveProfileEdit() {
   if (_addProfileMode) {
     var name = document.getElementById('pemName').value.trim().toLowerCase();
     if (!name) { statusEl.textContent = 'Enter a profile name'; statusEl.style.color = 'hsl(var(--red-fg))'; return; }
-    return api('POST', '/api/profiles', { name: name }).then(function(create) {
+    return api('POST', '/api/profiles', {
+      name: name,
+      agent_profile: document.getElementById('pemAgentProfile').value,
+      routing: document.getElementById('pemRoutingDynamic').checked ? 'dynamic' : 'static',
+      intents: _editProfileIntents,
+      description: document.getElementById('pemDescription').value.trim()
+    }).then(function(create) {
       if (!create.ok) { statusEl.textContent = create.error || 'Create failed'; statusEl.style.color = 'hsl(var(--red-fg))'; return; }
       _editProfileName = name;
       return api('PUT', '/api/chains/' + name, {chain: chain}).then(function() {
@@ -216,10 +296,18 @@ function saveProfileEdit() {
   api('PUT', '/api/chains/' + _editProfileName, {chain: chain}).then(function(chainResult) {
     return api('PUT', '/api/profiles/' + _editProfileName, {
       forbidden_tools: _editProfileTools,
-          description: document.getElementById('pemDescription').value.trim(),
-      auth_required: document.getElementById('pemAuthRequired').checked
+      description: document.getElementById('pemDescription').value.trim(),
+      auth_required: document.getElementById('pemAuthRequired').checked,
+      agent_profile: document.getElementById('pemAgentProfile').value,
+      routing: document.getElementById('pemRoutingDynamic').checked ? 'dynamic' : 'static',
+      intents: _editProfileIntents
     });
   }).then(function(profResult) {
+    if (profResult && profResult.error) {
+      statusEl.textContent = 'Save failed: ' + profResult.error;
+      statusEl.style.color = 'hsl(var(--red-fg))';
+      return;
+    }
     // Also save budget
     var amt = document.getElementById('pemBudgetAmount').value;
     var budgetPromise;

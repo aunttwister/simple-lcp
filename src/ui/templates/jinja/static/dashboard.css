@@ -1747,3 +1747,46 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 0.72rem;
   line-height: 1.5; white-space: pre-wrap; word-break: break-word;
   max-height: 60vh; overflow: auto; color: hsl(var(--foreground) / 0.9); }
+
+/* ── M2d: profile groups ──────────────────────────────────────────────────────
+   The grid is grouped by what a profile is. A profile without an agent behind it
+   is a different kind, not an incomplete one, so its card is marked subtly — a
+   left edge and a quieter label, not a warning colour. */
+.profile-card.pc-lcp-only { border-left: 3px solid hsl(var(--muted-foreground) / 0.5); }
+.pc-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 0 0 0.375rem; }
+.pc-badge { font-size: 0.625rem; padding: 0.0625rem 0.375rem; border-radius: 9999px;
+  background: hsl(var(--secondary) / 0.6); color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--card-border)); white-space: nowrap; }
+.pc-agent { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); margin-bottom: 0.25rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-agent b { color: hsl(var(--foreground)); font-weight: 600; }
+.pc-agent-none { font-style: italic; }
+.pc-suggest { font-size: 0.625rem; color: hsl(var(--amber-fg)); margin-left: 0.25rem; }
+.pc-routed { font-size: 0.625rem; color: hsl(var(--muted-foreground)); margin-bottom: 0.25rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.profile-uncovered { margin-top: 1.75rem; }
+.pu-title { font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground)); margin: 0 0 0.25rem; font-weight: 600;
+  border-bottom: 1px solid hsl(var(--card-border)); padding-bottom: 0.25rem;
+  display: flex; align-items: center; gap: 0.5rem; }
+.pu-count { font-size: 0.6875rem; background: hsl(var(--secondary) / 0.6);
+  border: 1px solid hsl(var(--card-border)); border-radius: 9999px;
+  padding: 0.0625rem 0.4375rem; letter-spacing: 0; }
+.pu-hint { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); margin: 0.375rem 0 0.625rem; }
+.pu-list { list-style: none; margin: 0; padding: 0; }
+.pu-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.625rem;
+  border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
+  background: hsl(var(--secondary) / 0.18); margin-bottom: 0.375rem; flex-wrap: wrap; }
+.pu-name { font-size: 0.75rem; font-weight: 600; flex: 0 0 auto; }
+.pu-route { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); flex: 0 0 auto; }
+.pu-route b { color: hsl(var(--foreground)); font-weight: 600; }
+.pu-none { font-style: italic; }
+.pu-sum { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); flex: 1 1 12rem;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pu-row .btn-sm { flex: 0 0 auto; }
+.rule-chips { display: flex; flex-wrap: wrap; gap: 0.25rem; min-height: 1.25rem; }
+
+/* An uncovered profile whose traffic points at a lane nothing serves: the gateway
+   answers those requests with 400, so the row says so rather than looking normal. */
+.pu-unserved { color: hsl(var(--amber-fg, 38 92% 50%)); }

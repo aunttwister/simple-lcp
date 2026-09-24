@@ -1,0 +1,57 @@
+{#- M2d — the Models tab of a profile page. Section: sec_pmodels.
+
+    "a pool of models that we can select from all registered providers (and models
+    that we have registered) for each profile" — the operator's words.
+
+    The pool IS the chain: `CapabilityRouter` scores exactly these (provider, model)
+    steps, so a second list would be a second source of truth for the same set. What
+    this tab adds is the *picker*: every registered provider, every model it offers,
+    whether that provider's key is present, and the order — which matters because it
+    is the order the gateway walks when dynamic routing is off. -#}
+
+{% if tab == 'models' %}
+<div id="profilePool" data-profile="{{ profile.name }}">
+
+  {% if profile.kind == 'agent' %}
+  <h2 class="pd-sect">Models <span class="pd-sect-note">this profile owns no chain</span></h2>
+  <div class="empty">
+    <b>No chain of its own.</b>
+    <div style="margin-top:0.25rem">An agent profile's requests are served by the chain of the lane it routes through{% if profile.lane %} &mdash; here, <b><a href="/profiles/{{ profile.lane }}">{{ profile.lane }}</a></b>{% endif %}. Edit the chain on that profile.</div>
+  </div>
+  {% else %}
+  <h2 class="pd-sect">Models this profile may use <span class="pd-sect-note">the chain the router scores</span></h2>
+  <p class="pd-note">
+    {{ pool.chain|length }} of {{ pool.model_count }} registered models
+    across {{ pool.providers|length }} providers.
+    {% if profile_config.routing == 'dynamic' %}
+    Dynamic routing is on, so the router may reorder these per request.
+    {% else %}
+    Dynamic routing is off, so requests walk this list top to bottom.
+    {% endif %}
+  </p>
+
+  <div id="ppChain"></div>
+  <div class="pp-add">
+    <select id="ppProvider"></select>
+    <select id="ppModel"></select>
+    <button class="btn-sm btn-primary" onclick="ppAdd()">+ Add to chain</button>
+    <span class="pd-note" id="ppKeyNote"></span>
+  </div>
+  <p class="pd-note" id="ppStatus"></p>
+
+  <h2 class="pd-sect">Registered models <span class="pd-sect-note">everything available to pick from</span></h2>
+  <table class="data-table">
+    <thead><tr><th>Provider</th><th>Models</th><th>Key</th></tr></thead>
+    <tbody>
+      {% for c in pool.catalogue %}
+      <tr>
+        <td class="mono">{{ c.provider }}</td>
+        <td class="mono">{{ c.models|join(', ') if c.models else '&mdash; none registered' }}</td>
+        <td>{% if c.has_key %}<span class="chip chip-ok">key set</span>{% else %}<span class="chip chip-warn">no key set ({{ c.key_env }})</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endif %}

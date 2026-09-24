@@ -1,0 +1,105 @@
+{#- M2d — the Routing tab of a profile page. Section: sec_prouting.
+
+    The dynamic router's controls for THIS profile, which already exist in the router
+    (`routing_enabled:<profile>`, `routing_policy:<profile>`, `routing_min_score:<profile>`,
+    `routing_rules:<profile>`) and until now were only reachable from the Models page's
+    Providers tab, where they act on a profile that has to be selected first.
+
+    The view dict arrives already scoped: `routing` is this profile's effective
+    settings, and `has_override` says whether they are a decision made here or the
+    global default inherited. -#}
+
+{% if tab == 'routing' %}
+<div id="profileRouting" data-profile="{{ profile.name }}">
+
+  <h2 class="pd-sect">Dynamic routing <span class="pd-sect-note">what this profile does with a request</span></h2>
+  {% if profile.kind == 'agent' %}
+  <div class="empty">
+    <b>No routing settings here.</b>
+    <div style="margin-top:0.25rem">A request reaches the gateway on a lane, and this is an agent profile &mdash; it owns no lane, so routing is decided by
+      {% if profile.lane %}the <b><a href="/profiles/{{ profile.lane }}">{{ profile.lane }}</a></b> profile, whose chain serves its traffic.{% else %}whatever profile its traffic is pointed at.{% endif %}</div>
+  </div>
+  {% elif not routing.available %}
+  <div class="empty">The router has no settings for this profile: {{ routing.reason }}</div>
+  {% else %}
+
+  <label class="toggle" id="prouToggleWrap">
+    <input type="checkbox" id="prouEnabled" {% if routing.enabled %}checked{% endif %} onchange="prouToggle(this)">
+    <span class="toggle-track" aria-hidden="true"></span>
+    <span class="toggle-label" id="prouEnabledLabel">
+      {% if routing.enabled %}ON &mdash; score the chain for every request{% else %}OFF &mdash; walk the chain in order{% endif %}
+    </span>
+  </label>
+  <p class="pd-note" id="prouToggleNote">
+    {% if routing.has_override %}
+    Set for this profile.
+    {% else %}
+    Inherited from the global setting &mdash; nothing has been set for this profile.
+    {% endif %}
+  </p>
+
+  <div class="prou-grid">
+    <div>
+      <label class="prou-label">Policy</label>
+      <select id="prouPolicy">
+        {% for p in ['eager', 'conservative'] %}
+        <option value="{{ p }}"{% if routing.policy == p %} selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="prou-label">Min score</label>
+      <input id="prouMinScore" type="number" step="0.05" min="0" max="1" value="{{ routing.min_score }}">
+    </div>
+    <div class="prou-grid-action">
+      <button class="btn-sm btn-primary" onclick="prouSavePolicy()">Save</button>
+      <button class="btn-sm" onclick="prouClearOverride()" title="Drop this profile's settings and inherit the global ones">Clear override</button>
+    </div>
+  </div>
+  <p class="pd-note" id="prouPolicyStatus"></p>
+
+  <h2 class="pd-sect">Rules <span class="pd-sect-note">pin a task to a model for this profile</span></h2>
+  <p class="pd-note">
+    A rule matches a task the classifier recognised and either prefers a model for it
+    or blocks one. Rules listed here apply to <b>{{ profile.name }}</b>; a rule whose
+    task is <b>*</b> matches every task.
+  </p>
+  <div id="prouRules"></div>
+  <div class="prou-add">
+    <input id="prouRuleTask" list="prouTaskList" placeholder="task, e.g. code_generation" style="min-width:12rem">
+    <datalist id="prouTaskList">
+      {% for t in routing.tasks %}<option value="{{ t }}"></option>{% endfor %}
+    </datalist>
+    <select id="prouRuleAction"><option value="prefer">prefer</option><option value="block">block</option></select>
+    <select id="prouRuleProvider"><option value="*">any provider</option>
+      {% for p in routing.providers %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+    </select>
+    <input id="prouRuleModel" placeholder="model (blank = any)">
+    <button class="btn-sm" onclick="prouAddRule()">+ Add rule</button>
+  </div>
+  <p class="pd-note" id="prouRuleStatus"></p>
+
+  <h2 class="pd-sect">Recent decisions <span class="pd-sect-note">why the last requests went where they did</span></h2>
+  {% if routing.decisions %}
+  <table class="data-table prou-table">
+    <thead><tr><th>When</th><th>Task</th><th>Action</th><th>Went to</th><th>Score</th><th>How</th></tr></thead>
+    <tbody>
+      {% for d in routing.decisions %}
+      <tr>
+        <td class="mono">{{ d.ts[:19] | replace('T', ' ') }}</td>
+        <td class="mono">{{ d.task }}</td>
+        <td>{{ d.action }}</td>
+        <td class="mono">{{ d.provider }}/{{ d.model }}</td>
+        <td>{{ d.score }}</td>
+        <td title="{{ d.intent_text }}">{{ d.path }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No decisions recorded for this profile yet.</div>
+  {% endif %}
+
+  {% endif %}
+</div>
+{% endif %}
