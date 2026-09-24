@@ -59,7 +59,9 @@ html+='</tr>';
 html+='</tbody>';
 });
 html+='</table>';
-document.getElementById('keyStacks').innerHTML=html||'<div class="empty">No keys yet.</div>';
+document.getElementById('keyStacks').innerHTML=html||(KEY_SCOPE
+  ? '<div class="empty">No key is scoped to <b>'+KEY_SCOPE+'</b>. Keys are listed under every profile they can call.</div>'
+  : '<div class="empty">No keys yet.</div>');
 })}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function showCreateKeyModal(){openDialog('createKeyModal');_selectedProfiles=[];loadProfilesForKeys()}
