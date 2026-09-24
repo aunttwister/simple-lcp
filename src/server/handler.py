@@ -816,6 +816,11 @@ def _build_routes() -> RouteTable:
     _mp = LCPHandler._models_paths
 
     # ── pages ──
+    # M2: five control-plane entries. The old page routes stay and REDIRECT to
+    # the page that now owns their content, so existing links and bookmarks keep
+    # working. Work is a module with its own four entries.
+    t.get("page.activity", exact("/activity"),
+          lambda h, p: h._serve_activity_page())
     t.get("page.dashboard", exact("/", "/dashboard"),
           lambda h, p: h._serve_dashboard())
     t.get("page.keys", exact("/keys", "/keys/dashboard"),

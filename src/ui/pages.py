@@ -5,14 +5,70 @@ Called from endpoint mixins in src.server.endpoints.
 """
 
 
-def render_providers_page(config, engine=None) -> str:
-    """Render the Providers management page (Jinja2)."""
+def _tab(params, allowed, default) -> str:
+    """Normalise ``?tab=`` (or the legacy ``?view=``) against a merged page's tabs.
+
+    An unknown tab falls back to the page's default rather than 404-ing or
+    rendering nothing: a stale bookmark should land somewhere sensible.
+    """
+    params = params or {}
+    tab = str(params.get("tab") or params.get("view") or default).strip().lower()
+    return tab if tab in allowed else default
+
+
+def _logs_view(params) -> dict:
+    """The logs tab's view dict: which realm, plus its server-side funnel data.
+
+    Only the decisions realm reads data here — its funnel describes the whole
+    ledger, not one page of it; every other realm is a mount of the shared table
+    module (static/js/logtable.js), which fetches its own rows.
+    """
+    from ..api import work as work_api
+    params = params or {}
+    tab = str(params.get("view") or "conversations")
+    view = {"tab": tab}
+    if tab == "decisions":
+        try:
+            view.update({"decisions": work_api.decisions_view(params=params)})
+        except Exception as e:  # never blank the page on a data error
+            view["error"] = "%s: %s" % (type(e).__name__, e)
+    elif tab not in ("conversations", "requests", "providers"):
+        view["tab_error"] = "unknown view %r" % tab
+    return view
+
+
+def render_activity_page(config, engine=None, params=None, headers=None) -> str:
+    """Render the Activity page — overview | usage | logs (M2).
+
+    The observability surface in one nav entry. Server-side tabs, the shape the
+    logs page already used: only the active tab's section renders, so a tab pays
+    for its own queries and ships only its own script. ``view`` selects the log
+    realm inside the logs tab. Alerts are deliberately not here (R10).
+    """
     from .render import render_page
-    return render_page("pages/providers.html", config, engine, active_page="providers")
+    params = dict(params or {})
+    tab = _tab(params, ("overview", "usage", "logs"), "overview")
+    ctx = {"active_page": "activity", "tab": tab, "params": params}
+    if tab == "logs":
+        ctx["view"] = _logs_view(params)
+    elif tab == "overview":
+        from .dashboard import dashboard_context
+        ctx.update(dashboard_context(config, engine, headers or {},
+                                     params.get("profile") or None))
+    return render_page("pages/activity.html", config, engine, **ctx)
 
 
-def render_profiles_page(config, engine=None) -> str:
-    """Render the Profiles management page (Jinja2)."""
+def render_providers_page(config, engine=None, params=None) -> str:
+    """Legacy /providers — now the Providers tab of Models (M2)."""
+    return render_models_page(config, engine, {"tab": "providers"})
+
+
+def render_profiles_page(config, engine=None, params=None) -> str:
+    """Render the Profiles page — the profile surface, with API keys as a tab (M2).
+
+    One nav entry for everything profile-scoped: the profiles themselves, and the
+    API keys that are scoped to them (R9).
+    """
     from .render import render_page
     # Include profile budget data
     profile_budgets = {}
@@ -30,51 +86,31 @@ def render_profiles_page(config, engine=None) -> str:
         except Exception:
             pass
     return render_page("pages/profiles.html", config, engine,
-                       active_page="profiles", profile_budgets=profile_budgets)
+                       active_page="profiles",
+                       tab=_tab(params, ("profiles", "keys"), "profiles"),
+                       params=dict(params or {}),
+                       profile_budgets=profile_budgets)
 
 
-def render_keys_page(config, engine) -> str:
-    """Render the API Keys management page (Jinja2)."""
-    from .render import render_page
-    return render_page("pages/keys.html", config, engine, active_page="keys")
+def render_keys_page(config, engine, params=None) -> str:
+    """Legacy /keys — now the API Keys tab of Profiles (M2)."""
+    return render_profiles_page(config, engine, {"tab": "keys"})
 
 
-def render_usage_page(config, engine=None) -> str:
-    """Render the Usage & Spending page (Jinja2)."""
-    from .render import render_page
-    return render_page("pages/usage.html", config, engine, active_page="usage")
+def render_usage_page(config, engine=None, params=None) -> str:
+    """Legacy /usage — now the Usage tab of Activity (M2)."""
+    return render_activity_page(config, engine, {"tab": "usage"})
 
 
 def render_logs_page(config, engine=None, params=None) -> str:
-    """Render the unified Logs page (Jinja2).
+    """Legacy /logs — now the Logs tab of Activity (M2).
 
-    One tab bar over all the log realms: conversations (grouped + summarized),
-    raw requests, provider routing decisions, and the board decisions ledger.
-    ``?view=`` selects the active tab.
-
-    Each tab is a *mount* for the shared table module (``static/js/logtable.js``):
-    the page ships the tab, the table shell and the column spec, and the module
-    fetches the rows from the matching JSON view. Every tab therefore paginates
-    and sorts identically (newest first by default) and keeps its state in the
-    URL, so a view stays shareable.
-
-    Only the decisions tab reads its data server-side — its funnel cards are a
-    property of the whole ledger, not of the current page.
+    ``?view=`` still selects the realm (conversations | requests | providers |
+    decisions), so existing links and bookmarks keep working.
     """
-    from .render import render_page
-    from ..api import work as work_api
-    params = params or {}
-    tab = str(params.get("view") or "conversations")
-    view = {"tab": tab}
-    if tab == "decisions":
-        try:
-            view.update({"decisions": work_api.decisions_view(params=params)})
-        except Exception as e:  # never blank the page on a data error
-            view["error"] = "%s: %s" % (type(e).__name__, e)
-    elif tab not in ("conversations", "requests", "providers"):
-        view["tab_error"] = "unknown view %r" % tab
-    return render_page("pages/logs.html", config, engine, active_page="logs",
-                       view=view, params=params)
+    p = dict(params or {})
+    p["tab"] = "logs"
+    return render_activity_page(config, engine, p)
 
 
 def render_alerts_page(config, engine=None) -> str:
@@ -83,10 +119,17 @@ def render_alerts_page(config, engine=None) -> str:
     return render_page("pages/alerts.html", config, engine, active_page="alerts")
 
 
-def render_models_page(config, engine=None) -> str:
-    """Render the Models capability matrix page (Jinja2)."""
+def render_models_page(config, engine=None, params=None) -> str:
+    """Render the Models page — the capability matrix, with providers as a tab (M2).
+
+    A provider exists here only as *where a model comes from*, so Providers is a
+    tab of this page rather than a nav entry of its own.
+    """
     from .render import render_page
-    return render_page("pages/models.html", config, engine, active_page="models")
+    return render_page("pages/models.html", config, engine,
+                       active_page="models",
+                       tab=_tab(params, ("matrix", "providers"), "matrix"),
+                       params=dict(params or {}))
 
 
 def render_setup_page(config, engine=None) -> str:

@@ -1451,8 +1451,10 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 .convo-id { font-size: 0.68rem; }
 
 /* Logs page tab bar */
-.logs-tabs { display: flex; gap: 0.35rem; flex-wrap: wrap; margin: 0.35rem 0 0.85rem; }
-.logs-tabs .tab-btn.active { border-color: hsl(var(--primary)); color: hsl(var(--primary)); }
+/* M2: .page-tabs is the top-level strip of a merged page; .logs-tabs is the
+   inner strip of the logs section. Same rules — a tab strip is a tab strip. */
+.logs-tabs, .page-tabs { display: flex; gap: 0.35rem; flex-wrap: wrap; margin: 0.35rem 0 0.85rem; }
+.logs-tabs .tab-btn.active, .page-tabs .tab-btn.active { border-color: hsl(var(--primary)); color: hsl(var(--primary)); }
 
 /* Cron page controls — toolbar and row actions use the panel's shadcn-style
    .btn-sm vocabulary (no custom button shapes). */

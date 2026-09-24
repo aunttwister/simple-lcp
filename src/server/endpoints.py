@@ -2412,19 +2412,14 @@ class UsageEndpoints:
             self._send_json({"error": str(e)}, 500)
 
     def _serve_usage_page(self):
-        """Server-rendered Usage & Spending page."""
-        from ..ui.pages import render_usage_page
-        html = render_usage_page(self.config, self.engine)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+        """Legacy /usage — now the Usage tab of Activity (M2)."""
+        self._redirect("/activity?tab=usage")
 
 
 # ── Dashboard / Page Endpoints ───────────────────────────────────────────────
 
 class DashboardEndpoints:
-    """Dashboard, daily costs, recent requests, and management page rendering."""
+    """The merged pages (M2): Activity, Models, Profiles, Alerts, Setup."""
 
     config: Any
     engine: Any
@@ -2435,29 +2430,62 @@ class DashboardEndpoints:
     end_headers: Any
     wfile: Any
 
-    def _serve_dashboard(self, profile_filter: str | None = None):
-        """Server-rendered dashboard."""
-        host = self.headers.get("Host", "localhost:8734")
-        scheme = "https" if (
-            self.headers.get("X-Forwarded-Proto", "").split(",")[0].strip() == "https"
-            or self.headers.get("X-Forwarded-Scheme") == "https"
-        ) else "http"
-        html = render_dashboard(self.config, self.engine, {"Host": host, "X-Forwarded-Proto": scheme}, profile_filter)
+    # ── M2 shared page plumbing ──────────────────────────────────────────────
+    def _qs(self) -> dict:
+        """Query-string params as a flat dict (first value wins)."""
+        from urllib.parse import parse_qs, urlsplit
+        return {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+
+    def _send_html(self, html: str):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(html.encode("utf-8"))
 
-    def _serve_logs_page(self):
-        """Server-rendered unified Logs page (?view=conversations|requests|providers|decisions)."""
-        from ..ui.pages import render_logs_page
-        from urllib.parse import parse_qs, urlsplit
-        qs = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
-        html = render_logs_page(self.config, self.engine, qs)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+    def _redirect(self, location: str, code: int = 302):
+        """Send the visitor to the page that now owns this content (M2).
+
+        A 302 rather than a 301: these are UI re-organisations, and a permanent
+        redirect would be cached by browsers long after the layout settles.
+        """
+        self.send_response(code)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
         self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+
+    def _host_headers(self) -> dict:
+        """The Host / scheme pair the overview needs to build share links."""
+        host = self.headers.get("Host", "localhost:8734")
+        scheme = "https" if (
+            self.headers.get("X-Forwarded-Proto", "").split(",")[0].strip() == "https"
+            or self.headers.get("X-Forwarded-Scheme") == "https"
+        ) else "http"
+        return {"Host": host, "X-Forwarded-Proto": scheme}
+
+    def _serve_activity_page(self):
+        """Server-rendered Activity page (?tab=overview|usage|logs[&view=...])."""
+        from ..ui.pages import render_activity_page
+        self._send_html(render_activity_page(self.config, self.engine,
+                                             self._qs(), self._host_headers()))
+
+    def _serve_dashboard(self, profile_filter: str | None = None):
+        """Legacy / and /dashboard — now the Overview tab of Activity (M2)."""
+        target = "/activity"
+        if profile_filter:
+            target += "?profile=" + profile_filter
+        self._redirect(target)
+
+    def _serve_logs_page(self):
+        """Legacy /logs — now the Logs tab of Activity (M2).
+
+        The realm (``view``) and the table params (``per`` / ``sort`` /
+        ``profile``) ride along in the query string, so existing links land on
+        the same rows they always did.
+        """
+        from urllib.parse import urlencode
+        q = self._qs()
+        q["tab"] = "logs"
+        self._redirect("/activity?" + urlencode(q))
 
     def _serve_alerts_page(self):
         """Server-rendered Alerts page."""
@@ -2469,13 +2497,9 @@ class DashboardEndpoints:
         self.wfile.write(html.encode("utf-8"))
 
     def _serve_models_page(self):
-        """Server-rendered Models capability matrix page."""
+        """Server-rendered Models page (?tab=matrix|providers) — M2."""
         from ..ui.pages import render_models_page
-        html = render_models_page(self.config, self.engine)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+        self._send_html(render_models_page(self.config, self.engine, self._qs()))
 
     def _serve_capability_api(self):
         """GET /api/models/capability — return the capability matrix as JSON.
@@ -2925,31 +2949,17 @@ class DashboardEndpoints:
             self._send_json({"error": str(e)}, 500)
 
     def _serve_keys_dashboard(self):
-        """Server-rendered API Keys management page."""
-        from ..ui.pages import render_keys_page
-        html = render_keys_page(self.config, self.engine)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+        """Legacy /keys — now the API Keys tab of Profiles (M2)."""
+        self._redirect("/profiles?tab=keys")
 
     def _serve_providers_page(self):
-        """Server-rendered Providers management page."""
-        from ..ui.pages import render_providers_page
-        html = render_providers_page(self.config, self.engine)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+        """Legacy /providers — now the Providers tab of Models (M2)."""
+        self._redirect("/models?tab=providers")
 
     def _serve_profiles_page(self):
-        """Server-rendered Profiles management page."""
+        """Server-rendered Profiles page (?tab=profiles|keys) — M2."""
         from ..ui.pages import render_profiles_page
-        html = render_profiles_page(self.config, self.engine)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+        self._send_html(render_profiles_page(self.config, self.engine, self._qs()))
 
 
 # ── Memory Plugin Endpoints ─────────────────────────────────────────────────

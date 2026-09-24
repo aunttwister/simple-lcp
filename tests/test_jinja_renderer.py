@@ -116,10 +116,11 @@ class TestRenderPage:
 
     def test_active_page_injected(self, mock_config):
         from src.ui.render import render_page
-        html = render_page("pages/keys.html", mock_config, active_page="keys")
-        # _sidebar.html sets class="active" on the matching link
+        html = render_page("pages/keys.html", mock_config, active_page="profiles")
+        # API Keys is a tab of Profiles since M2, so the Profiles nav entry is
+        # the active one and the tab strip links to the keys tab.
         assert 'class="active"' in html
-        assert "/keys" in html
+        assert 'href="/profiles?tab=keys"' in html
 
     def test_active_page_defaults_empty(self, mock_config):
         from src.ui.render import render_page
@@ -164,14 +165,14 @@ class TestPageRenderers:
         from src.ui.pages import render_providers_page
         html = render_providers_page(mock_config)
         assert "<!DOCTYPE html>" in html
-        assert "LCP — Providers" in html
+        assert "Providers — LCP" in html
         assert "deepseek" in html
 
     def test_render_profiles_page(self, mock_config):
         from src.ui.pages import render_profiles_page
         html = render_profiles_page(mock_config)
         assert "<!DOCTYPE html>" in html
-        assert "LCP — Profiles" in html
+        assert "Profiles — LCP" in html
 
     def test_render_profiles_page_with_budget(self, mock_config, temp_db):
         """Profiles page renders profile-budget spend/limit when an engine is bound."""
@@ -203,13 +204,13 @@ class TestPageRenderers:
         from src.ui.pages import render_keys_page
         html = render_keys_page(mock_config, engine=None)
         assert "<!DOCTYPE html>" in html
-        assert "LCP — API Keys" in html
+        assert "API Keys — LCP" in html
 
     def test_render_usage_page(self, mock_config):
         from src.ui.pages import render_usage_page
         html = render_usage_page(mock_config)
         assert "<!DOCTYPE html>" in html
-        assert "LCP — Usage" in html
+        assert "Usage — LCP" in html
         # Usage page loads Chart.js
         assert "chart.js" in html.lower()
         # Command Code credentials card (cookie input) renders in the Usage tab
@@ -503,13 +504,13 @@ class TestSidebarPartial:
         tmpl = render_env.get_template("_sidebar.html")
         html = tmpl.render(
             config=MagicMock(profiles={"l2": {}, "l1": {}}),
-            active_page="keys",
+            active_page="profiles",
             profiles=["l2", "l1"],
         )
-        # The keys link should have class="active"
-        assert 'href="/keys" class="active"' in html
-        # Others should not
-        assert 'href="/providers" class="active"' not in html
+        # Profiles owns the profile-scoped surface (M2), so it is the active entry
+        assert 'href="/profiles" class="active"' in html
+        # Others should not be
+        assert 'href="/models" class="active"' not in html
 
     def test_profile_links_not_in_sidebar(self, render_env):
         """Profile links moved from sidebar to dashboard filter pills."""
@@ -612,7 +613,7 @@ class TestDashboardTemplate:
         html = self._render(mock_config)
         assert isinstance(html, str)
         assert html.strip().startswith("<!DOCTYPE html>")
-        assert "LCP Dashboard" in html
+        assert "<title>Activity — LCP</title>" in html
         assert "Daily Cost Trend (14-day)" in html
         assert 'id="costChart"' in html
         assert 'id="provModal"' in html
@@ -643,7 +644,7 @@ class TestDashboardTemplate:
 
     def test_dashboard_profile_filter_active(self, mock_config):
         html = self._render(mock_config, profile_filter="l2", filter_title=" — L2")
-        assert "LCP Dashboard — L2" in html
+        assert "<title>Activity (L2) — LCP</title>" in html
         # Filter dropdown shows active profile
         assert "L2" in html
         assert "lcp-filter-item active" in html

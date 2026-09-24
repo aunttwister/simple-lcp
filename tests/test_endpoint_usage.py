@@ -325,15 +325,21 @@ class TestLogsApi:
 # ── Page routes ───────────────────────────────────────────────────────────
 
 class TestPageRoutes:
-    def test_usage_page(self, temp_db):
+    def test_usage_page_redirects_to_activity(self, temp_db):
         _seed(temp_db)
         h = TestHandler(path="/usage", engine=temp_db)
         h.do_GET()
-        assert _status(h) == 200
+        assert _status(h) == 302
 
-    def test_logs_page(self, temp_db):
+    def test_logs_page_redirects_to_activity(self, temp_db):
         _seed(temp_db)
         h = TestHandler(path="/logs", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 302
+
+    def test_activity_page_serves(self, temp_db):
+        _seed(temp_db)
+        h = TestHandler(path="/activity", engine=temp_db)
         h.do_GET()
         assert _status(h) == 200
 

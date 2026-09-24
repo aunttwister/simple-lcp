@@ -1,357 +1,38 @@
 {% extends "base.html" %}
-{% block title %}LCP — Profiles{% endblock %}
-{% set active_page = 'profiles' %}
+{% block title %}{% if tab == 'keys' %}API Keys — LCP{% else %}Profiles — LCP{% endif %}{% endblock %}
+
+{#
+  M2 — profile-first UI.
+
+  One nav entry for everything profile-scoped. API keys are scoped to the profile
+  that uses them (R9), so they are a tab here rather than a separate page: the
+  key list shows which profile each key serves, next to the profiles it belongs to.
+
+  Sections live in sections/sec_*.html and are guarded by the `tab` variable, so
+  including every one of them only renders the active tab.
+#}
 
 {% block head_extra %}
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+{% include "sections/sec_profiles_head.html" %}
 {% endblock %}
 
 {% block content %}
 <h1>Profiles</h1>
-<p class="subtitle">Manage routing profiles, fallback chains, and tool restrictions</p>
+<p class="subtitle">
+  A <strong>profile</strong> owns the models and providers the router may choose from,
+  how it routes over them, and the circuit breaker that protects it.
+</p>
 
-<div style="display:flex;gap:0.5rem;margin-bottom:1rem">
-  <button class="btn-sm btn-primary" onclick="openAddProfile()">+ Add Profile</button>
-</div>
-
-<div class="table-wrap">
-<table>
-<thead><tr>
-  <th>Profile</th><th>Auth</th><th>Budget</th><th>Chain</th><th>Blocked Tools</th><th>Gateway URL</th><th>Actions</th>
-</tr></thead>
-<tbody id="profilesBody">
-{% for pname, pcfg in profiles_dict.items() %}
-{% set chain = pcfg.get('chain', []) %}
-{% set steps = [] %}{% for s in chain %}{% do steps.append(s.provider + '/' + s.model) %}{% endfor %}
-{% set forbidden = pcfg.get('forbidden_tools', []) or [] %}
-{% set auth_required = pcfg.get('auth_required', true) %}
-<tr>
-  <td><b>{{ pname.upper() }}</b></td>
-  <td style="font-size:0.6875rem">{{ 'key' if auth_required else 'public' }}</td>
-  {% set pb = profile_budgets.get(pname) if profile_budgets else None %}
-  <td style="font-size:0.6875rem">{% if pb %}${{ "%.2f"|format(pb.current_spend) }}/${{ "%.0f"|format(pb.amount) }}{% if pb.spend_pct >= 80 %} <span style="color:hsl(var(--red-fg));font-weight:600">({{ pb.spend_pct }}%)</span>{% else %}({{ pb.spend_pct }}%){% endif %}{% else %}<span style="color:hsl(var(--muted-foreground))">none</span>{% endif %}</td>
-  <td style="font-size:0.75rem">{{ steps | join(' → ') or '—' }}</td>
-  <td style="font-size:0.6875rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ forbidden | join(', ') }}">{{ forbidden | join(', ') or 'none' }}</td>
-  <td class="mono" style="font-size:0.6875rem">/{{ pname }}/chat/completions</td>
-  <td class="profile-actions"><button class="btn-sm" onclick="editProfile('{{ pname }}')">Edit</button>
-      <button class="btn-sm btn-danger" onclick="deleteProfile('{{ pname }}')">Delete</button></td>
-</tr>
-{% endfor %}
-</tbody>
-</table>
+<div class="page-tabs">
+  <a class="tab-btn{% if tab == 'profiles' %} active{% endif %}" href="/profiles">Profiles</a>
+  <a class="tab-btn{% if tab == 'keys' %} active{% endif %}" href="/profiles?tab=keys">API Keys</a>
 </div>
 
-<!-- Profile Edit Modal -->
-<div class="modal-overlay dialog-overlay" id="profileEditModal">
-<div class="modal dialog-content" style="width:min(600px,95vw)">
-  <div class="modal-header dialog-header">
-    <h2 class="dialog-title" id="pemProfileTitle">Edit Profile</h2>
-    <button class="modal-close dialog-close" onclick="closeProfileEdit()">✕</button>
-  </div>
-  <div class="modal-body dialog-body">
-    <div style="margin-bottom:0.75rem" id="pemNameRow">
-      <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Profile Name</label>
-      <input id="pemName" placeholder="e.g. admin (lowercase)" style="width:100%;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
-    </div>
-    <div style="margin-bottom:0.75rem">
-      <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Access Control</label>
-      <label class="toggle" id="pemAuthWrap" title="Require an API key for this profile">
-        <input type="checkbox" id="pemAuthRequired" onchange="this.parentNode.querySelector('.toggle-label').textContent = this.checked ? 'API key required' : 'No key required (public)'">
-        <span class="toggle-track" aria-hidden="true"></span>
-        <span class="toggle-label" id="pemAuthLabel">API key required</span>
-      </label>
-    </div>
-    <div style="margin-bottom:0.75rem">
-      <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Budget</label>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
-        <div><label style="font-size:0.625rem;color:hsl(var(--muted-foreground))">Monthly Cap ($)</label><input id="pemBudgetAmount" type="number" min="0" step="0.01" placeholder="0 = unlimited" style="width:100%;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem"></div>
-        <div><label style="font-size:0.625rem;color:hsl(var(--muted-foreground))">Action</label><select id="pemBudgetAction" style="width:100%;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem"><option value="log">Log &amp; Alert</option><option value="block">Block (429)</option></select></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-top:0.375rem">
-        <div><label style="font-size:0.625rem;color:hsl(var(--muted-foreground))">Alert Thresholds (%)</label><input id="pemBudgetThresholds" placeholder="50,80,90" style="width:100%;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem"></div>
-        <div><label style="font-size:0.625rem;color:hsl(var(--muted-foreground))">Current Spend</label><input id="pemBudgetSpend" readonly style="width:100%;padding:0.3rem 0.5rem;background:hsl(var(--secondary));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--muted-foreground));font-size:0.75rem"></div>
-      </div>
-    </div>
-    <div style="margin-bottom:0.75rem">
-      <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Blocked Tools</label>
-      <div id="pemToolsList" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.375rem"></div>
-      <div style="display:flex;gap:0.375rem">
-        <input id="pemNewTool" placeholder="tool_name" style="flex:1;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
-        <button class="btn-sm btn-primary" onclick="addBlockedTool()">+ Add</button>
-      </div>
-    </div>
-    <div>
-      <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Fallback Chain (drag to reorder)</label>
-      <ul class="chain-list" id="pemChainList"></ul>
-      <button class="btn-sm btn-primary" onclick="addChainStep()" style="margin-top:0.25rem">+ Add Step</button>
-    </div>
-  </div>
-  <div class="modal-footer dialog-footer">
-    <span id="pemSaveStatus" style="font-size:0.6875rem;color:hsl(var(--muted-foreground));margin-right:auto"></span>
-    <button class="btn-sm btn-primary" id="pemSaveBtn" onclick="saveProfileEdit()">Save</button>
-    <button class="btn-sm" onclick="closeProfileEdit()">Cancel</button>
-  </div>
-</div>
-</div>
+{% include "sections/sec_profiles.html" %}
+{% include "sections/sec_keys.html" %}
 {% endblock %}
 
 {% block scripts %}
-<script>
-{% raw %}
-var _addProfileMode = false;
-
-function openAddProfile() {
-  _addProfileMode = true;
-  _editProfileName = '';
-  _editProfileTools = [];
-  _editProfileChain = [];
-  api('GET', '/api/providers').then(function(d) {
-    _allProviders = d.providers || {};
-    _allChains = d.profile_chains || {};
-    document.getElementById('pemProfileTitle').textContent = 'Add Profile';
-    document.getElementById('pemNameRow').style.display = '';
-    document.getElementById('pemName').value = '';
-    document.getElementById('pemAuthRequired').checked = true;
-    document.getElementById('pemAuthLabel').textContent = 'API key required';
-    document.getElementById('pemBudgetAmount').value = '';
-    document.getElementById('pemBudgetAction').value = 'log';
-    document.getElementById('pemBudgetThresholds').value = '';
-    document.getElementById('pemBudgetSpend').value = '';
-    document.getElementById('pemSaveStatus').textContent = '';
-    document.getElementById('pemSaveBtn').textContent = 'Create Profile';
-    renderPemTools();
-    renderPemChain();
-    openDialog('profileEditModal');
-    document.getElementById('pemName').focus();
-  });
-}
-
-function addProfile() {
-  var name = prompt('Profile name (lowercase, e.g. "admin"):');
-  if (!name) return;
-  api('POST', '/api/profiles', { name: name }).then(function(d) {
-    if (d.ok) location.reload();
-    else alert('Error: ' + (d.error || 'unknown'));
-  });
-}
-
-function deleteProfile(name) {
-  if (!confirm('Delete profile "' + name + '"? This cannot be undone.')) return;
-  api('DELETE', '/api/profiles/' + name).then(function(d) {
-    if (d.ok) location.reload();
-    else alert('Error: ' + (d.error || 'unknown'));
-  });
-}
-
-var _editProfileName = '';
-var _editProfileTools = [];
-var _editProfileChain = [];
-var _allProviders = {};
-var _allChains = {};
-
-function editProfile(name) {
-  _addProfileMode = false;
-  _editProfileName = name;
-  api('GET', '/api/providers').then(function(d) {
-    _allProviders = d.providers || {};
-    _allChains = d.profile_chains || {};
-    _editProfileChain = JSON.parse(JSON.stringify(_allChains[name] || []));
-    api('GET', '/api/profiles').then(function(pd) {
-      var prof = (pd.profiles || {})[name] || {};
-      _editProfileTools = (prof.forbidden || []).slice();
-      document.getElementById('pemProfileTitle').textContent = 'Edit Profile: ' + name.toUpperCase();
-      document.getElementById('pemNameRow').style.display = 'none';
-      document.getElementById('pemName').value = '';
-      document.getElementById('pemSaveBtn').textContent = 'Save';
-      var authReq = prof.auth_required !== false;
-      document.getElementById('pemAuthRequired').checked = authReq;
-      document.getElementById('pemAuthLabel').textContent = authReq ? 'API key required' : 'No key required (public)';
-      renderPemTools();
-      renderPemChain();
-      // Load profile budget
-      loadProfileBudget(name);
-      openDialog('profileEditModal');
-    });
-  });
-}
-
-function closeProfileEdit() {
-  closeDialog('profileEditModal');
-}
-
-function renderPemTools() {
-  var html = '';
-  _editProfileTools.forEach(function(t, i) {
-    html += '<span style="display:inline-flex;align-items:center;gap:0.1875rem;padding:0.125rem 0.5rem;background:hsl(var(--red-bg));color:hsl(var(--red-fg));border-radius:9999px;font-size:0.6875rem;font-weight:600">' +
-      t +
-      '<button onclick="removeBlockedTool(' + i + ')" style="background:none;border:none;color:inherit;cursor:pointer;font-size:0.75rem;padding:0;line-height:1">✕</button>' +
-    '</span>';
-  });
-  if (!html) html = '<span style="font-size:0.6875rem;color:hsl(var(--muted-foreground))">no tools blocked</span>';
-  document.getElementById('pemToolsList').innerHTML = html;
-}
-
-function addBlockedTool() {
-  var t = document.getElementById('pemNewTool').value.trim();
-  if (!t) return;
-  if (_editProfileTools.indexOf(t) >= 0) return;
-  _editProfileTools.push(t);
-  document.getElementById('pemNewTool').value = '';
-  renderPemTools();
-}
-
-function removeBlockedTool(idx) {
-  _editProfileTools.splice(idx, 1);
-  renderPemTools();
-}
-
-function renderPemChain() {
-  var provNames = Object.keys(_allProviders);
-  var html = '';
-  if (_editProfileChain.length === 0) {
-    html = '<li class="empty" style="padding:0.5rem;font-size:0.6875rem">No providers in chain</li>';
-  } else {
-    _editProfileChain.forEach(function(s, i) {
-      // Model sync: if the stored model is not offered by the selected
-      // provider (e.g. provider was re-pointed at a new upstream), snap to the
-      // provider's first offered model. Without this the <select> displays the
-      // first option while _editProfileChain[i].model keeps the stale value,
-      // and Save persists the stale model.
-      var provModels = (_allProviders[s.provider] || {}).models || [];
-      if (provModels.length && provModels.indexOf(s.model) === -1) {
-        s.model = provModels[0];
-      }
-      html += '<li class="chain-item" data-idx="' + i + '">';
-      html += '<span class="drag-handle">⋮⋮</span>';
-      html += '<select onchange="_editProfileChain[' + i + '].provider = this.value; var _pm = ((_allProviders[this.value] || {}).models || []); _editProfileChain[' + i + '].model = (_pm.length ? _pm[0] : _editProfileChain[' + i + '].model); renderPemChain();" style="background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:4px;color:hsl(var(--foreground));padding:0.125rem 0.375rem;font-size:0.6875rem">';
-      provNames.forEach(function(pn) {
-        var sel = s.provider === pn ? ' selected' : '';
-        html += '<option value="' + pn + '"' + sel + '>' + pn + '</option>';
-      });
-      html += '</select>';
-      var models = provModels;
-      html += '<select onchange="_editProfileChain[' + i + '].model = this.value" style="background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:4px;color:hsl(var(--foreground));padding:0.125rem 0.375rem;font-size:0.6875rem">';
-      models.forEach(function(m) {
-        var sel = s.model === m ? ' selected' : '';
-        html += '<option value="' + m + '"' + sel + '>' + m + '</option>';
-      });
-      html += '</select>';
-      html += '<button class="btn-sm" style="margin-left:auto" onclick="_editProfileChain.splice(' + i + ',1);renderPemChain();">✕</button>';
-      html += '</li>';
-    });
-  }
-  document.getElementById('pemChainList').innerHTML = html;
-  var listEl = document.getElementById('pemChainList');
-  if (listEl && typeof Sortable !== 'undefined') {
-    new Sortable(listEl, {
-      animation: 150, handle: '.drag-handle',
-      onEnd: function() {
-        var items = document.querySelectorAll('#pemChainList .chain-item');
-        var newChain = [];
-        items.forEach(function(item) {
-          var idx = parseInt(item.getAttribute('data-idx'));
-          newChain.push(_editProfileChain[idx]);
-        });
-        _editProfileChain = newChain;
-        renderPemChain();
-      }
-    });
-  }
-}
-
-function addChainStep() {
-  var provs = Object.keys(_allProviders);
-  if (provs.length === 0) { alert('Add a provider first'); return; }
-  var p = provs[0];
-  var m = ((_allProviders[p] || {}).models || [])[0] || 'default';
-  _editProfileChain.push({provider: p, model: m});
-  renderPemChain();
-}
-
-function saveProfileEdit() {
-  var statusEl = document.getElementById('pemSaveStatus');
-  statusEl.textContent = 'Saving...';
-  statusEl.style.color = 'hsl(var(--amber-fg))';
-  var chain = _editProfileChain.map(function(s) {
-    var bu = '';
-    var old = _allChains[_editProfileName] || [];
-    old.forEach(function(o) {
-      if (o.provider === s.provider && o.model === s.model) bu = o.base_url || '';
-    });
-    return {provider: s.provider, model: s.model, base_url: bu};
-  });
-
-  if (_addProfileMode) {
-    var name = document.getElementById('pemName').value.trim().toLowerCase();
-    if (!name) { statusEl.textContent = 'Enter a profile name'; statusEl.style.color = 'hsl(var(--red-fg))'; return; }
-    return api('POST', '/api/profiles', { name: name }).then(function(create) {
-      if (!create.ok) { statusEl.textContent = create.error || 'Create failed'; statusEl.style.color = 'hsl(var(--red-fg))'; return; }
-      _editProfileName = name;
-      return api('PUT', '/api/chains/' + name, {chain: chain}).then(function() {
-        return api('PUT', '/api/profiles/' + name, {
-          forbidden_tools: _editProfileTools,
-          auth_required: document.getElementById('pemAuthRequired').checked
-        });
-      });
-    }).then(function() {
-      statusEl.textContent = 'Profile created';
-      statusEl.style.color = 'hsl(var(--green-fg))';
-      setTimeout(function() { location.reload(); }, 800);
-    }).catch(function(e) {
-      statusEl.textContent = 'Create failed: ' + (e.message || e);
-      statusEl.style.color = 'hsl(var(--red-fg))';
-    });
-  }
-
-  api('PUT', '/api/chains/' + _editProfileName, {chain: chain}).then(function(chainResult) {
-    return api('PUT', '/api/profiles/' + _editProfileName, {
-      forbidden_tools: _editProfileTools,
-      auth_required: document.getElementById('pemAuthRequired').checked
-    });
-  }).then(function(profResult) {
-    // Also save budget
-    var amt = document.getElementById('pemBudgetAmount').value;
-    var budgetPromise;
-    if (amt || amt === '0') {
-      budgetPromise = api('PUT', '/api/profiles/' + _editProfileName + '/budget', {
-        amount: parseFloat(amt) || 0,
-        action: document.getElementById('pemBudgetAction').value,
-        threshold_pct: document.getElementById('pemBudgetThresholds').value || '80',
-        period: 'monthly'
-      });
-    } else {
-      budgetPromise = Promise.resolve();
-    }
-    return budgetPromise.then(function() {
-      if (profResult.ok) {
-        statusEl.textContent = 'Saved';
-        statusEl.style.color = 'hsl(var(--green-fg))';
-        setTimeout(function() { location.reload(); }, 800);
-      } else {
-        statusEl.textContent = 'Save failed';
-        statusEl.style.color = 'hsl(var(--red-fg))';
-      }
-    });
-  }).catch(function(e) {
-    statusEl.textContent = 'Save failed: ' + (e.message || e);
-    statusEl.style.color = 'hsl(var(--red-fg))';
-  });
-}
-
-function loadProfileBudget(name) {
-  document.getElementById('pemBudgetAmount').value = '';
-  document.getElementById('pemBudgetSpend').value = '';
-  document.getElementById('pemBudgetAction').value = 'log';
-  document.getElementById('pemBudgetThresholds').value = '80';
-  api('GET', '/api/profiles/' + name + '/budget').then(function(d) {
-    if (d.budget) {
-      document.getElementById('pemBudgetAmount').value = d.budget.amount || 0;
-      document.getElementById('pemBudgetSpend').value = '$' + (d.budget.current_spend || 0).toFixed(2) + ' (' + d.budget.spend_pct + '%)';
-      document.getElementById('pemBudgetAction').value = d.budget.action || 'log';
-      document.getElementById('pemBudgetThresholds').value = d.budget.threshold_pct || '80';
-    }
-  });
-}
-{% endraw %}
-</script>
+{% include "sections/sec_profiles_script.html" %}
+{% include "sections/sec_keys_script.html" %}
 {% endblock %}

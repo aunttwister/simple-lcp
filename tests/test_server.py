@@ -116,6 +116,14 @@ def _status(handler):
     return handler.send_response.call_args[0][0] if handler.send_response.call_args else None
 
 
+def _header(handler, name):
+    """Value of a response header the handler sent, or None."""
+    for call in handler.send_header.call_args_list:
+        if call[0] and str(call[0][0]).lower() == name.lower():
+            return call[0][1]
+    return None
+
+
 def _json_body(handler):
     """Parse the JSON body written to wfile."""
     for call in handler.wfile.write.call_args_list:
@@ -690,26 +698,68 @@ class TestStaticEndpoints:
         h.do_GET()
         assert _status(h) == 200
 
-    def test_page_dashboard(self, temp_db):
-        h = TestHandler(path="/dashboard", engine=temp_db)
+    def test_page_activity(self, temp_db):
+        """The Activity page is the observability surface (M2)."""
+        h = TestHandler(path="/activity", engine=temp_db)
         h.do_GET()
         assert _status(h) == 200
 
+    def test_page_dashboard(self, temp_db):
+        """Legacy /dashboard now redirects to Activity (M2)."""
+        h = TestHandler(path="/dashboard", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 302
+        assert _header(h, "Location") == "/activity"
+
     def test_page_keys(self, temp_db):
+        """Legacy /keys now redirects to the API Keys tab of Profiles (M2)."""
         from src.api.key_manager import KeyManager
         import src.api.key_manager as key_manager_mod
         key_manager_mod._key_manager = KeyManager(temp_db, "data")
         h = TestHandler(path="/keys", engine=temp_db)
         h.do_GET()
-        assert _status(h) == 200
+        assert _status(h) == 302
+        assert _header(h, "Location") == "/profiles?tab=keys"
 
     def test_page_providers(self, temp_db):
+        """Legacy /providers now redirects to the Providers tab of Models (M2)."""
         h = TestHandler(path="/providers", engine=temp_db)
         h.do_GET()
-        assert _status(h) == 200
+        assert _status(h) == 302
+        assert _header(h, "Location") == "/models?tab=providers"
 
     def test_page_profiles(self, temp_db):
         h = TestHandler(path="/profiles", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 200
+
+    def test_page_usage_redirects(self, temp_db):
+        h = TestHandler(path="/usage", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 302
+        assert _header(h, "Location") == "/activity?tab=usage"
+
+    def test_page_logs_redirects_and_keeps_the_realm(self, temp_db):
+        """A bookmarked realm survives the merge: ?view= rides along."""
+        h = TestHandler(path="/logs?view=requests", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 302
+        loc = _header(h, "Location")
+        assert loc.startswith("/activity?")
+        assert "tab=logs" in loc and "view=requests" in loc
+
+    def test_merged_page_tabs_serve(self, temp_db):
+        """Every tab of the three merged pages renders (M2)."""
+        for path in ("/profiles?tab=keys", "/models?tab=providers",
+                     "/activity?tab=usage", "/activity?tab=logs",
+                     "/activity?tab=logs&view=decisions"):
+            h = TestHandler(path=path, engine=temp_db)
+            h.do_GET()
+            assert _status(h) == 200, path
+
+    def test_unknown_tab_falls_back_to_the_page_default(self, temp_db):
+        """A stale ?tab= lands on the page's default tab, never a 404."""
+        h = TestHandler(path="/models?tab=nonsense", engine=temp_db)
         h.do_GET()
         assert _status(h) == 200
 
@@ -719,14 +769,17 @@ class TestStaticEndpoints:
         assert _status(h) == 404
 
     def test_dashboard_with_profile_filter(self, temp_db):
+        """The per-profile dashboard URL survives as a filtered Activity redirect."""
         h = TestHandler(path="/l2/dashboard", engine=temp_db)
         h.do_GET()
-        assert _status(h) == 200
+        assert _status(h) == 302
+        assert _header(h, "Location") == "/activity?profile=l2"
 
     def test_per_profile_dashboard(self, temp_db):
         h = TestHandler(path="/l1/dashboard", engine=temp_db)
         h.do_GET()
-        assert _status(h) == 200
+        assert _status(h) == 302
+        assert _header(h, "Location") == "/activity?profile=l1"
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -506,7 +506,7 @@ def forward_request(provider_cfg: dict, body: dict, config, session_id: str | No
     if not api_key and _provider_needs_key(provider_name):
         raise ConfigError(
             f"No API key found for provider '{provider_name}'. "
-            f"Add it in the dashboard (Providers → Configuration)."
+            f"Add it in Models → Providers → Configuration."
         )
 
     streaming = body.get("stream", False)

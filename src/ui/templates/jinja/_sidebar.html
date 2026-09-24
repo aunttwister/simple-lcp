@@ -1,3 +1,20 @@
+{#
+  M2 — profile-first navigation: five control-plane entries instead of nine.
+
+  Profiles   — the profile surface (profiles + the API keys scoped to them)
+  Models     — the capability matrix + where those models come from
+  Activity   — everything that happened: overview, usage, all log realms
+  Alerts     — things to act on (kept separate: R10 — alerts and budgets are
+               defined per subject and belong on their own page)
+  Setup      — install wizard and module config
+
+  Work is a module with its own four entries. The usage cache refresh + provider
+  credit submenu ride on the Activity entry, since Usage is a tab of Activity now.
+
+  The element ids (sbUsageRefreshBtn, usageChevron, usageSubmenu) are unchanged:
+  static/js/sidebar.js wires the submenu by id, and dashboard.css styles
+  `.sb-usage-nav > a`, so both keep working.
+#}
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
     <span>LCP</span>
@@ -10,16 +27,11 @@
     <a href="/work/config"{% if active_page == 'work_config' %} class="active"{% endif %}>Config</a>
 
     <div class="nav-label">Gateway</div>
-    <a href="/providers"{% if active_page == 'providers' %} class="active"{% endif %}>Providers</a>
-    <a href="/models"{% if active_page == 'models' %} class="active"{% endif %}>Models</a>
     <a href="/profiles"{% if active_page == 'profiles' %} class="active"{% endif %}>Profiles</a>
-    <a href="/keys"{% if active_page == 'keys' %} class="active"{% endif %}>API Keys</a>
-
-    <div class="nav-label">Monitor</div>
-    <a href="/dashboard"{% if active_page == 'dashboard' %} class="active"{% endif %}>Dashboard</a>
+    <a href="/models"{% if active_page == 'models' %} class="active"{% endif %}>Models</a>
     <div class="sb-usage-nav" id="usageNav">
-      <a href="/usage"{% if active_page == 'usage' %} class="active"{% endif %}>
-        Usage
+      <a href="/activity"{% if active_page == 'activity' %} class="active"{% endif %}>
+        Activity
         <span class="sb-usage-refresh" id="sbUsageRefreshBtn" role="button" tabindex="0"
           onclick="event.preventDefault();event.stopPropagation();sbUsageRefresh(event)"
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();sbUsageRefresh(event)}"
@@ -30,10 +42,7 @@
       </a>
       <div class="sb-usage-submenu" id="usageSubmenu"></div>
     </div>
-    <a href="/logs"{% if active_page == 'logs' %} class="active"{% endif %}>Logs</a>
     <a href="/alerts"{% if active_page == 'alerts' %} class="active"{% endif %}>Alerts <span id="sidebarAlertBadge" class="sb-alert-badge" style="display:none">0</span></a>
-
-    <div class="nav-label">Admin</div>
     <a href="/setup"{% if active_page == 'setup' %} class="active"{% endif %}>Setup</a>
   </nav>
 </aside>

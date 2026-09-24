@@ -109,6 +109,22 @@ def _compute_monthly(engine) -> dict:
     return monthly
 
 
+# ── M2: legacy page names fold into the merged pages ─────────────────────────
+# The pre-merge pages (dashboard / usage / logs / providers / keys) were folded
+# into the five control-plane pages and their templates are gone. A caller that
+# still names one — an older test, a stale render helper — resolves to the merged
+# page with the tab that now owns that content, instead of TemplateNotFound.
+# name -> (merged template, tab, any context the section needs to render)
+_LEGACY_PAGE_TABS = {
+    "pages/dashboard.html": ("pages/activity.html", "overview", {}),
+    "pages/usage.html": ("pages/activity.html", "usage", {}),
+    "pages/logs.html": ("pages/activity.html", "logs",
+                        {"view": {"tab": "conversations"}, "params": {}}),
+    "pages/providers.html": ("pages/models.html", "providers", {}),
+    "pages/keys.html": ("pages/profiles.html", "keys", {}),
+}
+
+
 def render_page(template_name: str, config, engine=None, **kwargs) -> str:
     """Render a standalone page template with common context injected.
 
@@ -119,8 +135,14 @@ def render_page(template_name: str, config, engine=None, **kwargs) -> str:
 
     Usage::
 
-        html = render_page("pages/providers.html", config=self.config, engine=self.engine)
+        html = render_page("pages/models.html", config=self.config, engine=self.engine)
     """
+    merged = _LEGACY_PAGE_TABS.get(template_name)
+    if merged is not None:
+        template_name, tab, extra = merged
+        kwargs.setdefault("tab", tab)
+        for key, value in extra.items():
+            kwargs.setdefault(key, value)
     monthly = _compute_monthly(engine)
     provider_names = sorted(config.providers.keys()) if config is not None and hasattr(config, 'providers') else []
     profiles_list = list(config.profiles.keys()) if config is not None and hasattr(config, 'profiles') else []

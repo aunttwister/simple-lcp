@@ -16,8 +16,13 @@ logger = get_logger("lcp.dashboard")
 from .render import render_page
 
 
-def render_dashboard(config, engine, headers, profile_filter=None):
-    """Generate the full dashboard HTML page and return it as a string."""
+def dashboard_context(config, engine, headers, profile_filter=None):
+    """Build the overview view-context (what used to be the standalone dashboard).
+
+    Split out of ``render_dashboard`` for M2: the Overview tab of the merged
+    Activity page renders these same numbers, and the arithmetic must live in
+    exactly one place. Returns the kwargs ``render_page`` expects.
+    """
 
     from sqlalchemy import func, case
 
@@ -496,41 +501,46 @@ def render_dashboard(config, engine, headers, profile_filter=None):
     except Exception:
         pass
 
-    return render_page(
-        "pages/dashboard.html", config, engine,
-        active_page="dashboard",
-        profile_filter=profile_filter,
-        filter_title=filter_title,
-        now_utc=now_utc,
-        version=version,
-        host_url=host_url,
-        total_cost_fmt=total_cost_fmt,
-        cache_savings_fmt=cache_savings_fmt,
-        cache_hit_rate_fmt=cache_hit_rate_fmt,
-        fb_pct_fmt=fb_pct_fmt,
-        summary_total_requests_fmt=summary_total_requests_fmt,
-        fallback_count_fmt=fallback_count_fmt,
-        cache_hit_tokens_fmt=cache_hit_tokens_fmt,
-        cache_miss_tokens_fmt=cache_miss_tokens_fmt,
-        output_tokens_fmt=output_tokens_fmt,
-        prompt_tokens_fmt=prompt_tokens_fmt,
-        active_days=active_days,
-        profile_cards=profile_cards,
-        daily_rows=daily_rows_data,
-        recent_rows=recent_rows_data,
-        error_rows=error_rows_data,
-        sidebar_profiles=sidebar_profiles,
-        budget_cards=budget_cards,
-        budget_cards_json=json.dumps(budget_cards),
-        token_mismatches=token_mismatches,
-        routing_threshold=routing_threshold,
-        cache_entries=cache_entries,
-        cache_max_entries=cache_max_entries,
-        ts_dates_json=ts_dates_json,
-        ts_costs_json=ts_costs_json,
-        ts_lats_json=ts_lats_json,
-        pp_data_json=pp_data_json,
-        pm_data_json=pm_data_json,
-        monthly_json=_monthly_data_json,
-        configured_providers_json=_configured_providers_json,
-    )
+    return {
+        "active_page": "activity",
+        "profile_filter": profile_filter,
+        "filter_title": filter_title,
+        "now_utc": now_utc,
+        "version": version,
+        "host_url": host_url,
+        "total_cost_fmt": total_cost_fmt,
+        "cache_savings_fmt": cache_savings_fmt,
+        "cache_hit_rate_fmt": cache_hit_rate_fmt,
+        "fb_pct_fmt": fb_pct_fmt,
+        "summary_total_requests_fmt": summary_total_requests_fmt,
+        "fallback_count_fmt": fallback_count_fmt,
+        "cache_hit_tokens_fmt": cache_hit_tokens_fmt,
+        "cache_miss_tokens_fmt": cache_miss_tokens_fmt,
+        "output_tokens_fmt": output_tokens_fmt,
+        "prompt_tokens_fmt": prompt_tokens_fmt,
+        "active_days": active_days,
+        "profile_cards": profile_cards,
+        "daily_rows": daily_rows_data,
+        "recent_rows": recent_rows_data,
+        "error_rows": error_rows_data,
+        "sidebar_profiles": sidebar_profiles,
+        "budget_cards": budget_cards,
+        "budget_cards_json": json.dumps(budget_cards),
+        "token_mismatches": token_mismatches,
+        "routing_threshold": routing_threshold,
+        "cache_entries": cache_entries,
+        "cache_max_entries": cache_max_entries,
+        "ts_dates_json": ts_dates_json,
+        "ts_costs_json": ts_costs_json,
+        "ts_lats_json": ts_lats_json,
+        "pp_data_json": pp_data_json,
+        "pm_data_json": pm_data_json,
+        "monthly_json": _monthly_data_json,
+        "configured_providers_json": _configured_providers_json,
+    }
+
+
+def render_dashboard(config, engine, headers, profile_filter=None):
+    """Render the standalone dashboard page (pre-M2 route, now a redirect target)."""
+    return render_page("pages/dashboard.html", config, engine,
+                       **dashboard_context(config, engine, headers, profile_filter))
