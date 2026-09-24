@@ -68,6 +68,13 @@ services:
       - LCP_WORK_TASKS_DIR=/app/work-tree/tasks
       - LCP_WORK_TODO=/app/work-tree/todo.md
       - LCP_CRON_OPS_DIR=/app/cron-ops
+      # Where this container sees the Hermes profiles (the read-only mount above)
+      # and where uploaded profile pictures are written (the data mount). The
+      # sources file names HOST paths, and work_sources rebases them onto
+      # LCP_PROFILES_DIR — without both of these the profile pages would look at
+      # paths that only exist outside the container.
+      - LCP_PROFILES_DIR=/app/profiles
+      - LCP_AVATAR_DIR=/app/data/avatars
       # The Fleet view reads LCP's OWN provider/profile APIs rather than a
       # second copy of the chain data, so what it shows is the chain LCP will
       # actually use. Inside the container that is loopback on the internal port.

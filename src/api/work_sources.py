@@ -123,21 +123,62 @@ def load_sources() -> Optional[Dict[str, Any]]:
         return None
 
 
+# A profile name becomes a path segment here, so it is checked before use.
+_TASK_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
 def tasks_root_for(profile: str) -> str:
-    """The task tree one profile resolves to: its override, else the default.
+    """The task tree one profile resolves to, as a path THIS process can walk.
 
     Shared by the Tasks tab of a profile page and the tasks JSON API, so the page
     and the table it loads can never disagree about which tree is being shown.
-    Returns "" when the profile has no entry at all, which callers read as "use
-    the default root" rather than "no tasks".
+
+    Empty string means "no profile asked for" or "the name is not a path segment";
+    callers then fall back to the default root. A profile that has no tree yields
+    the path it *would* have, so the page can say the tree is missing instead of
+    silently showing another profile's tasks.
     """
-    if not profile:
+    profile = (profile or "").strip()
+    if not profile or profile in (".", "..") or not _TASK_NAME_RE.match(profile):
         return ""
     try:
-        entry = (resolved_view().get("profiles") or {}).get(profile) or {}
+        view = resolved_view()
     except Exception:  # noqa: BLE001 — a bad sources file must not break a page
         return ""
-    return entry.get("tasks_root") or ""
+    host_root = view.get("hermes_profiles_dir") or ""
+    entry = (view.get("profiles") or {}).get(profile) or {}
+    root = entry.get("tasks_root") or ""
+    if not root:
+        # Not in the cron snapshot (a gateway profile with no jobs yet): the
+        # convention is still <profiles_dir>/<profile>/work/tasks.
+        root = os.path.join(host_root or DEFAULT_PROFILES_DIR, profile, "work", "tasks")
+    return _to_local_path(root, host_root)
+
+
+def _to_local_path(path: str, host_root: str) -> str:
+    """Rebase a host path under the profiles directory onto this container's mount.
+
+    ``work-sources.json`` is written by the host and names host paths
+    (``/root/.hermes/profiles/<p>/work/tasks``); LCP mounts that directory at
+    ``/app/profiles``. Without rebasing, every profile's task tree looks empty
+    inside the gateway while sitting right there outside it.
+
+    A path that already exists here is left alone — on the host, and in tests, the
+    file's own value is the correct one.
+    """
+    if not path:
+        return ""
+    if os.path.isdir(path):
+        return path
+    host_root = (host_root or "").rstrip("/")
+    local_root = (os.environ.get("LCP_PROFILES_DIR") or "/app/profiles").rstrip("/")
+    if not host_root or host_root == local_root:
+        return path
+    if path == host_root:
+        return local_root
+    if path.startswith(host_root + "/"):
+        return local_root + path[len(host_root):]
+    return path
 
 
 def resolved_view() -> Dict[str, Any]:

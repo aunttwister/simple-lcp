@@ -417,11 +417,60 @@ def test_tasks_root_for_returns_empty_for_no_profile(monkeypatch):
     assert work_sources.tasks_root_for("") == ""
 
 
-def test_tasks_root_for_reads_the_profile_override(monkeypatch):
+def test_tasks_root_for_reads_the_profile_override(monkeypatch, tmp_path):
+    from src.api import work_sources
+    tree = tmp_path / "custom-l2-tree"
+    tree.mkdir()
+    monkeypatch.setattr(work_sources, "resolved_view",
+                        lambda: {"profiles": {"l2": {"tasks_root": str(tree)}}})
+    assert work_sources.tasks_root_for("l2") == str(tree)
+
+
+def test_a_host_path_is_rebased_onto_this_containers_mount(monkeypatch, tmp_path):
+    """The sources file names HOST paths; LCP mounts the profiles dir elsewhere.
+
+    Without this, every profile's tree is empty inside the gateway while sitting
+    right there outside it — and the tab would render another profile's rows.
+    """
+    from src.api import work_sources
+    local = tmp_path / "app" / "profiles"
+    (local / "l2" / "work" / "tasks" / "new" / "t").mkdir(parents=True)
+    monkeypatch.setenv("LCP_PROFILES_DIR", str(local))
+    monkeypatch.setattr(work_sources, "resolved_view", lambda: {
+        "hermes_profiles_dir": "/root/.hermes/profiles",
+        "profiles": {"l2": {"tasks_root": "/root/.hermes/profiles/l2/work/tasks"}}})
+    assert work_sources.tasks_root_for("l2") == str(local / "l2" / "work" / "tasks")
+
+
+def test_a_path_that_exists_here_is_left_alone(monkeypatch, tmp_path):
+    """On the host the file's own path is the right one — no rebasing."""
+    from src.api import work_sources
+    tree = tmp_path / "tasks"
+    tree.mkdir()
+    monkeypatch.setattr(work_sources, "resolved_view", lambda: {
+        "hermes_profiles_dir": "/root/.hermes/profiles",
+        "profiles": {"l2": {"tasks_root": str(tree)}}})
+    assert work_sources.tasks_root_for("l2") == str(tree)
+
+
+def test_a_profile_with_no_entry_gets_the_conventional_path(monkeypatch, tmp_path):
+    """A gateway profile with no cron jobs is still not another profile's tree."""
+    from src.api import work_sources
+    local = tmp_path / "app" / "profiles"
+    local.mkdir(parents=True)
+    monkeypatch.setenv("LCP_PROFILES_DIR", str(local))
+    monkeypatch.setattr(work_sources, "resolved_view", lambda: {
+        "hermes_profiles_dir": "/root/.hermes/profiles", "profiles": {}})
+    assert work_sources.tasks_root_for("fresh") == str(local / "fresh" / "work" / "tasks")
+
+
+@pytest.mark.parametrize("bad", ["..", "../etc", "a/b", "", "  ", "x" * 65])
+def test_a_dangerous_profile_name_never_becomes_a_task_path(bad, monkeypatch):
     from src.api import work_sources
     monkeypatch.setattr(work_sources, "resolved_view",
-                        lambda: {"profiles": {"l2": {"tasks_root": "/t/l2"}}})
-    assert work_sources.tasks_root_for("l2") == "/t/l2"
+                        lambda: {"hermes_profiles_dir": "/root/.hermes/profiles",
+                                 "profiles": {}})
+    assert work_sources.tasks_root_for(bad) == ""
 
 
 def test_tasks_root_for_survives_a_broken_sources_file(monkeypatch):
