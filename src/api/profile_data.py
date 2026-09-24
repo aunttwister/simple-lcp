@@ -415,7 +415,7 @@ def agent_summary(name: str, words: int = 10) -> str:
             continue
         line = re.sub(r"\*\*(.+?)\*\*", r"\1", line[:400])
         line = re.sub(r"[`\[\]]", "", line).strip()
-        line = re.sub(r"^(?:You are|You're)\s+(?:the|an?)\s+", "", line, flags=re.IGNORECASE)
+        line = re.sub(r"^(?:You are|You're)\s+(?:(?:the|an?)\s+)?", "", line, flags=re.IGNORECASE)
         parts = line.split()
         if len(parts) < 3:
             continue

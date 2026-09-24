@@ -160,9 +160,18 @@ def tasks_dir() -> str:
 
 
 def todos_path() -> str:
-    """The sibling todo.md for the same profile as the task tree."""
+    """The sibling todo.md for the same profile as the task tree.
+
+    When a per-profile root is in force the ledger is derived from it. The
+    ``LCP_WORK_TODO`` override names the *default* profile's ledger, so honouring
+    it here would caption one profile's tasks with another profile's todo.md —
+    which is exactly the kind of mismatch this view exists to prevent.
+    """
     root = tasks_dir()
-    return os.environ.get("LCP_WORK_TODO", os.path.join(os.path.dirname(root), "todo.md"))
+    override = os.environ.get("LCP_WORK_TODO")
+    if override and _ACTIVE_ROOT.get() is None:
+        return override
+    return os.path.join(os.path.dirname(root), "todo.md")
 
 
 def _classification_index() -> Optional[Dict[str, Any]]:

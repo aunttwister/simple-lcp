@@ -653,3 +653,33 @@ def test_an_agent_with_no_soul_has_no_summary(agent_root):
     (agent_root / "bare" / "skills").mkdir(parents=True)
     (agent_root / "bare" / "config.yaml").write_text("provider: {}\n")
     assert profile_data.agent_summary("bare") == ""
+
+
+def test_a_per_profile_tasks_tab_reads_that_profiles_ledger(monkeypatch, tmp_path):
+    """The todo panel must caption the same profile as the rows above it."""
+    from src.api import work_tasks
+    mine = tmp_path / "p" / "work"
+    (mine / "tasks").mkdir(parents=True)
+    (mine / "todo.md").write_text("mine\n")
+    monkeypatch.setenv("LCP_WORK_TODO", "/somewhere/else/todo.md")
+    # with no per-profile root in force the override still wins
+    assert work_tasks.todos_path() == "/somewhere/else/todo.md"
+    with work_tasks.use_root(str(mine / "tasks")):
+        assert work_tasks.todos_path() == str(mine / "todo.md")
+    assert work_tasks.todos_path() == "/somewhere/else/todo.md"
+
+
+def test_the_lane_and_the_agent_can_differ_without_breaking_the_ledger(agent_root, monkeypatch):
+    """End to end: the lane page shows the agent profile's own ledger path."""
+    from src.api import work_sources, work_tasks
+    tree = agent_root / "homelab-expert-l2" / "work" / "tasks"
+    tree.mkdir(parents=True)
+    (agent_root / "homelab-expert-l2" / "work" / "todo.md").write_text("l2 ledger\n")
+    monkeypatch.setattr(work_sources, "resolved_view", lambda: {
+        "hermes_profiles_dir": str(agent_root),
+        "profiles": {"homelab-expert-l2": {"tasks_root": str(tree)}}})
+    monkeypatch.setenv("LCP_WORK_TODO", "/app/work-tree/todo.md")
+    root = work_sources.tasks_root_for("homelab-expert-l2")
+    assert root == str(tree)
+    with work_tasks.use_root(root):
+        assert work_tasks.todos_path() == str(agent_root / "homelab-expert-l2" / "work" / "todo.md")
