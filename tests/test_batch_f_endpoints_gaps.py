@@ -320,6 +320,14 @@ class TestProviderTestErrors:
             def read(self, *a, **k):
                 raise OSError("stream closed")
 
+            def close(self):
+                # HTTPError's base chain ends at tempfile._TemporaryFileCloser, whose
+                # __del__ calls .close() on the fp once the error object is collected.
+                # Without this the AttributeError is raised inside a GC finaliser, so
+                # pytest reports it as an unraisable exception against whichever test
+                # happens to be running - it passed alone and failed in the full suite.
+                pass
+
         err = urllib.error.HTTPError("https://x/v1", 503, "down", {}, BadFP())
         with patch("urllib.request.urlopen", side_effect=err):
             h._serve_provider_test()
