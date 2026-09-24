@@ -10,9 +10,10 @@ LCP ships a small number of self-contained "plugins" that are each installed
     page) and — for API-keyed providers — storing the key encrypted in the
     credential store. Local/credential-free steps (``llamacpp``) or steps that
     only need a cookie/workspace-id are config-apply only.
-  - **LiveBench benchmark module** — a runtime install (clone + pip install
-    into the running container) that can run in the background and reports
-    its progress in real time.
+  - **Optional modules** (Memory, Semantic routing, Runboard) — runtime
+    installs (pip install into the running container) that run in the
+    background and report their progress in real time. There is no benchmark
+    module: capability scores are declared data (see ``seed_capabilities``).
 
 State is persisted in the ``setup_state`` table so the wizard knows which
 steps are done, skipped, or failed. The Setup page reports the manifest
@@ -34,9 +35,6 @@ from typing import Optional
 from .logging_config import get_logger
 
 logger = get_logger("lcp.setup")
-
-LIVEBENCH_REPO = "https://github.com/LiveBench/LiveBench.git"
-LIVEBENCH_EVAL_REQUIREMENTS = "code_runner/requirements_eval.txt"
 
 # Root directory where runtime-installed modules live. Override with
 # ``LCP_MODULES_DIR`` (default ``/opt/lcp-modules``). Each module clones into
@@ -64,7 +62,7 @@ def memory_site() -> str:
 
     ``<LCP_MODULES_DIR>/memory`` — pip installs ``--target`` here so lancedb +
     sentence-transformers survive container recreation, and ``remove_memory``
-    can delete it without touching LiveBench's shared ``site`` dir.
+    can delete it without disturbing any other module's deps dir.
     """
     return os.path.join(modules_dir(), "memory")
 
@@ -79,7 +77,7 @@ def router_site() -> str:
 
     ``<LCP_MODULES_DIR>/router`` — pip installs ``--target`` here (sentence-
     transformers + torch) so the embedding-based task classifier is independent
-    of the memory plugin's install. Grouped with LiveBench as a router module.
+    of the memory plugin's install.
     """
     return os.path.join(modules_dir(), "router")
 
@@ -186,10 +184,10 @@ def router_install_blocked_reason(db_path: Optional[str] = None) -> Optional[str
     """Return why the Semantic routing module can't be installed (or None).
 
     Semantic routing classifies a prompt by MEANING into a task type, but the
-    router then routes by the model's benchmark-graded capability scores for
-    that task. So the real prerequisite is GRADED CAPABILITY DATA in the
-    matrix — not the LiveBench module itself. LiveBench (runs) and the bundled
-    bundled declared matrix (``seed_capabilities``) is the producer.
+    router then routes by that task's capability scores. So the real
+    prerequisite is DECLARED CAPABILITY DATA in the matrix. The bundled
+    declared matrix (``seed_capabilities``) is the producer, and individual
+    scores can also be set by hand on the Models page.
 
     With *db_path* the gate keys on the matrix actually having rows, and the
     reason is tailored to the state:
@@ -242,7 +240,8 @@ def router_step(engine=None) -> dict:
     task type by MEANING (not keywords), which capability scores then route to
     the best-fit model. Install sentence-transformers into its own deps dir,
     independent of the memory plugin. Install is blocked (``blocked_reason``)
-    until GRADED CAPABILITY DATA exists (LiveBench run or bundled-snapshot seed).
+    until DECLARED CAPABILITY DATA exists (the bundled matrix or scores set
+    by hand on the Models page).
     """
     from .memory import router_status
 
@@ -269,6 +268,9 @@ def router_step(engine=None) -> dict:
         # Install is gated on graded capability data (semantic routing's real
         # dependency). None when installable.
         "blocked_reason": None if bool(status.get("available")) else router_install_blocked_reason(db_path),
+        # What the router routes by — surfaced on this card so a missing matrix
+        # is visible next to the install button it gates.
+        "capability": capability_matrix_stats(db_path),
         "status": status,
         "install_path": router_site(),
         "installing": installing,
@@ -558,7 +560,7 @@ _mem_install: Optional[dict] = None  # in-flight {status, progress, detail, log,
 _mem_last: Optional[dict] = None     # terminal result (done/failed) for the UI
 
 # Memory deps are installed into their own --target dir (memory_site) so
-# remove_memory can delete them without touching LiveBench's shared site.
+# remove_memory can delete them without disturbing the other module dirs.
 # tokenizers is pinned for the SAME reason as ROUTER_PACKAGES: transformers
 # (a sentence-transformers dep) rejects tokenizers>0.23.0, and an unpinned
 # --target copy in /opt/lcp-modules/memory would shadow the baked global
@@ -650,7 +652,7 @@ def _run_memory_install(engine) -> None:
         )
 
         # Verify the deps actually became importable with the target dir on
-        # PYTHONPATH (fresh subprocess probe, like LiveBench core_deps_available).
+        # PYTHONPATH (fresh subprocess probe, as in the router install).
         from .memory import memory_available
         if not memory_available(site):
             raise SetupError(

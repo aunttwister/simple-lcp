@@ -6,7 +6,7 @@
 <h1>Setup</h1>
 <p class="subtitle">
   Install LCP plugins on first startup. Required provider plugins gate the
-  dashboard; optional modules (LiveBench, Memory) can be skipped.
+  dashboard; optional modules (Memory, Runboard, Workspace) can be skipped.
 </p>
 
 <div class="setup-wrap">
@@ -150,23 +150,24 @@ function stepCard(step) {
     : (state === 'running'
       ? '<span class="muted" style="font-size:0.7rem">installing…</span>'
       : (step.blocked_reason
-        ? '<button class="btn btn-outline btn-sm" disabled title="' + esc(step.blocked_reason) + '" style="cursor:not-allowed;opacity:0.6">Install — requires LiveBench</button>'
+        ? '<button class="btn btn-outline btn-sm" disabled title="' + esc(step.blocked_reason) + '" style="cursor:not-allowed;opacity:0.6">Install (blocked)</button>'
         : '<button class="btn btn-outline btn-sm" data-install="' + step.kind + ':' + esc(step.name) + '">Install</button>'));
   const blockedNote = step.blocked_reason
     ? '<div class="muted" style="font-size:0.7rem;color:var(--warning)">' + esc(step.blocked_reason) + '</div>'
     : '';
-  // LiveBench card: show the ACTUAL prerequisite state (graded scores) and the
-  // one-click "seed the bundled leaderboard" action — the exit from the gate.
+  // Router card: show the ACTUAL prerequisite state (the capability matrix it
+  // routes by) and the one-click action that restores the bundled baseline —
+  // the exit from the install gate.
   const cap = step.capability || { models: 0, tasks: 0 };
-  const capLine = step.name === 'livebench'
+  const capLine = step.name === 'router'
     ? '<div class="muted" style="font-size:0.7rem">' +
       (cap.models > 0
-        ? esc(cap.models) + ' models · ' + esc(cap.tasks) + ' tasks graded'
-        : 'No graded scores yet — run a benchmark or seed the baseline') +
+        ? esc(cap.models) + ' models · ' + esc(cap.tasks) + ' task types in the matrix'
+        : 'No capability data yet — declare scores on the Models page, or apply the bundled matrix') +
       '</div>'
     : '';
-  const seedBtn = step.name === 'livebench'
-    ? ' <button class="btn btn-outline btn-sm" data-seed="' + esc(step.name) + '">Seed baseline scores</button>'
+  const seedBtn = step.name === 'router'
+    ? ' <button class="btn btn-outline btn-sm" data-seed="' + esc(step.name) + '">Apply bundled matrix</button>'
     : '';
   return '<div class="setup-step" id="step-' + step.kind + '-' + step.name + '">' +
     '<div class="setup-step-main">' +
@@ -201,11 +202,11 @@ function renderSteps() {
 }
 
 async function seedBaseline(name) {
-  if (!confirm('Seed the bundled LiveBench leaderboard snapshot?\n\n' +
-    'This imports baseline capability scores instantly (no benchmarks run) ' +
-    'so semantic routing has data to route by.')) return;
+  if (!confirm('Apply the bundled declared capability matrix?\n\n' +
+    'This writes the shipped baseline scores into the matrix so semantic ' +
+    'routing has data to route by. It does not overwrite scores you set by hand.')) return;
   const btn = document.querySelector('[data-seed="' + name + '"]');
-  if (btn) { btn.disabled = true; btn.textContent = 'Seeding…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
   const res = await api('POST', '/api/models/capability/seed', {});
   if (res.error) { alert('Error: ' + res.error); }
   await loadSetup();

@@ -149,24 +149,6 @@
 </div>
 </div>
 
-<!-- Benchmark live log modal -->
-<div class="modal-overlay dialog-overlay" id="benchLogModal">
-<div class="modal dialog-content" style="width:min(680px,95vw)">
-  <div class="modal-header dialog-header">
-    <h2 class="dialog-title" id="benchLogTitle">Benchmark log</h2>
-    <div style="display:flex;align-items:center;gap:0.5rem">
-      <button class="btn-sm" id="benchLogCopyBtn" onclick="copyBenchLog()">Copy</button>
-      <button class="modal-close dialog-close" onclick="closeBenchLog()">✕</button>
-    </div>
-  </div>
-  <div class="modal-body dialog-body">
-    <pre id="benchLogLines" class="setup-log" style="max-height:420px"></pre>
-  </div>
-  <div class="modal-footer dialog-footer">
-    <button class="btn-sm" onclick="closeBenchLog()">Close</button>
-  </div>
-</div>
-</div>
 {% endblock %}
 
 {% block scripts %}
@@ -195,34 +177,6 @@ const API = {
     const r = await fetch('/api/models/registry/' + encodeURIComponent(logical), {method: 'DELETE'});
     return r.json();
   },
-  async benchmarks(offset, limit, model) {
-    const q = new URLSearchParams();
-    if (offset) q.set('offset', offset);
-    if (limit) q.set('limit', limit);
-    if (model) q.set('model', model);
-    const qs = q.toString();
-    const r = await fetch('/api/models/benchmark' + (qs ? '?' + qs : ''));
-    return r.json();
-  },
-  async benchmarkStatus() {
-    const r = await fetch('/api/models/benchmark/status');
-    return r.json();
-  },
-  async runBenchmark(provider, model, parallel) {
-    const body = {provider, model};
-    if (parallel !== undefined && parallel !== null && parallel !== '') {
-      body.parallel = parseInt(parallel, 10);
-    }
-    const r = await fetch('/api/models/benchmark', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body)
-    });
-    return r.json();
-  },
-  async benchmarkLog(id) {
-    const r = await fetch('/api/models/benchmark/' + id + '/log');
-    return r.json();
-  },
   async manualScores(model, scores, release) {
     const r = await fetch('/api/models/capability/manual', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -233,7 +187,7 @@ const API = {
 };
 
 // ── State ──────────────────────────────────────────────────────────────────
-let STATE = { registry: {}, providers: {}, matrix: {}, runs: [], bench: null, selected: null, filter: '', activeModels: new Set(), configuredOnly: false, runsOffset: 0, runsTotal: 0, runsLimit: 5 };
+let STATE = { registry: {}, providers: {}, matrix: {}, selected: null, filter: '', activeModels: new Set(), configuredOnly: false };
 
 // model → list of providers that expose it (from gateway.yaml providers.models)
 function providerModels() {
@@ -300,12 +254,11 @@ function allModels() {
 }
 
 async function loadAll() {
-  const [matrix, providers, reg, bench] = await Promise.all([
-    API.matrix(), API.providers(), API.registry(), API.benchmarkStatus()
+  const [matrix, providers, reg] = await Promise.all([
+    API.matrix(), API.providers(), API.registry()
   ]);
   STATE.matrix = matrix;
   STATE.providers = providers.providers || {};
-  STATE.bench = bench;
 
   const registryMap = {};
   for (const e of (reg.registry || [])) registryMap[e.logical_name] = e;
@@ -330,28 +283,6 @@ async function loadAll() {
   } else if (allModels().length) {
     selectModel(allModels()[0]);
   }
-}
-
-// Load benchmark runs for the selected model (paginated).
-async function loadRunsForSelected() {
-  const canonical = canonicalName(STATE.selected);
-  const data = await API.benchmarks(STATE.runsOffset, STATE.runsLimit, canonical);
-  STATE.runs = data.runs || [];
-  STATE.runsTotal = data.total || STATE.runs.length;
-  renderDetail(STATE.selected);
-}
-
-function runsPaginationInfo() {
-  const start = STATE.runsTotal === 0 ? 0 : STATE.runsOffset + 1;
-  const end = Math.min(STATE.runsOffset + STATE.runs.length, STATE.runsTotal);
-  return `${start}–${end} of ${STATE.runsTotal}`;
-}
-
-async function pageBenchmarkRuns(delta) {
-  const next = STATE.runsOffset + delta * STATE.runsLimit;
-  if (next < 0 || (delta > 0 && next >= STATE.runsTotal)) return;
-  STATE.runsOffset = next;
-  await loadRunsForSelected();
 }
 
 function bestScore(model) {
@@ -408,10 +339,8 @@ function toggleConfiguredOnly() {
 
 function selectModel(model) {
   STATE.selected = model;
-  STATE.runsOffset = 0;
   renderModelList();
   renderDetail(model);
-  loadRunsForSelected();
 }
 
 // LiveBench category → LCP task type (reverse of seed_capabilities.LB_TO_LCP).
@@ -515,17 +444,11 @@ function renderDetail(model) {
   }
   scores.sort((a, b) => b.score - a.score);
 
-  // Subtask breakdown: prefer the API's seeded subtasks keyed by benchmark_key
-  // (which may differ from the logical name, e.g. qwen-3.8-max vs qwen3.8-max),
-  // then fall back to the most recent done benchmark run's all_tasks.csv parse.
+  // Subtask breakdown, keyed by benchmark_key (which may differ from the logical
+  // name, e.g. qwen-3.8-max vs qwen3.8-max). Empty unless declared scores carry one.
   const subtaskApi = (STATE.matrix.subtasks || {});
-  let taskBreakdown = subtaskApi[benchmarkKey] || subtaskApi[canonical] || null;
-  if (!taskBreakdown) {
-    const doneRun = [...STATE.runs].reverse().find(r => r.status === 'done' && r.result && r.result.tasks);
-    if (doneRun) taskBreakdown = doneRun.result.tasks;
-  }
+  const taskBreakdown = subtaskApi[benchmarkKey] || subtaskApi[canonical] || null;
 
-  const runs = STATE.runs;
   const scoreTaskKeys = scores.map(s => s.task);
   const leftoverGroups = leftoverSubtaskGroups(taskBreakdown, scoreTaskKeys);
 
@@ -592,50 +515,11 @@ function renderDetail(model) {
       </div>
     </div>` : ''}
 
-    <div class="model-section">
-      <h4>Benchmark</h4>
-      ${benchSection(model, provs)}
-      <div class="table-wrap" style="margin-top:0.75rem">
-        <table class="capability-table bench-table">
-          <thead><tr><th>ID</th><th>Categories</th><th>Status</th><th>Started</th><th>Result</th><th></th></tr></thead>
-          <tbody>
-          ${runs.length ? runs.map(r => {
-            const cats = r.categories || ['all'];
-            const catChips = cats.length > 3
-              ? cats.slice(0, 3).map(c => `<span class="chip">${c}</span>`).join('') + `<span class="chip">+${cats.length - 3}</span>`
-              : cats.map(c => `<span class="chip">${c}</span>`).join('');
-            const result = r.status === 'done' && r.result
-              ? Object.entries(r.result.categories || {}).map(([c, s]) => `${c}: ${s.toFixed(1)}`).join(', ')
-              : (r.error || '—');
-            const short = result.length > 60 ? result.slice(0, 60) + '…' : result;
-            return `<tr>
-              <td class="mono">${r.id}</td>
-              <td><div class="chip-row" title="${cats.join(', ')}">${catChips}</div></td>
-              <td><span class="badge badge-${r.status === 'done' ? 'success' : r.status === 'failed' ? 'error' : r.status === 'running' ? 'fallback' : 'cache'}">${r.status}</span></td>
-              <td class="mono nowrap">${(r.started_at || '—').replace('T', ' ').slice(0, 16)}</td>
-              <td class="result-cell" title="${result.replace(/"/g, '&quot;')}">${short}</td>
-              <td><button class="btn btn-outline btn-sm" data-benchlog="${r.id}">Logs</button></td>
-            </tr>`;
-          }).join('') : '<tr><td colspan="6" class="empty">No benchmark runs for this model.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-      <div class="bench-pagination">
-        <button class="btn btn-outline btn-sm" id="benchPrevBtn" ${STATE.runsOffset <= 0 ? 'disabled' : ''}>‹ Prev</button>
-        <span class="bench-page-info">${runsPaginationInfo()}</span>
-        <button class="btn btn-outline btn-sm" id="benchNextBtn" ${STATE.runsOffset + STATE.runs.length >= STATE.runsTotal ? 'disabled' : ''}>Next ›</button>
-      </div>
     </div>`;
 
   document.getElementById('editModelBtn')?.addEventListener('click', () => editRegistry(model, benchmarkKey, providerMappings, pinnedRelease, benchmarkRelease, quantization));
   document.getElementById('deleteModelBtn')?.addEventListener('click', () => deleteRegistry(model));
-  document.getElementById('runBenchBtn')?.addEventListener('click', () => runBenchmark(model));
   document.getElementById('addScoreBtn')?.addEventListener('click', () => openManualScore(model));
-  document.getElementById('benchPrevBtn')?.addEventListener('click', () => pageBenchmarkRuns(-1));
-  document.getElementById('benchNextBtn')?.addEventListener('click', () => pageBenchmarkRuns(1));
-  document.querySelectorAll('[data-benchlog]').forEach(btn => {
-    btn.addEventListener('click', () => openBenchmarkLog(btn.dataset.benchlog));
-  });
   detail.querySelectorAll('.score-row.clickable').forEach(row => {
     const toggle = () => row.classList.toggle('open');
     row.addEventListener('click', toggle);
@@ -643,32 +527,6 @@ function renderDetail(model) {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
     });
   });
-}
-
-function benchSection(model, providers) {
-  const bench = STATE.bench;
-  if (!bench || !bench.available) {
-    const reason = (bench && bench.reason) || 'Benchmark runner not installed.';
-    return `<p class="empty">${reason}</p>`;
-  }
-  let note = '';
-  if (bench.coding_supported === false) {
-    note = '<span class="seed-status"> (coding category unavailable — install the LiveBench eval extra)</span>';
-  }
-  const provList = (providers || []).filter(Boolean);
-  if (!provList.length) {
-    return `<div class="bench-run-row">
-      <span class="seed-status">No provider supports this model — map it to a provider first.</span>
-    </div>`;
-  }
-  const options = provList.map(p => `<option value="${esc(p)}"${provList[0] === p ? ' selected' : ''}>${esc(p)}</option>`).join('');
-  return `<div class="bench-run-row">
-    <select id="benchProvider" class="capability-filter">${options}</select>
-    <input type="number" id="benchParallel" class="capability-filter" min="1" max="64" value="16" style="width:70px"
-           title="Concurrent API requests (1 = sequential)" aria-label="Benchmark parallelism">
-    <button class="btn btn-outline" id="runBenchBtn">Run benchmark</button>${note}
-    <span id="benchStatus" class="seed-status"></span>
-  </div>`;
 }
 
 // ── Registry actions ────────────────────────────────────────────────────────
@@ -1000,7 +858,7 @@ let DELETE_TARGET = null;
 function deleteRegistry(logical) {
   DELETE_TARGET = logical;
   document.getElementById('deleteModelText').textContent =
-    'Delete "' + logical + '" from the model registry? This does not remove its benchmark runs or scores.';
+    'Delete "' + logical + '" from the model registry? This does not remove its declared scores.';
   document.getElementById('deleteModelError').textContent = '';
   openDialog('deleteModelModal');
 }
@@ -1020,89 +878,6 @@ function closeDeleteModel() {
   closeDialog('deleteModelModal');
 }
 
-// ── Benchmark live log ─────────────────────────────────────────────────────
-
-let BENCH_LOG = { timer: null, runId: null, stickToBottom: true };
-
-async function openBenchmarkLog(runId) {
-  BENCH_LOG.runId = runId;
-  BENCH_LOG.stickToBottom = true;
-  document.getElementById('benchLogTitle').textContent = 'Benchmark run #' + runId;
-  document.getElementById('benchLogLines').textContent = 'Loading…';
-  openDialog('benchLogModal');
-  await pollBenchLog();
-  if (!BENCH_LOG.timer) BENCH_LOG.timer = setInterval(pollBenchLog, 2000);
-}
-
-async function pollBenchLog() {
-  if (!BENCH_LOG.runId) return;
-  const pre = document.getElementById('benchLogLines');
-  const data = await API.benchmarkLog(BENCH_LOG.runId);
-  if (data.error) { pre.textContent = 'Error: ' + data.error; return; }
-  const lines = data.log || [];
-  pre.textContent = lines.length ? lines.join('\n') : '(no output yet)';
-  // Auto-follow the tail only while the user is already at the bottom;
-  // stop yanking the scroll position once they scroll up to read.
-  if (BENCH_LOG.stickToBottom) pre.scrollTop = pre.scrollHeight;
-}
-
-// Track whether the user is at the bottom of the log (enables/disables autoscroll).
-(function () {
-  const pre = document.getElementById('benchLogLines');
-  if (pre) {
-    pre.addEventListener('scroll', function () {
-      const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24;
-      BENCH_LOG.stickToBottom = atBottom;
-    });
-  }
-})();
-
-async function copyBenchLog() {
-  const pre = document.getElementById('benchLogLines');
-  try {
-    await navigator.clipboard.writeText(pre.textContent);
-    const btn = document.getElementById('benchLogCopyBtn');
-    btn.textContent = 'Copied ✓';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-  } catch (e) {
-    // Fallback for non-secure contexts / missing clipboard API.
-    const range = document.createRange();
-    range.selectNodeContents(pre);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    document.execCommand('copy');
-    sel.removeAllRanges();
-    const btn = document.getElementById('benchLogCopyBtn');
-    btn.textContent = 'Copied ✓';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-  }
-}
-
-function closeBenchLog() {
-  if (BENCH_LOG.timer) { clearInterval(BENCH_LOG.timer); BENCH_LOG.timer = null; }
-  BENCH_LOG.runId = null;
-  closeDialog('benchLogModal');
-}
-
-// ── Benchmark ───────────────────────────────────────────────────────────────
-
-async function runBenchmark(model) {
-  const provider = document.getElementById('benchProvider').value.trim();
-  const parallelEl = document.getElementById('benchParallel');
-  const parallel = parallelEl ? parallelEl.value.trim() : '';
-  const status = document.getElementById('benchStatus');
-  if (!provider) { status.textContent = 'Enter a provider.'; return; }
-  const btn = document.getElementById('runBenchBtn');
-  btn.disabled = true;
-  status.textContent = 'Queueing…';
-  try {
-    const data = await API.runBenchmark(provider, model, parallel);
-    if (data.error) status.textContent = 'Error: ' + data.error;
-    else { status.textContent = `Queued run #${data.run.id}.`; loadAll(); loadRunsForSelected(); }
-  } catch (e) { status.textContent = 'Error: ' + e.message; }
-  btn.disabled = false;
-}
 
 // ── Wiring ──────────────────────────────────────────────────────────────────
 
