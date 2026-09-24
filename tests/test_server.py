@@ -1,5 +1,6 @@
 """Tests for server.py — auth enforcement, API endpoints, page routes."""
 
+import base64
 import json
 import os
 import tempfile
@@ -765,8 +766,15 @@ class TestStaticEndpoints:
         assert "tab=logs" in loc and "view=requests" in loc
 
     def test_merged_page_tabs_serve(self, temp_db):
-        """Every tab of the three merged pages renders (M2)."""
-        for path in ("/profiles?tab=keys", "/models?tab=providers",
+        """Every tab of the merged pages renders (M2), and the M2c retired ones land."""
+        # M2c: /profiles?tab=keys|cron redirect to the profile directory instead of
+        # rendering a tab that no longer exists.
+        for path in ("/profiles?tab=keys", "/profiles?tab=cron"):
+            h = TestHandler(path=path, engine=temp_db)
+            h.do_GET()
+            assert _status(h) == 302, path
+            assert _header(h, "Location") == "/profiles", path
+        for path in ("/profiles?tab=config", "/models?tab=providers",
                      "/activity?tab=usage", "/activity?tab=logs",
                      "/activity?tab=logs&view=decisions"):
             h = TestHandler(path=path, engine=temp_db)
@@ -778,6 +786,53 @@ class TestStaticEndpoints:
         h = TestHandler(path="/models?tab=nonsense", engine=temp_db)
         h.do_GET()
         assert _status(h) == 200
+
+    def test_the_profile_detail_page_serves(self, temp_db):
+        """M2c: /profiles/<name> is a page — for a real name and for a made-up one.
+
+        An unknown or unsafe name renders the not-found page rather than a 404 or a
+        traceback: the name reaches the filesystem, so it is validated on the way in.
+        """
+        for path in ("/profiles/l2", "/profiles/no-such-profile", "/profiles/.."):
+            h = TestHandler(path=path, engine=temp_db)
+            h.do_GET()
+            assert _status(h) == 200, path
+
+    def test_the_profile_detail_page_offers_its_five_tabs(self, temp_db):
+        for tab in ("skills", "memory", "tasks", "cron", "keys"):
+            h = TestHandler(path="/profiles/l2?tab=%s" % tab, engine=temp_db)
+            h.do_GET()
+            assert _status(h) == 200, tab
+
+    def test_the_avatar_api_404s_without_a_picture(self, temp_db):
+        """No picture is a 404, so the page keeps the initials it already drew."""
+        h = TestHandler(path="/api/profiles/l2/avatar", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 404
+
+    def test_the_avatar_api_refuses_a_mislabelled_upload(self, temp_db):
+        """The type is checked against the bytes: an avatar is served back out of
+        the directory it is written to, so a mislabelled file is arbitrary content."""
+        body = json.dumps({"content_type": "image/png",
+                           "data_base64": base64.b64encode(b"<script>alert(1)</script>").decode()})
+        h = TestHandler(path="/api/profiles/l2/avatar", method="POST", engine=temp_db, body=body)
+        h.do_POST()
+        assert _status(h) == 400
+        assert "not a valid" in _json_body(h).get("error", "")
+
+    def test_the_avatar_api_refuses_an_unsupported_type(self, temp_db):
+        body = json.dumps({"content_type": "image/svg+xml", "data_base64": "PHN2Zy8+"})
+        h = TestHandler(path="/api/profiles/l2/avatar", method="POST", engine=temp_db, body=body)
+        h.do_POST()
+        assert _status(h) == 400
+        assert "unsupported" in _json_body(h).get("error", "")
+
+    def test_the_avatar_api_refuses_a_dangerous_profile_name(self, temp_db):
+        body = json.dumps({"content_type": "image/png", "data_base64": "iVBORw0KGgo="})
+        h = TestHandler(path="/api/profiles/../avatar", method="POST", engine=temp_db, body=body)
+        h.do_POST()
+        # either the route does not match (404 from the fallback) or it refuses (400)
+        assert _status(h) in (400, 404)
 
     def test_404(self, temp_db):
         h = TestHandler(path="/nonexistent", engine=temp_db)

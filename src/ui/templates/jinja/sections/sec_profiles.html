@@ -9,32 +9,35 @@
   <button class="btn-sm btn-primary" onclick="openAddProfile()">+ Add Profile</button>
 </div>
 
-<div class="table-wrap">
-<table>
-<thead><tr>
-  <th>Profile</th><th>Auth</th><th>Budget</th><th>Chain</th><th>Blocked Tools</th><th>Gateway URL</th><th>Actions</th>
-</tr></thead>
-<tbody id="profilesBody">
-{% for pname, pcfg in profiles_dict.items() %}
-{% set chain = pcfg.get('chain', []) %}
-{% set steps = [] %}{% for s in chain %}{% do steps.append(s.provider + '/' + s.model) %}{% endfor %}
-{% set forbidden = pcfg.get('forbidden_tools', []) or [] %}
-{% set auth_required = pcfg.get('auth_required', true) %}
-<tr>
-  <td><b>{{ pname.upper() }}</b></td>
-  <td style="font-size:0.6875rem">{{ 'key' if auth_required else 'public' }}</td>
-  {% set pb = profile_budgets.get(pname) if profile_budgets else None %}
-  <td style="font-size:0.6875rem">{% if pb %}${{ "%.2f"|format(pb.current_spend) }}/${{ "%.0f"|format(pb.amount) }}{% if pb.spend_pct >= 80 %} <span style="color:hsl(var(--red-fg));font-weight:600">({{ pb.spend_pct }}%)</span>{% else %}({{ pb.spend_pct }}%){% endif %}{% else %}<span style="color:hsl(var(--muted-foreground))">none</span>{% endif %}</td>
-  <td style="font-size:0.75rem">{{ steps | join(' → ') or '—' }}</td>
-  <td style="font-size:0.6875rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ forbidden | join(', ') }}">{{ forbidden | join(', ') or 'none' }}</td>
-  <td class="mono" style="font-size:0.6875rem">/{{ pname }}/chat/completions</td>
-  <td class="profile-actions"><button class="btn-sm" onclick="editProfile('{{ pname }}')">Edit</button>
-      <button class="btn-sm btn-danger" onclick="deleteProfile('{{ pname }}')">Delete</button></td>
-</tr>
-{% endfor %}
-</tbody>
-</table>
+<div class="profile-grid">
+  {% for c in profile_cards %}
+  <div class="profile-card">
+    <a class="pc-head" href="{{ c.href }}">
+      <span class="pc-avatar">
+        {% if c.avatar %}<img src="/api/profiles/{{ c.name }}/avatar" alt="">{% else %}<span class="pc-initials">{{ c.initials }}</span>{% endif %}
+      </span>
+      <span class="pc-id">
+        <span class="pc-name">{{ c.name }}</span>
+        <span class="pc-meta">{{ c.auth_label }}{% if c.budget_label %} &middot; {{ c.budget_label }}{% endif %}</span>
+      </span>
+    </a>
+    {% if c.words %}
+    <p class="pc-desc" title="{{ c.description }}">{{ c.short_description }}</p>
+    {% else %}
+    <p class="pc-desc pc-desc-empty">No description yet &mdash; add one from Edit.</p>
+    {% endif %}
+    {% if c.chain_label %}<div class="pc-chain" title="{{ c.chain_label }}">{{ c.chain_label }}</div>{% endif %}
+    <div class="pc-foot">
+      <span class="pc-url mono" title="Gateway URL">/{{ c.name }}/chat/completions</span>
+      <span class="pc-actions">
+        <button class="btn-sm" onclick="editProfile('{{ c.name }}')">Edit</button>
+        <button class="btn-sm btn-danger" onclick="deleteProfile('{{ c.name }}')">Delete</button>
+      </span>
+    </div>
+  </div>
+  {% endfor %}
 </div>
+{% if not profile_cards %}<div class="empty">No profiles configured yet.</div>{% endif %}
 
 <!-- Profile Edit Modal -->
 <div class="modal-overlay dialog-overlay" id="profileEditModal">
@@ -47,6 +50,12 @@
     <div style="margin-bottom:0.75rem" id="pemNameRow">
       <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Profile Name</label>
       <input id="pemName" placeholder="e.g. admin (lowercase)" style="width:100%;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+    </div>
+    <div style="margin-bottom:0.75rem">
+      <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Short Description</label>
+      <textarea id="pemDescription" rows="2" maxlength="120" placeholder="e.g. Routes the homelab expert agents"
+        style="width:100%;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem;font-family:inherit;resize:vertical"></textarea>
+      <div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.125rem">Shown on the profile card &middot; ten words is the sweet spot, two lines the limit</div>
     </div>
     <div style="margin-bottom:0.75rem">
       <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Access Control</label>

@@ -19,6 +19,7 @@ function openAddProfile() {
     document.getElementById('pemNameRow').style.display = '';
     document.getElementById('pemName').value = '';
     document.getElementById('pemAuthRequired').checked = true;
+    document.getElementById('pemDescription').value = '';
     document.getElementById('pemAuthLabel').textContent = 'API key required';
     document.getElementById('pemBudgetAmount').value = '';
     document.getElementById('pemBudgetAction').value = 'log';
@@ -68,6 +69,7 @@ function editProfile(name) {
       _editProfileTools = (prof.forbidden || []).slice();
       document.getElementById('pemProfileTitle').textContent = 'Edit Profile: ' + name.toUpperCase();
       document.getElementById('pemNameRow').style.display = 'none';
+      document.getElementById('pemDescription').value = prof.description || '';
       document.getElementById('pemName').value = '';
       document.getElementById('pemSaveBtn').textContent = 'Save';
       var authReq = prof.auth_required !== false;
@@ -197,6 +199,7 @@ function saveProfileEdit() {
       return api('PUT', '/api/chains/' + name, {chain: chain}).then(function() {
         return api('PUT', '/api/profiles/' + name, {
           forbidden_tools: _editProfileTools,
+          description: document.getElementById('pemDescription').value.trim(),
           auth_required: document.getElementById('pemAuthRequired').checked
         });
       });
@@ -213,6 +216,7 @@ function saveProfileEdit() {
   api('PUT', '/api/chains/' + _editProfileName, {chain: chain}).then(function(chainResult) {
     return api('PUT', '/api/profiles/' + _editProfileName, {
       forbidden_tools: _editProfileTools,
+          description: document.getElementById('pemDescription').value.trim(),
       auth_required: document.getElementById('pemAuthRequired').checked
     });
   }).then(function(profResult) {

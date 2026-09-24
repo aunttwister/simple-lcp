@@ -13,6 +13,8 @@ location is the state.
 import html
 import json
 import os
+import contextlib
+import contextvars
 import re
 import sys
 import time
@@ -121,8 +123,29 @@ def _plan_summary(plan_text: str) -> Optional[str]:
     return None
 
 
+# The Tasks tab is per profile (M2c): the same views run against whichever tree
+# the profile resolves to. A ContextVar rather than a module global because the
+# server is threaded — one request's profile must not leak into another's — and
+# rather than a parameter because a dozen helpers reach `tasks_dir()` on their own.
+_ACTIVE_ROOT: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar(
+    "lcp_tasks_root", default=None)
+
+
+@contextlib.contextmanager
+def use_root(root: str):
+    """Point the whole task tree at ``root`` for the duration of the block."""
+    token = _ACTIVE_ROOT.set(root)
+    try:
+        yield root
+    finally:
+        _ACTIVE_ROOT.reset(token)
+
+
 def tasks_dir() -> str:
-    """Resolve the task tree root: env override, then configured sources."""
+    """Resolve the task tree root: explicit override, env, then configured sources."""
+    override = _ACTIVE_ROOT.get()
+    if override:
+        return override
     env = os.environ.get("LCP_WORK_TASKS_DIR")
     if env:
         return env

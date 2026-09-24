@@ -3,7 +3,11 @@
     (profiles) inside a tab guard for the tab 'keys'. -#}
 
 {% if tab == 'keys' %}
+{% if key_scope is defined and key_scope %}
+<p class="subtitle">Virtual keys that can call <b>{{ key_scope }}</b> &#183; a key with no profiles selected works on every profile</p>
+{% else %}
 <p class="subtitle">Manage virtual keys for API access</p>
+{% endif %}
 
 <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
   <button class="btn-sm btn-primary" onclick="showCreateKeyModal()">+ Create Key</button>

@@ -1,13 +1,17 @@
 {% extends "base.html" %}
-{% block title %}{% if tab == 'keys' %}API Keys — LCP{% elif tab == 'cron' %}Cron — LCP{% elif tab == 'config' %}Config — LCP{% else %}Profiles — LCP{% endif %}{% endblock %}
+{% block title %}{% if tab == 'config' %}Config — LCP{% else %}Profiles — LCP{% endif %}{% endblock %}
 
 {#
-  M2 — profile-first UI. M2b — Cron and Config moved in here.
+  M2c — the profile directory (level 2).
 
-  One nav entry for everything profile-scoped. API keys belong to the profile that
-  uses them (R9), the cron jobs belong to the profile that runs them, and the paths
-  the work layer reads are per-profile overrides on top of the host defaults. All
-  four were separate nav entries; the profile is the unit they share.
+  One card per profile: its name, a ten-word description, a picture, and what the
+  old table showed at a glance (auth, budget, chain, gateway URL). Everything that
+  belongs to a single profile — skills, memory, tasks, cron, API keys — lives one
+  level deeper, under /profiles/<name>, because that is where a reader looks for it
+  and because keys are per-profile by design.
+
+  Config stays on this page: it is the one genuinely cross-profile view, the
+  work-layer defaults plus every profile's overrides in a single table.
 
   Sections live in sections/sec_*.html and are guarded by the `tab` variable, so
   including every one of them only renders the active tab.
@@ -21,26 +25,20 @@
 <h1>Profiles</h1>
 <p class="subtitle">
   A <strong>profile</strong> owns the models and providers the router may choose from,
-  how it routes over them, the circuit breaker that protects it, the keys that call
-  it, the cron jobs it runs, and the paths its work layer reads.
+  how it routes over them, the circuit breaker that protects it, and the keys that call
+  it. Open a card for that profile's skills, memory, tasks, cron jobs and API keys.
 </p>
 
 <div class="page-tabs">
   <a class="tab-btn{% if tab == 'profiles' %} active{% endif %}" href="/profiles">Profiles</a>
-  <a class="tab-btn{% if tab == 'keys' %} active{% endif %}" href="/profiles?tab=keys">API Keys</a>
-  <a class="tab-btn{% if tab == 'cron' %} active{% endif %}" href="/profiles?tab=cron">Cron</a>
   <a class="tab-btn{% if tab == 'config' %} active{% endif %}" href="/profiles?tab=config">Config</a>
 </div>
 
 {% include "sections/sec_profiles.html" %}
-{% include "sections/sec_keys.html" %}
-{% include "sections/sec_cron.html" %}
 {% include "sections/sec_config.html" %}
 {% endblock %}
 
 {% block scripts %}
 {% include "sections/sec_profiles_script.html" %}
-{% include "sections/sec_keys_script.html" %}
-{% include "sections/sec_cron_script.html" %}
 {% include "sections/sec_config_script.html" %}
 {% endblock %}

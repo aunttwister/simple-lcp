@@ -123,6 +123,23 @@ def load_sources() -> Optional[Dict[str, Any]]:
         return None
 
 
+def tasks_root_for(profile: str) -> str:
+    """The task tree one profile resolves to: its override, else the default.
+
+    Shared by the Tasks tab of a profile page and the tasks JSON API, so the page
+    and the table it loads can never disagree about which tree is being shown.
+    Returns "" when the profile has no entry at all, which callers read as "use
+    the default root" rather than "no tasks".
+    """
+    if not profile:
+        return ""
+    try:
+        entry = (resolved_view().get("profiles") or {}).get(profile) or {}
+    except Exception:  # noqa: BLE001 — a bad sources file must not break a page
+        return ""
+    return entry.get("tasks_root") or ""
+
+
 def resolved_view() -> Dict[str, Any]:
     """The panel's form payload: file values merged over defaults."""
     file_vals = load_sources() or {}

@@ -16,6 +16,93 @@ def _tab(params, allowed, default) -> str:
     return tab if tab in allowed else default
 
 
+def _crumbs(*parts) -> list:
+    """Breadcrumb entries from (label, href) pairs.
+
+    The last entry is the current location and carries no href, so the template
+    styles the terminus without needing a second flag. Pages that are only one
+    level deep pass a single pair and get a single crumb — a location is still
+    worth naming even when there is no trail behind it.
+    """
+    out = []
+    for i, (label, href) in enumerate(parts):
+        out.append({"label": label, "href": None if i == len(parts) - 1 else href})
+    return out
+
+
+def _profile_budgets(engine) -> dict:
+    """Per-profile budget rows, keyed by profile name. {} when there is no engine."""
+    budgets = {}
+    if engine is None:
+        return budgets
+    try:
+        from ..api.models import Budget, get_session as _gs
+        with _gs(engine) as s:
+            for b in s.query(Budget).filter(Budget.key_id.is_(None), Budget.profile.isnot(None)).all():
+                budgets[b.profile] = {
+                    "id": b.id, "name": b.name, "amount": b.amount,
+                    "current_spend": b.current_spend, "period": b.period,
+                    "threshold_pct": b.threshold_pct, "action": b.action, "status": b.status,
+                    "spend_pct": round((b.current_spend / b.amount * 100) if b.amount > 0 else 0, 1),
+                }
+    except Exception:
+        pass
+    return budgets
+
+
+def _profile_card(config, name, pcfg, budgets) -> dict:
+    """One card for the profiles grid (M2c).
+
+    A card carries what the old table carried *at a glance* — auth, budget, chain,
+    gateway URL — plus the description and the photo. The description is clamped
+    to ten words here rather than in CSS: a clamp that only exists in a stylesheet
+    still ships the whole paragraph in the page source.
+    """
+    from ..api import profile_data
+    try:
+        pcfg = pcfg or {}
+        desc = str(pcfg.get("description") or "").strip()
+        words = desc.split()
+        short = " ".join(words[:10]) + ("\u2026" if len(words) > 10 else "")
+        chain = pcfg.get("chain", []) or []
+        steps = []
+        for s in chain:
+            if isinstance(s, dict):
+                steps.append("%s/%s" % (s.get("provider", ""), s.get("model", "")))
+            else:
+                steps.append("%s/%s" % (getattr(s, "provider", ""), getattr(s, "model", "")))
+        auth_required = pcfg.get("auth_required", True)
+        pb = budgets.get(name)
+        budget_label = ""
+        if pb:
+            budget_label = "$%.2f/$%.0f (%s%%)" % (pb["current_spend"], pb["amount"], pb["spend_pct"])
+        return {
+            "name": name,
+            "initials": (name[:2] or "?").upper(),
+            "href": "/profiles/" + name,
+            "description": desc,
+            "short_description": short,
+            "words": len(words),
+            "avatar": profile_data.avatar_for(name) is not None,
+            "auth_label": "key required" if auth_required else "public",
+            "budget_label": budget_label,
+            "chain_label": " \u2192 ".join(steps),
+        }
+    except profile_data.BadProfileName:
+        return None
+
+
+def _profile_cards(config, names, budgets) -> list:
+    """Cards for every gateway profile, in config order."""
+    profiles = config.profiles if (config is not None and hasattr(config, "profiles")) else {}
+    cards = []
+    for name in names:
+        card = _profile_card(config, name, profiles.get(name), budgets)
+        if card:
+            cards.append(card)
+    return cards
+
+
 def _logs_view(params) -> dict:
     """The logs tab's view dict: which realm, plus its server-side funnel data.
 
@@ -49,7 +136,9 @@ def render_activity_page(config, engine=None, params=None, headers=None) -> str:
     from .render import render_page
     params = dict(params or {})
     tab = _tab(params, ("overview", "logs"), "overview")
-    ctx = {"active_page": "activity", "tab": tab, "params": params}
+    ctx = {"active_page": "activity", "tab": tab, "params": params,
+           "crumbs": _crumbs(("Activity", "/activity"),
+                             ("Logs" if tab == "logs" else "Overview", None))}
     if tab == "logs":
         ctx["view"] = _logs_view(params)
     elif tab == "overview":
@@ -65,40 +154,27 @@ def render_providers_page(config, engine=None, params=None) -> str:
 
 
 def render_profiles_page(config, engine=None, params=None) -> str:
-    """Render the Profiles page — the profile surface (M2, four tabs since M2b).
+    """Render the Profiles page — one card per profile (M2c, level 2).
 
-    One nav entry for everything profile-scoped: the profiles themselves, the API
-    keys that call them (R9), the cron jobs they run, and the work-layer paths they
-    read. Cron and Config were nav entries of their own; both describe a profile, so
-    both moved in here.
-
-    ``?profile=`` filters the Cron tab to one profile — the jobs already belong to a
-    profile, so the tab is a cross-profile view by default and a single profile's
-    jobs when asked.
+    This page is the directory. In M2b it also carried API Keys, Cron and Config
+    as tabs; in M2c every artefact that belongs to a *profile* moved under the
+    profile itself (``/profiles/<name>``), because that is where a reader looks
+    for it and because keys are per-profile by design (R9). Config stays: it is the
+    one genuinely cross-profile view, the defaults plus every profile's overrides
+    in a single table.
     """
     from .render import render_page
-    # Include profile budget data
-    profile_budgets = {}
-    if engine is not None:
-        try:
-            from ..api.models import Budget, get_session as _gs
-            with _gs(engine) as s:
-                for b in s.query(Budget).filter(Budget.key_id.is_(None), Budget.profile.isnot(None)).all():
-                    profile_budgets[b.profile] = {
-                        "id": b.id, "name": b.name, "amount": b.amount,
-                        "current_spend": b.current_spend, "period": b.period,
-                        "threshold_pct": b.threshold_pct, "action": b.action, "status": b.status,
-                        "spend_pct": round((b.current_spend / b.amount * 100) if b.amount > 0 else 0, 1),
-                    }
-        except Exception:
-            pass
     params = dict(params or {})
-    tab = _tab(params, ("profiles", "keys", "cron", "config"), "profiles")
+    tab = _tab(params, ("profiles", "config"), "profiles")
+    budgets = _profile_budgets(engine)
+    names = list(config.profiles.keys()) if (config is not None and hasattr(config, "profiles")) else []
+    crumbs = (_crumbs(("Profiles", "/profiles"), ("Config", None)) if tab == "config"
+              else _crumbs(("Profiles", None)))
     ctx = {"active_page": "profiles", "tab": tab, "params": params,
-           "profile_budgets": profile_budgets}
-    if tab == "cron":
-        ctx["view"] = _work_cron_view(params)
-    elif tab == "config":
+           "profile_budgets": budgets,
+           "profile_cards": _profile_cards(config, names, budgets),
+           "crumbs": crumbs}
+    if tab == "config":
         ctx["view"] = _work_config_view()
     return render_page("pages/profiles.html", config, engine, **ctx)
 
@@ -119,6 +195,7 @@ def render_usage_page(config, engine=None, params=None) -> str:
     from .render import render_page
     return render_page("pages/usage.html", config, engine,
                        active_page="usage", tab="usage",
+                       crumbs=_crumbs(("Usage", None)),
                        params=dict(params or {}))
 
 
@@ -136,7 +213,8 @@ def render_logs_page(config, engine=None, params=None) -> str:
 def render_alerts_page(config, engine=None) -> str:
     """Render the Alerts page (Jinja2)."""
     from .render import render_page
-    return render_page("pages/alerts.html", config, engine, active_page="alerts")
+    return render_page("pages/alerts.html", config, engine, active_page="alerts",
+                       crumbs=_crumbs(("Alerts", None)))
 
 
 def render_models_page(config, engine=None, params=None) -> str:
@@ -146,16 +224,20 @@ def render_models_page(config, engine=None, params=None) -> str:
     tab of this page rather than a nav entry of its own.
     """
     from .render import render_page
+    tab = _tab(params, ("matrix", "providers"), "matrix")
     return render_page("pages/models.html", config, engine,
                        active_page="models",
-                       tab=_tab(params, ("matrix", "providers"), "matrix"),
+                       tab=tab,
+                       crumbs=_crumbs(("Models", "/models"),
+                                      ("Providers", None) if tab == "providers" else ("Capability matrix", None)),
                        params=dict(params or {}))
 
 
 def render_setup_page(config, engine=None) -> str:
     """Render the first-run setup wizard page (Jinja2)."""
     from .render import render_page
-    return render_page("pages/setup.html", config, engine, active_page="setup")
+    return render_page("pages/setup.html", config, engine, active_page="setup",
+                       crumbs=_crumbs(("Setup", None)))
 
 
 def render_work_decisions_page(config, engine=None) -> str:
@@ -213,7 +295,9 @@ def render_work_tasks_page(config, engine=None, params=None) -> str:
         }
     view["tab"] = tab
     return render_page("pages/work_tasks.html", config, engine,
-                       active_page="work_tasks", view=view)
+                       active_page="work_tasks", view=view,
+                       crumbs=_crumbs(("Tasks", "/work/tasks"),
+                                      ("Assessments", None) if tab == "assessments" else ("All tasks", None)))
 
 
 def render_work_fleet_page(config, engine=None) -> str:
@@ -235,7 +319,8 @@ def render_work_fleet_page(config, engine=None) -> str:
             "failover_moments": [], "failover_stats": None, "routing": None,
         }
     return render_page("pages/work_fleet.html", config, engine,
-                       active_page="work_fleet", view=view)
+                       active_page="work_fleet", view=view,
+                       crumbs=_crumbs(("Fleet", None)))
 
 
 def _work_cron_view(params=None) -> dict:
@@ -335,4 +420,108 @@ def render_work_conversations_page(config, engine=None, params=None) -> str:
                        active_page="work_conversations", view=view)
 
 
+def render_profile_detail_page(config, engine=None, name=None, params=None) -> str:
+    """Render one profile — level 3 of the profile surface (M2c).
+
+    Five tabs, each a different artefact the profile owns: the skills it can load,
+    the memory it carries, the tasks in its tree, the cron jobs it runs and the API
+    keys that call it. All five are *read* — from the profile's own directory, or
+    from the host snapshot the cron tab already depends on. Nothing here writes to
+    a profile.
+
+    The name arrives from the URL, so it is validated before use: an unknown name
+    renders a "no such profile" page rather than a traceback, and a name carrying a
+    path separator never reaches the filesystem at all.
+    """
+    from .render import render_page
+    from ..api import profile_data
+
+    params = dict(params or {})
+    tab = _tab(params, ("skills", "memory", "tasks", "cron", "keys"), "skills")
+    wanted = (name or "").strip()
+    profiles = config.profiles if (config is not None and hasattr(config, "profiles")) else {}
+    configured = wanted in profiles
+    try:
+        on_disk = profile_data.profile_dir(wanted) is not None
+    except profile_data.BadProfileName:
+        on_disk = False
+        wanted = wanted[:64]
+
+    budgets = _profile_budgets(engine)
+    card = _profile_card(config, wanted, profiles.get(wanted), budgets) if (configured or on_disk) else None
+    exists = card is not None
+    if card is None:
+        profile = {"name": wanted, "exists": False, "configured": False, "initials": "?",
+                   "avatar": False, "words": 0, "description": "", "short_description": "",
+                   "auth_label": "", "budget_label": "", "chain_label": ""}
+    else:
+        profile = dict(card)
+        profile["exists"] = True
+        profile["configured"] = configured
+
+    labels = (("skills", "Skills"), ("memory", "Memory"), ("tasks", "Tasks"),
+              ("cron", "Cron"), ("keys", "API Keys"))
+    tabs = [{"id": tid, "label": lbl, "count": None, "active": tid == tab,
+             "href": "/profiles/%s?tab=%s" % (wanted, tid)} for tid, lbl in labels]
+    tab_label = dict(labels).get(tab, "Profile")
+
+    ctx = {"active_page": "profiles", "tab": tab if exists else "missing",
+           "params": params, "profile": profile, "tabs": tabs, "tab_label": tab_label,
+           "key_scope": wanted,
+           "crumbs": (_crumbs(("Profiles", "/profiles"),
+                              (wanted, "/profiles/" + wanted), (tab_label, None))
+                      if exists else _crumbs(("Profiles", "/profiles"), ("Not found", None)))}
+    if not exists:
+        return render_page("pages/profile_detail.html", config, engine, **ctx)
+
+    if tab == "skills":
+        try:
+            ctx["skills"] = profile_data.skills_view(wanted)
+        except Exception as e:  # a viewer must not 500 on a filesystem surprise
+            ctx["skills"] = {"available": False, "count": 0, "categories": [], "skills": [],
+                             "truncated": False, "reason": "%s: %s" % (type(e).__name__, e)}
+    elif tab == "memory":
+        try:
+            ctx["memory"] = profile_data.memory_view(wanted)
+        except Exception as e:
+            ctx["memory"] = {"available": False, "files": [], "total_chars": 0,
+                             "reason": "%s: %s" % (type(e).__name__, e)}
+    elif tab == "tasks":
+        ctx["view"] = _profile_tasks_view(wanted, params)
+    elif tab == "cron":
+        ctx["view"] = _work_cron_view({"profile": wanted})
+    # The API Keys tab fetches /api/keys itself and filters rows against
+    # `key_scope` — the section is the same interactive one the global keys page
+    # used, so create/show/revoke keep working per profile.
+    return render_page("pages/profile_detail.html", config, engine, **ctx)
+
+
+def _profile_tasks_view(name, params) -> dict:
+    """One profile's task tree, rendered through the same view the Tasks page uses.
+
+    The tree is whatever ``work-sources.json`` resolves for that profile, so the
+    per-profile view cannot drift from the tree the host actually writes. A
+    ContextVar rather than a parameter because the task helpers call ``tasks_dir()``
+    from a dozen places, and because the server is threaded — one profile's root
+    must not leak into another request.
+    """
+    from ..api import work_tasks, work_sources
+    params = dict(params or {})
+    root = work_sources.tasks_root_for(name)
+    try:
+        if root:
+            with work_tasks.use_root(root):
+                view = work_tasks.tasks_view(params)
+        else:
+            view = work_tasks.tasks_view(params)
+    except Exception as e:  # never blank the tab on a data error
+        view = {"available": False,
+                "empty": {"reason": "could not read this profile's task tree",
+                          "hint": "%s: %s" % (type(e).__name__, e)},
+                "counts": {}, "total": 0, "tasks": [], "todos": None, "conflicts": [],
+                "filter": {"states": [], "tag": "", "per": 20, "q": ""}}
+    view["tab"] = "tasks"
+    view["profile"] = name
+    view["tasks_root"] = root or ""
+    return view
 

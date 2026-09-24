@@ -46,6 +46,10 @@ SECTION_TAB = {
     "sec_keys": "keys",
     "sec_cron": "cron",
     "sec_config": "config",
+    # M2c: these three only ever render on /profiles/<name>, never on a level-2 page.
+    "sec_skills": "skills",
+    "sec_memory": "memory",
+    "sec_ptasks": "tasks",
 }
 
 NAV = ["/profiles", "/models", "/activity", "/usage", "/alerts", "/setup",
@@ -156,8 +160,11 @@ def _pages():
 
 MERGED = [
     ("/profiles", "profiles", lambda c, e: _pages().render_profiles_page(c, e, {})),
-    ("/profiles?tab=keys", "keys", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "keys"})),
-    ("/profiles?tab=cron", "cron", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "cron"})),
+    # M2c: keys and cron moved under the profile. The old tab params are not a
+    # 404 — they fall back to the profile directory, which is where those keys and
+    # jobs are now reached from.
+    ("/profiles?tab=keys", "profiles", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "keys"})),
+    ("/profiles?tab=cron", "profiles", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "cron"})),
     ("/profiles?tab=config", "config", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "config"})),
     ("/models", "matrix", lambda c, e: _pages().render_models_page(c, e, {})),
     ("/models?tab=providers", "providers", lambda c, e: _pages().render_models_page(c, e, {"tab": "providers"})),
@@ -189,8 +196,6 @@ def test_every_tab_serves_a_tab_strip(cfg, engine):
     from src.ui.pages import render_models_page, render_profiles_page
     for render, params, active_href in (
             (render_profiles_page, {}, "/profiles"),
-            (render_profiles_page, {"tab": "keys"}, "/profiles?tab=keys"),
-            (render_profiles_page, {"tab": "cron"}, "/profiles?tab=cron"),
             (render_profiles_page, {"tab": "config"}, "/profiles?tab=config"),
             (render_models_page, {}, "/models"),
             (render_models_page, {"tab": "providers"}, "/models?tab=providers"),
@@ -217,15 +222,19 @@ def test_usage_is_a_page_of_its_own(cfg, engine):
     assert 'href="/activity"' in html  # ...but still reachable from the nav
 
 
-def test_profiles_cron_tab_filters_to_one_profile(cfg, engine):
-    """``?profile=`` narrows the cross-profile cron view to that profile's jobs."""
-    from src.ui.pages import render_profiles_page
+def test_profile_cron_tab_is_scoped_to_its_profile(cfg, engine):
+    """The cron tab of a profile shows that profile's jobs, not the cross-profile view.
+
+    M2c moved cron under the profile, so the view is always narrowed now — the
+    ``?profile=`` narrowing this test used to pin is built in rather than optional.
+    """
+    from src.ui.pages import render_profile_detail_page
     view = _pages_module()._work_cron_view({"profile": "l2"})
     assert view.get("profile_filter") == "l2"
     assert all(str(p.get("profile", "")).lower() == "l2" for p in view.get("profiles") or [])
-    # and the tab still renders
-    html = render_profiles_page(cfg, engine, {"tab": "cron", "profile": "l2"})
+    html = render_profile_detail_page(cfg, engine, "l2", {"tab": "cron"})
     assert 'id="cron-modal"' in html
+    assert "Cron jobs for <b>l2</b>" in html
 
 
 def _pages_module():
@@ -237,9 +246,9 @@ def _pages_module():
 
 @pytest.mark.parametrize("params,title", [
     ({}, "Profiles — LCP"),
-    ({"tab": "keys"}, "API Keys — LCP"),
-    ({"tab": "cron"}, "Cron — LCP"),
     ({"tab": "config"}, "Config — LCP"),
+    ({"tab": "keys"}, "Profiles — LCP"),   # retired tab -> the directory
+    ({"tab": "cron"}, "Profiles — LCP"),
 ])
 def test_profiles_title_follows_the_tab(cfg, engine, params, title):
     from src.ui.pages import render_profiles_page
@@ -289,7 +298,7 @@ def test_unknown_tab_falls_back_to_the_default(cfg, engine, page, params, expect
 
 
 @pytest.mark.parametrize("legacy,tab", [
-    ("pages/keys.html", "keys"),
+    ("pages/keys.html", "profiles"),   # M2c: keys are per profile now
     ("pages/providers.html", "providers"),
     ("pages/logs.html", "logs"),
 ])
@@ -338,10 +347,14 @@ def test_the_retired_templates_are_really_gone():
         assert not os.path.exists(os.path.join(TEMPLATES, "pages", gone)), gone
 
 
-def test_the_legacy_work_routes_render_the_profiles_tab(cfg, engine):
-    """render_work_cron_page/config_page are aliases onto the Profiles page now."""
+def test_the_legacy_work_routes_render_the_profiles_page(cfg, engine):
+    """render_work_cron_page/config_page are aliases onto the Profiles page.
+
+    M2c: cron is a per-profile tab, so the cron alias lands on the profile
+    directory (the HTTP route 302s there). Config is still a level-2 tab.
+    """
     from src.ui.pages import render_work_config_page, render_work_cron_page
-    for render, marker, title in ((render_work_cron_page, "cron-modal", "Cron — LCP"),
+    for render, marker, title in ((render_work_cron_page, "profileEditModal", "Profiles — LCP"),
                                   (render_work_config_page, "sources-form", "Config — LCP")):
         html = render(cfg, engine, {})
         assert "<title>%s</title>" % title in html

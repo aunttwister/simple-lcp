@@ -28,6 +28,17 @@
       <div class="hp-usage-popover" id="hpUsagePopover"></div>
     </div>
   </div>
+  {# Breadcrumbs: the nav entry, then the level-2 page, then the tab. Pages pass a
+     `crumbs` list of {label, href}; the last entry is the current location and
+     carries no href. Three levels is where a location stops being obvious from
+     the nav highlight alone — which is exactly where this became necessary. #}
+  {% block breadcrumbs %}
+  {% if crumbs %}
+  <nav class="breadcrumbs" aria-label="Breadcrumb">
+    {% for c in crumbs %}{% if c.href %}<a href="{{ c.href }}">{{ c.label }}</a><span class="crumb-sep" aria-hidden="true">›</span>{% else %}<span class="crumb-current" aria-current="page">{{ c.label }}</span>{% endif %}{% endfor %}
+  </nav>
+  {% endif %}
+  {% endblock %}
   {% block content %}{% endblock %}
 </div>
 

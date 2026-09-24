@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.name }} · {{ tab_label }} — LCP{% endblock %}
+
+{#
+  M2c — level 3: one profile, everything about it.
+
+  Reached from a card on /profiles. The five tabs are the artefacts a profile
+  owns: the skills it can load, the memory it carries, the tasks in its tree, the
+  cron jobs it runs, and the API keys that call it. All five are read from the
+  profile's own directory (mounted at /app/profiles) or from the host snapshot —
+  the gateway renders them, it does not own them.
+
+  Each section self-guards on `tab`, so including all five costs nothing: only
+  the active one emits markup and only its script is shipped.
+#}
+
+{% block content %}
+{% if not profile.exists %}
+<div class="empty" style="margin-bottom:1rem">
+  <b>No such profile: <span class="mono">{{ profile.name }}</span></b>
+  <div style="margin-top:0.25rem">It is neither a gateway profile nor a directory under the profiles root.</div>
+</div>
+{% elif not profile.configured %}
+<div class="empty" style="margin-bottom:1rem">
+  <b>Not a gateway profile</b>
+  <div style="margin-top:0.25rem">This directory exists but LCP does not route it, so it has no chain or API keys. Skills, memory, tasks and cron are still shown.</div>
+</div>
+{% endif %}
+<div class="profile-hero">
+  <span class="pc-avatar pc-avatar-lg" id="pdAvatar">
+    {% if profile.avatar %}<img id="pdAvatarImg" src="/api/profiles/{{ profile.name }}/avatar" alt="{{ profile.name }}">{% else %}<span class="pc-initials">{{ profile.initials }}</span>{% endif %}
+  </span>
+  <div class="pd-identity">
+    <h1>{{ profile.name }}</h1>
+    {% if profile.words %}
+    <p class="subtitle">{{ profile.description }}</p>
+    {% else %}
+    <p class="subtitle pd-nodesc">No description yet — add one from Edit on the profiles list.</p>
+    {% endif %}
+    <p class="pd-facts">
+      <span>{{ profile.auth_label }}</span>
+      {% if profile.budget_label %}<span class="pd-sep">·</span><span>{{ profile.budget_label }}</span>{% endif %}
+      <span class="pd-sep">·</span><span class="mono">/{{ profile.name }}/chat/completions</span>
+    </p>
+  </div>
+  <div class="pd-avatar-actions">
+    <input type="file" id="pdAvatarFile" accept="image/png,image/jpeg,image/webp" style="display:none">
+    <button class="btn-sm" onclick="document.getElementById('pdAvatarFile').click()">{{ 'Change photo' if profile.avatar else 'Add photo' }}</button>
+    {% if profile.avatar %}<button class="btn-sm btn-danger" id="pdAvatarRemove" onclick="removeAvatar('{{ profile.name }}')">Remove</button>{% endif %}
+    <div class="pd-avatar-hint">PNG, JPEG or WebP · 256 KB max</div>
+  </div>
+</div>
+
+{% if profile.chain_label %}
+<p class="pd-chain" title="{{ profile.chain_label }}"><b>Chain</b> {{ profile.chain_label }}</p>
+{% endif %}
+
+{# The tab strip. Every tab is a URL, so a tab is linkable, bookmarkable and
+   survives a reload — the same reason the merged pages use server-side tabs. #}
+<div class="page-tabs pd-tabs">
+  {% for t in tabs %}<a href="{{ t.href }}" class="tab-btn {% if t.active %}active{% endif %}">{{ t.label }}{% if t.count is not none %} <span class="tab-count">{{ t.count }}</span>{% endif %}</a>{% endfor %}
+</div>
+
+{% include "sections/sec_skills.html" %}
+{% include "sections/sec_memory.html" %}
+{% include "sections/sec_ptasks.html" %}
+{% include "sections/sec_cron.html" %}
+{% include "sections/sec_keys.html" %}
+{% endblock %}
+
+{% block scripts %}
+{% include "sections/sec_ptasks_script.html" %}
+{% include "sections/sec_cron_script.html" %}
+{% include "sections/sec_keys_script.html" %}
+<script>
+// ── Avatar upload (M2c) ──────────────────────────────────────────────────
+// The file is read in the browser and posted as base64 JSON: the server is a
+// hand-rolled stdlib handler with no multipart parser, and adding one to serve
+// a 256 KB profile picture would be the wrong trade.
+var PD_PROFILE = {{ profile.name | tojson }};
+
+(function () {
+  var input = document.getElementById('pdAvatarFile');
+  if (!input) return;
+  input.addEventListener('change', function () {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > 256 * 1024) { alert('Image is larger than 256 KB.'); input.value = ''; return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var parts = String(reader.result).split(',');
+      var meta = parts[0] || '';
+      var mime = (meta.match(/data:([^;]+)/) || [])[1] || file.type;
+      api('POST', '/api/profiles/' + encodeURIComponent(PD_PROFILE) + '/avatar',
+          {content_type: mime, data_base64: parts[1] || ''})
+        .then(function (d) {
+          if (!d.ok) { alert('Upload failed: ' + (d.error || 'unknown')); return; }
+          location.reload();
+        });
+    };
+    reader.readAsDataURL(file);
+  });
+})();
+
+function removeAvatar(name) {
+  if (!confirm('Remove the profile picture for ' + name + '?')) return;
+  api('DELETE', '/api/profiles/' + encodeURIComponent(name) + '/avatar').then(function (d) {
+    if (!d.ok) { alert('Remove failed: ' + (d.error || 'unknown')); return; }
+    location.reload();
+  });
+}
+</script>
+{% endblock %}

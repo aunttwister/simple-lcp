@@ -3,6 +3,9 @@
     (profiles) inside a tab guard for the tab 'cron'. -#}
 
 {% if tab == 'cron' %}
+{% if view.profile_filter %}
+<p class="subtitle">Cron jobs for <b>{{ view.profile_filter }}</b> &#183; {{ view.counts.total }} job{{ '' if view.counts.total == 1 else 's' }}, {{ view.counts.active }} active</p>
+{% else %}
 <p class="subtitle">
   Every scheduled job across the Hermes gateway profiles, as of the last host-side
   snapshot{% if view.generated_rel %} (<strong>{{ view.generated_rel }} old</strong>,
@@ -11,6 +14,7 @@
   executor applies through the real <span class="mono">hermes cron</span> CLI within a
   minute — the panel itself never touches the scheduler.
 </p>
+{% endif %}
 
 {% if not view.available %}
   <div class="empty">

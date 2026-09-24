@@ -117,10 +117,11 @@ class TestRenderPage:
     def test_active_page_injected(self, mock_config):
         from src.ui.render import render_page
         html = render_page("pages/keys.html", mock_config, active_page="profiles")
-        # API Keys is a tab of Profiles since M2, so the Profiles nav entry is
-        # the active one and the tab strip links to the keys tab.
+        # M2c: keys are per profile, so the legacy keys page aliases onto the
+        # profile directory — the Profiles nav entry is active and its tab strip
+        # offers the directory and Config.
         assert 'class="active"' in html
-        assert 'href="/profiles?tab=keys"' in html
+        assert 'href="/profiles?tab=config"' in html
 
     def test_active_page_defaults_empty(self, mock_config):
         from src.ui.render import render_page
@@ -204,7 +205,9 @@ class TestPageRenderers:
         from src.ui.pages import render_keys_page
         html = render_keys_page(mock_config, engine=None)
         assert "<!DOCTYPE html>" in html
-        assert "API Keys — LCP" in html
+        # M2c: the legacy keys page lands on the profile directory, because keys
+        # are reviewed per profile now.
+        assert "Profiles — LCP" in html
 
     def test_render_usage_page(self, mock_config):
         from src.ui.pages import render_usage_page
@@ -249,7 +252,9 @@ class TestPageRenderers:
             m = re.search(r"<title>(.*?)</title>", html)
             assert m, "Missing <title> in page"
             titles.add(m.group(1))
-        assert len(titles) == 4, f"Expected 4 unique titles, got {len(titles)}"
+        # M2c folded the keys page into the profile directory, so profiles and
+        # keys share a title: four pages, three distinct titles.
+        assert len(titles) == 3, f"Expected 3 unique titles, got {len(titles)}"
 
 
 # ---------------------------------------------------------------------------

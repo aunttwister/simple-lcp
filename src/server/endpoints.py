@@ -44,6 +44,7 @@ targets, accepting worse ergonomics), not a code cleanup. Do that deliberately
 if ever, not as a drive-by.
 """
 
+import base64
 import ipaddress
 import json
 import os
@@ -1408,12 +1409,18 @@ class ProfileEndpoints:
             or self.headers.get("X-Forwarded-Scheme") == "https"
         ) else "http"
         base = f"{scheme}://{host}"
+        from ..api import profile_data
         for pname, pcfg in self.config.profiles.items():
             profiles[pname] = {
                 "chain": pcfg.get("chain", []),
                 "url": f"{base}/{pname}/chat/completions",
                 "forbidden": pcfg.get("forbidden_tools", []),
                 "auth_required": pcfg.get("auth_required", True),
+                # M2c: the card's description and its picture slot. The list is
+                # what the Edit modal reads, so the field has to be here for the
+                # modal to round-trip it.
+                "description": pcfg.get("description", ""),
+                "avatar": bool(profile_data.avatar_for(pname)),
             }
         self._send_json({"profiles": profiles})
 
@@ -1455,6 +1462,16 @@ class ProfileEndpoints:
             pcfg["chain"] = body["chain"]
         if "auth_required" in body:
             pcfg["auth_required"] = body["auth_required"]
+        if "description" in body:
+            # Stored as given but bounded: the card clamps to ten words, and the
+            # field exists to be read at a glance. 120 chars is the modal's cap.
+            desc = body["description"]
+            if desc is None:
+                desc = ""
+            if not isinstance(desc, str):
+                self._send_json({"error": "description must be a string"}, 400)
+                return
+            pcfg["description"] = desc.strip()[:120]
         cfg.save()
         self._send_json({"ok": True, "profile": name})
 
@@ -2958,9 +2975,96 @@ class DashboardEndpoints:
         self._redirect("/models?tab=providers")
 
     def _serve_profiles_page(self):
-        """Server-rendered Profiles page (?tab=profiles|keys|cron|config) — M2/M2b."""
+        """Server-rendered Profiles page — the profile cards, and Config (M2c).
+
+        M2b carried API Keys and Cron as tabs here. M2c moved both under the
+        profile they describe (``/profiles/<name>``), so a request for the old tab
+        lands on the directory rather than rendering a tab that no longer exists.
+        """
         from ..ui.pages import render_profiles_page
+        tab = str((self._qs() or {}).get("tab") or "").strip().lower()
+        if tab in ("keys", "cron"):
+            self._redirect("/profiles")
+            return
         self._send_html(render_profiles_page(self.config, self.engine, self._qs()))
+
+    def _serve_profile_detail_page(self, name: str):
+        """Server-rendered level-3 page: one profile, five tabs (M2c).
+
+        The name is handed to the renderer, which validates it before using it as
+        a path or a config key — a bad name produces a page, not a traceback.
+        """
+        from ..ui.pages import render_profile_detail_page
+        self._send_html(render_profile_detail_page(self.config, self.engine, name, self._qs()))
+
+    def _serve_profile_avatar(self, name: str):
+        """GET /api/profiles/{name}/avatar — the stored picture, or 404.
+
+        A 404 rather than a placeholder image: the browser falls back to the
+        initials the page already rendered, so "no picture" needs no bytes.
+        """
+        from ..api import profile_data
+        try:
+            found = profile_data.avatar_for(name)
+        except profile_data.BadProfileName:
+            found = None
+        if not found:
+            self._send_json({"error": "no avatar"}, 404)
+            return
+        path, ctype = found
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            self._send_json({"error": "avatar unreadable"}, 404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        # Replaceable by design, so a stale face must not survive in a cache.
+        self.send_header("Cache-Control", "no-cache, max-age=0, must-revalidate")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_profile_avatar_put(self, name: str):
+        """POST /api/profiles/{name}/avatar — store a picture sent as base64 JSON.
+
+        Base64 in a JSON body rather than multipart: the HTTP layer here is a
+        hand-rolled stdlib handler with no multipart parser, and writing one to
+        accept a 256 KB profile picture would be the wrong trade. The content type
+        is validated against the decoded bytes, never trusted.
+        """
+        from ..api import profile_data
+        try:
+            body = self._read_body()
+        except Exception:
+            self._send_json({"error": "invalid JSON body"}, 400)
+            return
+        raw = str(body.get("data_base64") or "")
+        if raw.startswith("data:"):
+            raw = raw.split(",", 1)[-1]
+        try:
+            data = base64.b64decode(raw, validate=True)
+        except Exception:
+            self._send_json({"ok": False, "error": "data_base64 is not valid base64"}, 400)
+            return
+        try:
+            result = profile_data.save_avatar(name, str(body.get("content_type") or ""), data)
+        except profile_data.BadProfileName:
+            self._send_json({"ok": False, "error": "invalid profile name"}, 400)
+            return
+        except ValueError as e:
+            self._send_json({"ok": False, "error": str(e)}, 400)
+            return
+        self._send_json(result)
+
+    def _serve_profile_avatar_delete(self, name: str):
+        """DELETE /api/profiles/{name}/avatar — forget the picture."""
+        from ..api import profile_data
+        try:
+            self._send_json(profile_data.delete_avatar(name))
+        except profile_data.BadProfileName:
+            self._send_json({"ok": False, "error": "invalid profile name"}, 400)
 
 
 # ── Memory Plugin Endpoints ─────────────────────────────────────────────────
@@ -3293,6 +3397,14 @@ class WorkEndpoints:
         self.end_headers()
         self.wfile.write(html.encode("utf-8"))
 
+    def _tasks_root_for(self, profile: Any) -> str:
+        """Resolved task tree for ?profile=, or "" to mean "use the default"."""
+        from ..api import work_sources
+        try:
+            return work_sources.tasks_root_for(str(profile or "").strip().lower())
+        except Exception:  # noqa: BLE001
+            return ""
+
     def _serve_work_tasks_api(self):
         """GET /api/work/tasks — the Tasks view as JSON (filters supported,
         faint lite=1 strips the heavy per-row PLAN/RESULTS payloads)."""
@@ -3301,7 +3413,14 @@ class WorkEndpoints:
 
         try:
             qs = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
-            self._send_json(work_tasks.tasks_view(qs))
+            # ?profile= scopes the tree (M2c). Without it the per-profile Tasks tab
+            # would render its own heading over the default profile's rows.
+            root = self._tasks_root_for(qs.get("profile"))
+            if root:
+                with work_tasks.use_root(root):
+                    self._send_json(work_tasks.tasks_view(qs))
+            else:
+                self._send_json(work_tasks.tasks_view(qs))
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 
@@ -3318,7 +3437,13 @@ class WorkEndpoints:
             if not key:
                 self._send_json({"error": "task key required"}, 400)
                 return
-            self._send_json(work_tasks.task_detail(key))
+            # A task's detail must be read from the same tree its row came from.
+            root = self._tasks_root_for(qs.get("profile"))
+            if root:
+                with work_tasks.use_root(root):
+                    self._send_json(work_tasks.task_detail(key))
+            else:
+                self._send_json(work_tasks.task_detail(key))
         except ValueError as e:
             self._send_json({"error": str(e)}, 400)
         except FileNotFoundError as e:

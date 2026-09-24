@@ -677,6 +677,11 @@ class LCPHandler(
         elif self.path.startswith("/api/keys/") and len(self.path.split("/")) == 4:
             key_id = self.path.split("/")[3]
             self._serve_key_delete(key_id)
+        elif (self.path.split("?")[0].startswith("/api/profiles/")
+              and self.path.split("?")[0].endswith("/avatar")
+              and len(self.path.split("?")[0].split("/")) == 5):
+            # DELETE /api/profiles/{name}/avatar
+            self._serve_profile_avatar_delete(self._path_part(self.path, 3))
         elif self.path.startswith("/api/profiles/") and len(self.path.split("/")) == 4:
             profile = self.path.split("/")[3]
             self._serve_profile_delete(profile)
@@ -829,6 +834,10 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_providers_page())
     t.get("page.profiles", exact("/profiles"),
           lambda h, p: h._serve_profiles_page())
+    t.get("page.profile.detail", regex(r"^/profiles/(?P<name>[^/]+)$"),
+          lambda h, p: h._serve_profile_detail_page(h._path_part(h.path, 2)))
+    t.get("api.profile.avatar", regex(r"^/api/profiles/(?P<name>[^/]+)/avatar$"),
+          lambda h, p: h._serve_profile_avatar(h._path_part(h.path, 3)))
     t.get("page.models", exact("/models"),
           lambda h, p: h._serve_models_page())
     t.get("page.setup", exact("/setup"),
@@ -1014,6 +1023,8 @@ def _build_routes() -> RouteTable:
     t.post("api.providers", exact("/api/providers"),
            lambda h, p: h._serve_provider_create())
 
+    t.post("api.profile.avatar", regex(r"^/api/profiles/(?P<name>[^/]+)/avatar$"),
+          lambda h, p: h._serve_profile_avatar_put(h._path_part(h.path, 3)))
     t.post("api.profiles", exact("/api/profiles"),
            lambda h, p: h._serve_profile_create())
 

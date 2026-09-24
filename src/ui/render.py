@@ -125,7 +125,10 @@ _LEGACY_PAGE_TABS = {
     "pages/logs.html": ("pages/activity.html", "logs",
                         {"view": {"tab": "conversations"}, "params": {}}),
     "pages/providers.html": ("pages/models.html", "providers", {}),
-    "pages/keys.html": ("pages/profiles.html", "keys", {}),
+    # M2c: keys are per profile, so the profile directory is what stands in for
+    # the old global keys page — not a "keys" tab, which no longer exists at this
+    # level and would render an empty page.
+    "pages/keys.html": ("pages/profiles.html", "profiles", {}),
 }
 
 

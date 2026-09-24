@@ -1,0 +1,29 @@
+{#- section: sec_memory — the Memory tab of a profile (M2c)
+
+    The two files the agent carries into every session, verbatim. The character
+    count is the point of this view: both files have a budget and are rejected
+    when they overflow, so "how full is it" is the question the tab answers. -#}
+
+{% if tab == 'memory' %}
+<div id="profileMemory">
+{% if memory.available %}
+<p class="subtitle">What this profile carries into every session
+&#183; {{ memory.total_chars }} characters across {{ memory.files | length }} file{{ '' if memory.files | length == 1 else 's' }}</p>
+
+{% for f in memory.files %}
+<h2 class="pd-sect">{{ f.name }} <span class="pd-sect-note">{{ f.chars }} chars · {{ f.lines }} lines · updated {{ f.mtime_rel }}</span></h2>
+{% if f.truncated %}
+<p class="pd-note">Showing the first {{ f.text | length }} of {{ f.chars }} characters.</p>
+{% endif %}
+<pre class="mem-block">{{ f.text }}</pre>
+{% endfor %}
+
+{% else %}
+<div class="empty">
+  <b>No memory files yet.</b>
+  <div style="margin-top:0.25rem">{{ memory.reason }}.</div>
+  <div style="margin-top:0.5rem;font-size:0.75rem">Looked for <span class="mono">MEMORY.md</span> and <span class="mono">USER.md</span> in this profile's <span class="mono">memories/</span> directory.</div>
+</div>
+{% endif %}
+</div>
+{% endif %}

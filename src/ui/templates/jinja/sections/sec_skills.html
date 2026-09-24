@@ -1,0 +1,59 @@
+{#- section: sec_skills — the Skills tab of a profile (M2c)
+
+    Read-only on purpose: skills are the profile's own files, and this surface
+    exists to answer "what can this profile do" without shelling into the box.
+    Editing them belongs where they are authored. -#}
+
+{% if tab == 'skills' %}
+<div id="profileSkills">
+{% if skills.available %}
+<p class="subtitle">{{ skills.count }} skill{{ '' if skills.count == 1 else 's' }}
+{%- if skills.categories %} across {{ skills.categories | length }} categor{{ 'y' if skills.categories | length == 1 else 'ies' }}{% endif %}
+&#183; each loads on demand, so the count is capacity rather than cost</p>
+
+{% if skills.truncated %}
+<p class="pd-note">Showing the first {{ skills.skills | length }} — this profile has more than the display cap.</p>
+{% endif %}
+
+{% for cat in skills.categories %}
+<h2 class="pd-sect">{{ cat }}</h2>
+<div class="skill-list">
+  {% for s in skills.skills if s.category == cat %}
+  <div class="skill-row">
+    <div class="skill-head">
+      <span class="skill-name">{{ s.name }}</span>
+      <span class="skill-meta">{{ s.bytes | filesizeformat(true) }} · {{ s.mtime_rel }}</span>
+    </div>
+    {% if s.description %}<p class="skill-desc">{{ s.description }}</p>{% else %}<p class="skill-desc skill-nodesc">No description in the frontmatter.</p>{% endif %}
+    <div class="skill-path mono">{{ s.path }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+{% set uncategorised = skills.skills | selectattr('category', 'equalto', '') | list %}
+{% if uncategorised %}
+<h2 class="pd-sect">uncategorised</h2>
+<div class="skill-list">
+  {% for s in uncategorised %}
+  <div class="skill-row">
+    <div class="skill-head">
+      <span class="skill-name">{{ s.name }}</span>
+      <span class="skill-meta">{{ s.bytes | filesizeformat(true) }} · {{ s.mtime_rel }}</span>
+    </div>
+    {% if s.description %}<p class="skill-desc">{{ s.description }}</p>{% endif %}
+    <div class="skill-path mono">{{ s.path }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty">
+  <b>No skills to show.</b>
+  <div style="margin-top:0.25rem">{{ skills.reason }}.</div>
+  <div style="margin-top:0.5rem;font-size:0.75rem">Skills live in this profile's <span class="mono">skills/</span> directory. LCP reads them; it does not install them.</div>
+</div>
+{% endif %}
+</div>
+{% endif %}

@@ -1663,3 +1663,87 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   .work-cards { grid-template-columns: 1fr; }
   .work-table { font-size: 0.75rem; }
 }
+
+/* ── M2c — breadcrumbs, the profile directory, the level-3 profile page ──────
+   The breadcrumb sits above the page heading and names the trail: nav entry,
+   page, tab. Cards replaced the profiles table; the grid is auto-fill so a
+   narrow window gets one column without a media query. */
+
+.breadcrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem;
+  font-size: 0.75rem; color: hsl(var(--muted-foreground)); margin-bottom: 0.75rem; }
+.breadcrumbs a { color: hsl(var(--muted-foreground)); text-decoration: none; }
+.breadcrumbs a:hover { color: hsl(var(--foreground)); text-decoration: underline; }
+.breadcrumbs .crumb-sep { opacity: 0.45; }
+.breadcrumbs .crumb-current { color: hsl(var(--foreground)); font-weight: 600; }
+
+.profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem; margin-bottom: 1.5rem; }
+.profile-card { display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem;
+  border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
+  background: hsl(var(--secondary) / 0.18); }
+.profile-card:hover { border-color: hsl(var(--card-border) / 0.4); }
+.pc-head { display: flex; align-items: center; gap: 0.625rem; text-decoration: none; color: inherit; }
+.pc-avatar { flex: 0 0 auto; width: 2.5rem; height: 2.5rem; border-radius: 9999px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: hsl(var(--secondary)); border: 1px solid hsl(var(--card-border)); }
+.pc-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pc-initials { font-size: 0.875rem; font-weight: 700; letter-spacing: 0.02em;
+  color: hsl(var(--muted-foreground)); text-transform: uppercase; }
+.pc-avatar-lg { width: 4rem; height: 4rem; }
+.pc-avatar-lg .pc-initials { font-size: 1.375rem; }
+.pc-id { display: flex; flex-direction: column; min-width: 0; }
+.pc-name { font-size: 0.9375rem; font-weight: 600; color: hsl(var(--foreground));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-meta { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); }
+.pc-desc { margin: 0; font-size: 0.8125rem; line-height: 1.4; color: hsl(var(--foreground) / 0.85);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; min-height: 2.25em; }
+.pc-desc-empty { color: hsl(var(--muted-foreground)); font-style: italic; }
+.pc-chain { font-size: 0.6875rem; color: hsl(var(--muted-foreground));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  margin-top: auto; padding-top: 0.5rem; border-top: 1px solid hsl(var(--card-border) / 0.5); }
+.pc-url { color: hsl(var(--muted-foreground)); font-size: 0.6875rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-actions { display: flex; gap: 0.25rem; flex: 0 0 auto; }
+
+.profile-hero { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.pd-identity { min-width: 0; flex: 1 1 18rem; }
+.pd-identity h1 { margin: 0 0 0.25rem; }
+.pd-identity .subtitle { margin-bottom: 0.375rem; }
+.pd-facts { margin: 0; font-size: 0.75rem; color: hsl(var(--muted-foreground));
+  display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: center; }
+.pd-sep { opacity: 0.45; }
+.pd-nodesc { font-style: italic; }
+.pd-avatar-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; }
+.pd-avatar-hint { font-size: 0.625rem; color: hsl(var(--muted-foreground)); }
+.pd-chain { font-size: 0.75rem; color: hsl(var(--muted-foreground)); margin: 0 0 0.75rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-tabs { margin-bottom: 1.25rem; }
+.tab-count { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); }
+.pd-sect { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground)); margin: 1.25rem 0 0.5rem; font-weight: 600;
+  border-bottom: 1px solid hsl(var(--card-border)); padding-bottom: 0.25rem; }
+.pd-sect-note { font-weight: 400; text-transform: none; letter-spacing: 0;
+  font-size: 0.6875rem; margin-left: 0.5rem; }
+.pd-note { font-size: 0.75rem; color: hsl(var(--muted-foreground)); margin: 0.25rem 0 0.5rem; }
+
+.skill-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.625rem; }
+.skill-row { padding: 0.625rem 0.75rem; border: 1px solid hsl(var(--card-border));
+  border-radius: var(--radius); background: hsl(var(--secondary) / 0.18); }
+.skill-head { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; }
+.skill-name { font-size: 0.8125rem; font-weight: 600; }
+.skill-meta { font-size: 0.625rem; color: hsl(var(--muted-foreground)); white-space: nowrap; }
+.skill-desc { margin: 0.25rem 0 0; font-size: 0.75rem; line-height: 1.4;
+  color: hsl(var(--foreground) / 0.8); display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden; }
+.skill-nodesc { font-style: italic; color: hsl(var(--muted-foreground)); }
+.skill-path { margin-top: 0.25rem; color: hsl(var(--muted-foreground)); font-size: 0.625rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Memory is read, not skimmed: a preformatted block scrolls rather than wraps badly. */
+.mem-block { margin: 0 0 1rem; padding: 0.75rem 0.875rem; background: hsl(var(--secondary) / 0.3);
+  border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 0.72rem;
+  line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  max-height: 60vh; overflow: auto; color: hsl(var(--foreground) / 0.9); }

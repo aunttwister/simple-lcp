@@ -8,8 +8,13 @@
 var COLS = '<colgroup><col style="width:11%"><col style="width:19%"><col style="width:8%"><col style="width:11%"><col style="width:8%"><col style="width:9%"><col style="width:11%"><col style="width:23%"></colgroup>';
 var HDR = '<tr class="lcp-stack-header"><th>Name</th><th>Prefix</th><th>Profiles</th><th style="text-align:center">Budget</th><th style="text-align:right">Limit</th><th>Status</th><th>Date</th><th>Actions</th></tr>';
 
+// M2c: this script is also the API Keys tab of a single profile, where it lists
+// only the keys that can call that profile. KEY_SCOPE is empty on any page that
+// shows every key, so the section keeps working as a cross-profile view.
+var KEY_SCOPE=(typeof key_scope!=='undefined'&&key_scope)?key_scope:'';
 function loadKeys(){api('GET','/api/keys').then(function(d){
 var keys=d.keys||[],groups={};
+if(KEY_SCOPE){var s=KEY_SCOPE.toLowerCase();keys=keys.filter(function(k){var ap=String(k.allowed_profiles||'').toLowerCase().trim();if(!ap||ap==='all')return true;return ap.split(',').map(function(x){return x.trim()}).indexOf(s)>=0})}
 keys.forEach(function(k){var nm=k.name||'unnamed';if(!groups[nm])groups[nm]={active:null,revoked:[]};if(k.status==='active')groups[nm].active=k;else groups[nm].revoked.push(k)});
 Object.values(groups).forEach(function(g){g.revoked.sort(function(a,b){return (b.revoked_at||'')>(a.revoked_at||'')?1:-1})});
 var html='<table class="lcp-stack" id="keyTable">'+COLS+'<thead>'+HDR+'</thead>';
@@ -56,7 +61,8 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
 function showCreateKeyModal(){openDialog('createKeyModal');_selectedProfiles=[];loadProfilesForKeys()}
 function closeCreateKeyModal(){closeDialog('createKeyModal');_selectedProfiles=[]}
 function closeShowKeyModal(){closeDialog('showKeyModal')}
-function loadProfilesForKeys(){api('GET','/api/profiles').then(function(d){var profiles=Object.keys(d.profiles||{}),html='';profiles.forEach(function(p){html+='<span class="profile-pill" data-profile="'+p+'" onclick="toggleProfilePill(this)" style="padding:0.25rem 0.625rem;border-radius:9999px;font-size:0.75rem;font-weight:600;cursor:pointer;border:1px solid hsl(var(--card-border));background:hsl(var(--secondary)/0.3);color:hsl(var(--muted-foreground));transition:all 0.15s;user-select:none">'+p.toUpperCase()+'</span>'});if(!html)html='<span style="font-size:0.6875rem;color:hsl(var(--muted-foreground))">No profiles configured</span>';document.getElementById('newKeyProfilesPills').innerHTML=html})}
+function loadProfilesForKeys(){api('GET','/api/profiles').then(function(d){var profiles=Object.keys(d.profiles||{}),html='';profiles.forEach(function(p){html+='<span class="profile-pill" data-profile="'+p+'" onclick="toggleProfilePill(this)" style="padding:0.25rem 0.625rem;border-radius:9999px;font-size:0.75rem;font-weight:600;cursor:pointer;border:1px solid hsl(var(--card-border));background:hsl(var(--secondary)/0.3);color:hsl(var(--muted-foreground));transition:all 0.15s;user-select:none">'+p.toUpperCase()+'</span>'});if(!html)html='<span style="font-size:0.6875rem;color:hsl(var(--muted-foreground))">No profiles configured</span>';document.getElementById('newKeyProfilesPills').innerHTML=html;
+if(KEY_SCOPE){var pill=document.querySelector('#newKeyProfilesPills .profile-pill[data-profile="'+KEY_SCOPE+'"]');if(pill&&_selectedProfiles.indexOf(KEY_SCOPE)<0)pill.click()}})}
 var _selectedProfiles=[];
 function toggleProfilePill(el){var p=el.getAttribute('data-profile'),idx=_selectedProfiles.indexOf(p);if(idx>=0){_selectedProfiles.splice(idx,1);el.style.background='hsl(var(--secondary)/0.3)';el.style.color='hsl(var(--muted-foreground))';el.style.borderColor='hsl(var(--card-border))'}else{_selectedProfiles.push(p);el.style.background='hsl(var(--primary))';el.style.color='hsl(var(--primary-foreground))';el.style.borderColor='hsl(var(--primary))'}}
 function createKey(){var name=document.getElementById('newKeyName').value.trim(),limit=parseFloat(document.getElementById('newKeyLimit').value)||0,expires=document.getElementById('newKeyExpires').value;api('POST','/api/keys',{name:name||'API Key',allowed_profiles:_selectedProfiles.join(','),spend_limit:limit,expires_at:expires?expires+'T00:00:00':''}).then(function(d){if(d.key){document.getElementById('shownKey').textContent=d.key;document.getElementById('shownKeyInfo').innerHTML='Name: <b>'+d.name+'</b> · ID: '+d.id+'<br>Profiles: '+(d.allowed_profiles||'all')+' · Limit: $'+(d.spend_limit||0);closeCreateKeyModal();openDialog('showKeyModal')}else{alert('Error: '+(d.error||'unknown'))}})}
