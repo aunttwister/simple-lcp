@@ -17,6 +17,7 @@ Four things this pins, each of which fails silently rather than loudly:
 """
 import base64
 import os
+import re
 import struct
 import zlib
 
@@ -376,11 +377,20 @@ def test_a_traversing_name_renders_the_not_found_page(cfg, engine, bad):
     assert "root:" not in html
 
 
-def test_a_directory_that_is_not_a_gateway_profile_is_labelled(cfg, engine, profiles_root):
-    """Visible but not routable is a real state and the page says so."""
+def test_an_agent_profile_that_is_not_a_lane_is_labelled(cfg, engine, agent_root):
+    """Visible but not routable is a real state, and the page says which it is."""
+    from src.ui import pages
+    html = pages.render_profile_detail_page(cfg, engine, "lonely", {})
+    assert "Agent profile, not a gateway lane" in html
+    assert "no gateway lane" in html
+
+
+def test_a_bare_directory_is_not_a_profile(cfg, engine, profiles_root):
+    """A directory without a config.yaml is not a profile — and holds a .env."""
     from src.ui import pages
     html = pages.render_profile_detail_page(cfg, engine, "stray", {})
-    assert "Not a gateway profile" in html
+    assert "No such profile" in html
+    assert "sk-do-not-serve-this" not in html
 
 
 def test_a_profile_name_is_escaped_in_the_page(cfg, engine):
@@ -525,3 +535,121 @@ def test_the_profile_tasks_tab_survives_an_unreadable_tree(cfg, engine, monkeypa
     assert "no task directories found at /definitely/not/here" in html
     # and the init payload is still well formed, so the script does not throw
     assert '"total": 0' in html
+
+
+# ── the lane / agent-profile split ───────────────────────────────────────────
+#
+# 'l2' routes; 'homelab-expert-l2' owns the skills. Those are different names for
+# related things, and the whole profile surface has to keep them straight: the
+# skills, memory and tasks come from the directory, the API keys from the lane.
+
+@pytest.fixture
+def agent_root(tmp_path, monkeypatch):
+    """A profiles root where the lane name and the agent profile name differ.
+
+    Deliberately: that inequality is the case that matters. Two of these share one
+    lane, one names a lane, and one names none.
+    """
+    root = tmp_path / "profiles"
+    for name, lane in (("homelab-expert-l2", "l2"), ("blog-writer", "l2"), ("lonely", "")):
+        d = root / name / "skills" / "cat" / (name + "-skill")
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(
+            "---\nname: %s-skill\ndescription: what it does\n---\n" % name)
+        (root / name / "config.yaml").write_text(
+            ("provider:\n  base_url: http://localhost:8734/%s\n" % lane) if lane
+            else "provider:\n  base_url: https://api.example.com/v1\n")
+        (root / name / "SOUL.md").write_text(
+            "# SOUL\n\nYou are the %s agent for the house.\n" % name)
+    monkeypatch.setenv("LCP_PROFILES_DIR", str(root))
+    monkeypatch.setenv("LCP_AVATAR_DIR", str(tmp_path / "avatars"))
+    return root
+
+
+def test_the_lane_list_finds_the_agent_that_owns_its_artefacts(agent_root):
+    agents = profile_data.agent_profiles(["l2", "coder"])
+    assert agents["homelab-expert-l2"]["lane"] == "l2"
+    assert agents["blog-writer"]["lane"] == "l2"
+    assert agents["lonely"]["lane"] == ""
+    # the house convention: the profile named after the lane represents it
+    assert profile_data.primary_agent_for_lane("l2", agents) == "homelab-expert-l2"
+
+
+def test_a_lane_with_no_agent_directory_resolves_to_nothing(agent_root):
+    agents = profile_data.agent_profiles(["l2", "coder"])
+    assert profile_data.primary_agent_for_lane("coder", agents) == ""
+
+
+def test_only_a_directory_with_a_config_counts_as_an_agent_profile(agent_root):
+    """A bare directory under the profiles root is not a profile."""
+    (agent_root / "not-a-profile").mkdir()
+    assert "not-a-profile" not in profile_data.agent_profiles(["l2"])
+
+
+def test_a_legacy_capitalised_copy_does_not_win_over_the_real_profile(agent_root):
+    legacy = agent_root / "homelab-expert-L2" / "skills"
+    legacy.mkdir(parents=True)
+    (agent_root / "homelab-expert-L2" / "config.yaml").write_text(
+        "provider:\n  base_url: http://localhost:8734/l2\n")
+    agents = profile_data.agent_profiles(["l2"])
+    assert profile_data.primary_agent_for_lane("l2", agents) == "homelab-expert-l2"
+
+
+def test_the_lane_card_shows_its_agents_artefacts(cfg, engine, agent_root):
+    from src.ui import pages
+    html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": "skills"})
+    assert html.count('class="skill-row"') == 1
+    assert "homelab-expert-l2-skill" in html
+    assert "artefacts:" in html and "homelab-expert-l2" in html
+
+
+def test_an_agent_profile_is_reachable_and_shows_its_own_artefacts(cfg, engine, agent_root):
+    from src.ui import pages
+    html = pages.render_profile_detail_page(cfg, engine, "blog-writer", {"tab": "skills"})
+    assert html.count('class="skill-row"') == 1
+    assert "blog-writer-skill" in html
+    assert "Agent profile, not a gateway lane" in html
+
+
+def test_an_agent_profile_points_its_keys_at_the_lane_it_routes_through(cfg, engine, agent_root):
+    from src.ui import pages
+    html = pages.render_profile_detail_page(cfg, engine, "blog-writer", {"tab": "keys"})
+    assert 'var KEY_SCOPE="l2";' in html
+    # and a profile that names no lane is not scoped to someone else's keys
+    html = pages.render_profile_detail_page(cfg, engine, "lonely", {"tab": "keys"})
+    assert 'var KEY_SCOPE="lonely";' in html
+
+
+def test_a_lane_scopes_its_keys_to_itself(cfg, engine, agent_root):
+    from src.ui import pages
+    html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": "keys"})
+    assert 'var KEY_SCOPE="l2";' in html
+
+
+def test_every_agent_profile_that_is_not_a_lane_still_gets_a_card(cfg, engine, agent_root):
+    from src.ui import pages
+    html = pages.render_profiles_page(cfg, engine, {})
+    names = re.findall(r'<span class="pc-name">([^<]+)</span>', html)
+    # lanes first (config order), then the other agent profiles
+    assert names[:2] == ["l2", "l1"]
+    assert "blog-writer" in names and "homelab-expert-l2" in names and "lonely" in names
+    # and the lane that borrows an agent profile says so on its card
+    assert "gateway lane \u00b7 agent homelab-expert-l2" in html
+
+
+def test_a_lane_with_no_agent_writeup_says_it_has_no_description(cfg, engine, agent_root):
+    from src.ui import pages
+    html = pages.render_profiles_page(cfg, engine, {})
+    assert "No description yet" in html          # the coder lane
+    assert "homelab-expert-l2 agent for the house" in html   # the agent's own SOUL.md
+
+
+def test_an_agent_summary_drops_the_second_person(agent_root):
+    """'You are the X agent' reads as an instruction; the card needs a description."""
+    assert profile_data.agent_summary("homelab-expert-l2") == "homelab-expert-l2 agent for the house."
+
+
+def test_an_agent_with_no_soul_has_no_summary(agent_root):
+    (agent_root / "bare" / "skills").mkdir(parents=True)
+    (agent_root / "bare" / "config.yaml").write_text("provider: {}\n")
+    assert profile_data.agent_summary("bare") == ""

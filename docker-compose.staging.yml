@@ -50,6 +50,10 @@ services:
       # container -- the path has to be mounted or the read fails as if the file
       # were absent, which is a failure mode that looks like "no data".
       - /root/.hermes/profiles:/app/profiles:ro
+      # The L2 profile's skills/ is a symlink to this shared directory, so the
+      # target has to be mounted at its own absolute path or the link dangles
+      # inside the container and the Skills tab reports "no skills directory".
+      - /root/hermes-work/shared-skills:/root/hermes-work/shared-skills:ro
       # Cron op spool. The ONLY deliberately-writable mount in the work layer:
       # the Cron page cannot see /root/.hermes/profiles, so edit/create/delete
       # intents are spooled here and a host-side executor

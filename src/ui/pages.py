@@ -50,40 +50,70 @@ def _profile_budgets(engine) -> dict:
     return budgets
 
 
-def _profile_card(config, name, pcfg, budgets) -> dict:
+def _profile_card(config, name, pcfg, budgets, agent="", lane="", kind="lane") -> dict:
     """One card for the profiles grid (M2c).
 
-    A card carries what the old table carried *at a glance* — auth, budget, chain,
-    gateway URL — plus the description and the photo. The description is clamped
-    to ten words here rather than in CSS: a clamp that only exists in a stylesheet
-    still ships the whole paragraph in the page source.
+    Two kinds of card, one builder. A **lane** card is a gateway profile: a chain,
+    a gateway URL, API keys. An **agent** card is a directory that owns skills,
+    memory and a task tree but is not itself routed. They are different names for
+    related things — ``l2`` routes, ``homelab-expert-l2`` owns the artefacts — and
+    more than one agent profile can share a lane, so both kinds get a card and
+    neither name is presented as the whole story.
+
+    The description is clamped to ten words *here* rather than in CSS: a clamp that
+    only exists in a stylesheet still ships the whole paragraph in the page source.
     """
     from ..api import profile_data
     try:
         pcfg = pcfg or {}
         desc = str(pcfg.get("description") or "").strip()
+        if not desc and agent:
+            # No lane description written yet: the agent's own SOUL.md says what it
+            # is for, which is exactly what the card is asking.
+            desc = profile_data.agent_summary(agent)
         words = desc.split()
         short = " ".join(words[:10]) + ("\u2026" if len(words) > 10 else "")
         chain = pcfg.get("chain", []) or []
         steps = []
-        for s in chain:
-            if isinstance(s, dict):
-                steps.append("%s/%s" % (s.get("provider", ""), s.get("model", "")))
+        for st in chain:
+            if isinstance(st, dict):
+                steps.append("%s/%s" % (st.get("provider", ""), st.get("model", "")))
             else:
-                steps.append("%s/%s" % (getattr(s, "provider", ""), getattr(s, "model", "")))
+                steps.append("%s/%s" % (getattr(st, "provider", ""), getattr(st, "model", "")))
         auth_required = pcfg.get("auth_required", True)
         pb = budgets.get(name)
         budget_label = ""
         if pb:
             budget_label = "$%.2f/$%.0f (%s%%)" % (pb["current_spend"], pb["amount"], pb["spend_pct"])
+        if kind == "lane":
+            kind_label = "gateway lane"
+            if agent:
+                kind_label += " \u00b7 agent " + agent
+        else:
+            kind_label = "agent profile"
+            if lane:
+                kind_label += " \u00b7 lane " + lane
+            else:
+                kind_label += " \u00b7 no lane"
+        # The photo belongs to a name; a lane whose artefacts live under an agent
+        # profile reads (and writes) that profile's picture rather than showing a
+        # broken image at its own URL.
+        avatar_name = name
+        if profile_data.avatar_for(name) is None and agent and profile_data.avatar_for(agent) is not None:
+            avatar_name = agent
         return {
             "name": name,
             "initials": (name[:2] or "?").upper(),
             "href": "/profiles/" + name,
+            "kind": kind,
+            "kind_label": kind_label,
+            "lane": lane,
+            "agent": agent,
             "description": desc,
             "short_description": short,
             "words": len(words),
-            "avatar": profile_data.avatar_for(name) is not None,
+            "avatar": avatar_name != name or profile_data.avatar_for(name) is not None,
+            "avatar_name": avatar_name,
             "auth_label": "key required" if auth_required else "public",
             "budget_label": budget_label,
             "chain_label": " \u2192 ".join(steps),
@@ -92,12 +122,32 @@ def _profile_card(config, name, pcfg, budgets) -> dict:
         return None
 
 
-def _profile_cards(config, names, budgets) -> list:
-    """Cards for every gateway profile, in config order."""
+def _profile_cards(config, budgets) -> list:
+    """Every profile worth a card: the gateway lanes, then the agent profiles.
+
+    Lanes first because that is the order the page has always used and it is what
+    the gateway is configured with; the agent profiles that are not themselves
+    lanes follow, so a profile with skills, memory and a task tree is never
+    reachable only by guessing its name.
+    """
+    from ..api import profile_data
     profiles = config.profiles if (config is not None and hasattr(config, "profiles")) else {}
+    lanes = list(profiles.keys())
+    agents = profile_data.agent_profiles(lanes)
+
     cards = []
-    for name in names:
-        card = _profile_card(config, name, profiles.get(name), budgets)
+    for lane in lanes:
+        agent = profile_data.primary_agent_for_lane(lane, agents)
+        card = _profile_card(config, lane, profiles.get(lane), budgets,
+                             agent=agent, lane=lane, kind="lane")
+        if card:
+            cards.append(card)
+    named = {c["name"] for c in cards}
+    for name in sorted(agents):
+        if name in named:
+            continue
+        card = _profile_card(config, name, {}, budgets,
+                             agent=name, lane=agents[name].get("lane", ""), kind="agent")
         if card:
             cards.append(card)
     return cards
@@ -172,7 +222,7 @@ def render_profiles_page(config, engine=None, params=None) -> str:
               else _crumbs(("Profiles", None)))
     ctx = {"active_page": "profiles", "tab": tab, "params": params,
            "profile_budgets": budgets,
-           "profile_cards": _profile_cards(config, names, budgets),
+           "profile_cards": _profile_cards(config, budgets),
            "crumbs": crumbs}
     if tab == "config":
         ctx["view"] = _work_config_view()
@@ -440,24 +490,39 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     tab = _tab(params, ("skills", "memory", "tasks", "cron", "keys"), "skills")
     wanted = (name or "").strip()
     profiles = config.profiles if (config is not None and hasattr(config, "profiles")) else {}
-    configured = wanted in profiles
     try:
-        on_disk = profile_data.profile_dir(wanted) is not None
+        wanted = profile_data.validate_name(wanted)
     except profile_data.BadProfileName:
-        on_disk = False
-        wanted = wanted[:64]
+        wanted = ""
+
+    # Two names can land here, and they mean different things: a gateway lane
+    # ("l2"), whose artefacts live under whichever agent profile routes through it,
+    # or an agent profile ("homelab-expert-l2"), which owns the artefacts itself.
+    agents = profile_data.agent_profiles(list(profiles.keys())) if wanted else {}
+    if wanted in profiles:
+        lane, agent, kind = wanted, profile_data.primary_agent_for_lane(wanted, agents), "lane"
+    elif wanted in agents:
+        lane, agent, kind = agents[wanted].get("lane", ""), wanted, "agent"
+    else:
+        lane = agent = kind = ""
+
+    # Which directory the skills, memory and task tree are read from: the agent
+    # profile's when the name was a lane, the name itself when it was a profile.
+    artefacts = agent or wanted
 
     budgets = _profile_budgets(engine)
-    card = _profile_card(config, wanted, profiles.get(wanted), budgets) if (configured or on_disk) else None
+    card = _profile_card(config, wanted, profiles.get(wanted), budgets,
+                         agent=agent, lane=lane, kind=kind or "lane") if kind else None
     exists = card is not None
     if card is None:
         profile = {"name": wanted, "exists": False, "configured": False, "initials": "?",
-                   "avatar": False, "words": 0, "description": "", "short_description": "",
+                   "avatar": False, "avatar_name": wanted, "words": 0, "description": "",
+                   "short_description": "", "kind": "", "kind_label": "", "lane": "", "agent": "",
                    "auth_label": "", "budget_label": "", "chain_label": ""}
     else:
         profile = dict(card)
         profile["exists"] = True
-        profile["configured"] = configured
+        profile["configured"] = kind == "lane"
 
     labels = (("skills", "Skills"), ("memory", "Memory"), ("tasks", "Tasks"),
               ("cron", "Cron"), ("keys", "API Keys"))
@@ -467,7 +532,7 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
 
     ctx = {"active_page": "profiles", "tab": tab if exists else "missing",
            "params": params, "profile": profile, "tabs": tabs, "tab_label": tab_label,
-           "key_scope": wanted,
+           "key_scope": lane or wanted,
            "crumbs": (_crumbs(("Profiles", "/profiles"),
                               (wanted, "/profiles/" + wanted), (tab_label, None))
                       if exists else _crumbs(("Profiles", "/profiles"), ("Not found", None)))}
@@ -476,20 +541,20 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
 
     if tab == "skills":
         try:
-            ctx["skills"] = profile_data.skills_view(wanted)
+            ctx["skills"] = profile_data.skills_view(artefacts)
         except Exception as e:  # a viewer must not 500 on a filesystem surprise
             ctx["skills"] = {"available": False, "count": 0, "categories": [], "skills": [],
                              "truncated": False, "reason": "%s: %s" % (type(e).__name__, e)}
     elif tab == "memory":
         try:
-            ctx["memory"] = profile_data.memory_view(wanted)
+            ctx["memory"] = profile_data.memory_view(artefacts)
         except Exception as e:
             ctx["memory"] = {"available": False, "files": [], "total_chars": 0,
                              "reason": "%s: %s" % (type(e).__name__, e)}
     elif tab == "tasks":
-        ctx["view"] = _profile_tasks_view(wanted, params)
+        ctx["view"] = _profile_tasks_view(artefacts, params)
     elif tab == "cron":
-        ctx["view"] = _work_cron_view({"profile": wanted})
+        ctx["view"] = _work_cron_view({"profile": artefacts or wanted})
     # The API Keys tab fetches /api/keys itself and filters rows against
     # `key_scope` — the section is the same interactive one the global keys page
     # used, so create/show/revoke keep working per profile.

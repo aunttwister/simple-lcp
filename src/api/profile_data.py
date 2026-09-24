@@ -305,6 +305,124 @@ def delete_avatar(name: str) -> Dict[str, Any]:
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+# ── lane <-> agent profile ───────────────────────────────────────────────────
+#
+# A gateway lane and an agent profile are two different names for related things:
+# "l2" is a routing decision, while "homelab-expert-l2" is a directory that owns
+# skills, memory and a task tree. More than one agent profile can route through one
+# lane (blog-writer also routes through l2), and the only place the link is written
+# down is each profile's own config, where the gateway base URL ends in the lane.
+
+_LANE_URL_RE = re.compile(
+    r"(?:localhost|127\.0\.0\.1):\d+/([A-Za-z0-9._-]+)"   # http://127.0.0.1:8734/l2
+    r"|lcp\.[A-Za-z0-9.-]+/([A-Za-z0-9._-]+)"             # https://lcp.local.curci.cc/l2
+)
+_CONFIG_READ_LIMIT = 64 * 1024
+
+
+def lane_in_config_text(text: str, lanes) -> str:
+    """The first URL segment in a profile's config that names a known lane.
+
+    Reads every match rather than the first, because a config also points at the
+    providers themselves (``…:8734/v1``), and those are not lanes.
+    """
+    order = [str(l) for l in (lanes or ()) if l]
+    wanted = {l.lower(): l for l in order}
+    if not wanted:
+        return ""
+    for m in _LANE_URL_RE.finditer(text or ""):
+        seg = (m.group(1) or m.group(2) or "").lower()
+        if seg in wanted:
+            return wanted[seg]
+    return ""
+
+
+def agent_profiles(lanes=None) -> Dict[str, Dict[str, Any]]:
+    """Every Hermes agent profile directory, with the lane it routes through.
+
+    Only directories with a config.yaml count: this view is about profiles that own
+    skills, memory and tasks, not about every directory under the profiles root
+    (there is a ``backups/`` there that owns none of those).
+    """
+    root = profiles_root()
+    out: Dict[str, Dict[str, Any]] = {}
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return out
+    for name in names:
+        if name.startswith("."):
+            continue
+        path = os.path.join(root, name)
+        cfg = os.path.join(path, "config.yaml")
+        if not os.path.isdir(path) or not os.path.isfile(cfg):
+            continue
+        lane = ""
+        try:
+            with open(cfg, encoding="utf-8", errors="replace") as fh:
+                lane = lane_in_config_text(fh.read(_CONFIG_READ_LIMIT), lanes)
+        except OSError:
+            lane = ""
+        out[name] = {"name": name, "lane": lane}
+    return out
+
+
+def primary_agent_for_lane(lane: str, agents) -> str:
+    """Which agent profile's artefacts a lane shows when several share the lane.
+
+    The lane's card is a summary, not the whole truth: every agent profile that
+    shares the lane keeps a card of its own, so nothing is hidden by this choice.
+    Preference is the house convention — the profile named after the lane
+    (``homelab-expert-l2`` for ``l2``) — and lowercase wins over the legacy
+    capitalised copies.
+    """
+    if not lane:
+        return ""
+    sharing = [n for n, info in (agents or {}).items() if (info or {}).get("lane") == lane]
+    if not sharing:
+        return ""
+    exact = [n for n in sharing if n.lower().endswith("-" + lane.lower()) or n.lower() == lane.lower()]
+    return sorted(exact or sharing, key=lambda n: (n != n.lower(), n))[0]
+
+
+def agent_summary(name: str, words: int = 10) -> str:
+    """A one-line summary of an agent profile, taken from its own SOUL.md.
+
+    A profile's SOUL.md opens by saying what the agent is for, which is exactly the
+    card's question. The leading heading and Markdown emphasis come off, and the
+    second person goes with them — "Level 2 Support Agent for homelab-expert" reads
+    as a description where "You are the Level 2 Support Agent" reads as an
+    instruction. Nothing usable means an empty string: the card then says it has no
+    description rather than inventing one.
+    """
+    path = profile_dir(name)
+    if not path:
+        return ""
+    text = ""
+    for candidate in ("SOUL.md", "AGENTS.md"):
+        full = os.path.join(path, candidate)
+        if os.path.isfile(full):
+            try:
+                with open(full, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read(8000)
+            except OSError:
+                text = ""
+            if text:
+                break
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ">", "-", "*", "|", "```", "<!--")):
+            continue
+        line = re.sub(r"\*\*(.+?)\*\*", r"\1", line[:400])
+        line = re.sub(r"[`\[\]]", "", line).strip()
+        line = re.sub(r"^(?:You are|You're)\s+(?:the|an?)\s+", "", line, flags=re.IGNORECASE)
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        return " ".join(parts[:words]) + ("…" if len(parts) > words else "")
+    return ""
+
+
 def _rel_time(ts: float) -> str:
     """A short relative age for a timestamp ("3d", "2h", "just now")."""
     if not ts:

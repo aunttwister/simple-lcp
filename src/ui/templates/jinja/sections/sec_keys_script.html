@@ -11,7 +11,11 @@ var HDR = '<tr class="lcp-stack-header"><th>Name</th><th>Prefix</th><th>Profiles
 // M2c: this script is also the API Keys tab of a single profile, where it lists
 // only the keys that can call that profile. KEY_SCOPE is empty on any page that
 // shows every key, so the section keeps working as a cross-profile view.
-var KEY_SCOPE=(typeof key_scope!=='undefined'&&key_scope)?key_scope:'';
+//
+// This one line sits OUTSIDE the raw block that wraps the rest of this file: the
+// script is JavaScript full of braces, so it is raw for the template engine, and
+// anything left inside would ship verbatim instead of being evaluated.
+{% endraw %}var KEY_SCOPE={{ (key_scope or '') | tojson }};{% raw %}
 function loadKeys(){api('GET','/api/keys').then(function(d){
 var keys=d.keys||[],groups={};
 if(KEY_SCOPE){var s=KEY_SCOPE.toLowerCase();keys=keys.filter(function(k){var ap=String(k.allowed_profiles||'').toLowerCase().trim();if(!ap||ap==='all')return true;return ap.split(',').map(function(x){return x.trim()}).indexOf(s)>=0})}

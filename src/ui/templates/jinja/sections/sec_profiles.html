@@ -3,8 +3,6 @@
     (profiles) inside a tab guard for the tab 'profiles'. -#}
 
 {% if tab == 'profiles' %}
-<p class="subtitle">Manage routing profiles, fallback chains, and tool restrictions</p>
-
 <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
   <button class="btn-sm btn-primary" onclick="openAddProfile()">+ Add Profile</button>
 </div>
@@ -14,25 +12,34 @@
   <div class="profile-card">
     <a class="pc-head" href="{{ c.href }}">
       <span class="pc-avatar">
-        {% if c.avatar %}<img src="/api/profiles/{{ c.name }}/avatar" alt="">{% else %}<span class="pc-initials">{{ c.initials }}</span>{% endif %}
+        {% if c.avatar %}<img src="/api/profiles/{{ c.avatar_name }}/avatar" alt="">{% else %}<span class="pc-initials">{{ c.initials }}</span>{% endif %}
       </span>
       <span class="pc-id">
         <span class="pc-name">{{ c.name }}</span>
-        <span class="pc-meta">{{ c.auth_label }}{% if c.budget_label %} &middot; {{ c.budget_label }}{% endif %}</span>
+        <span class="pc-meta">{{ c.kind_label }}{% if c.budget_label %} &middot; {{ c.budget_label }}{% endif %}</span>
       </span>
     </a>
     {% if c.words %}
     <p class="pc-desc" title="{{ c.description }}">{{ c.short_description }}</p>
-    {% else %}
+    {% elif c.kind == 'lane' %}
     <p class="pc-desc pc-desc-empty">No description yet &mdash; add one from Edit.</p>
+    {% else %}
+    <p class="pc-desc pc-desc-empty">No summary in this profile's SOUL.md.</p>
     {% endif %}
-    {% if c.chain_label %}<div class="pc-chain" title="{{ c.chain_label }}">{{ c.chain_label }}</div>{% endif %}
+    {% if c.kind == 'lane' and c.chain_label %}<div class="pc-chain" title="{{ c.chain_label }}">{{ c.chain_label }}</div>{% endif %}
     <div class="pc-foot">
+      {% if c.kind == 'lane' %}
       <span class="pc-url mono" title="Gateway URL">/{{ c.name }}/chat/completions</span>
       <span class="pc-actions">
         <button class="btn-sm" onclick="editProfile('{{ c.name }}')">Edit</button>
         <button class="btn-sm btn-danger" onclick="deleteProfile('{{ c.name }}')">Delete</button>
       </span>
+      {% else %}
+      {# An agent profile is a directory, not a routing entry: there is nothing to
+         edit or delete here, only to open. #}
+      <span class="pc-url mono" title="Profile directory">{{ c.name }}/</span>
+      <span class="pc-actions"><a class="btn-sm" href="{{ c.href }}">Open</a></span>
+      {% endif %}
     </div>
   </div>
   {% endfor %}
