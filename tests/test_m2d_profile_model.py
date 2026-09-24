@@ -93,7 +93,7 @@ def test_the_new_fields_are_optional_and_default_harmlessly():
     p = _cfg({"l2": {"chain": [{"provider": "p", "model": "m"}]}}).profiles["l2"]
     fields = validate_profile_fields("l2", p)
     assert fields["agent_profile"] == ""
-    assert fields["routing"] == "static"   # today's behaviour, byte for byte
+    assert fields["routing"] == ""   # today's behaviour, byte for byte
     assert fields["intents"] == []
     assert fields["description"] == ""
 
@@ -655,7 +655,7 @@ def test_the_profiles_list_offers_a_suggestion_when_nothing_is_declared(profiles
     entry = body["profiles"]["l2"]
     assert entry["agent_profile"] == ""
     assert entry["suggested_agent_profile"] == "homelab-expert-l2"
-    assert entry["routing"] == "static" and entry["intents"] == []
+    assert entry["routing"] == "" and entry["intents"] == []
 
 
 def test_the_profiles_list_carries_the_new_fields(profiles_root):
@@ -675,3 +675,176 @@ def test_the_profiles_list_carries_the_new_fields(profiles_root):
     assert entry["intents"] == ["planning"]
     assert "blog-writer" in entry["routed_by"]     # read from its own config
     assert entry["suggested_agent_profile"] == ""  # declared, so nothing to suggest
+
+
+# ── 11. the route is wired, not just the method ──────────────────────────────
+#
+# The tests above call the endpoint methods directly, which proves the logic and
+# proves nothing about the dispatch. That gap is real: the seed route was first
+# registered in do_PUT while the endpoint is a POST, so every direct-call test passed
+# and `curl -X POST …/mapping/seed` answered 404. These go through dispatch.
+
+def test_the_seed_route_is_reachable_as_a_post(profiles_root):
+    from src.server.handler import LCPHandler
+    cfg, _ = _real_config({
+        "l2": {"chain": [{"provider": "deepseek", "model": "deepseek-chat"}]}})
+    LCPHandler.config = cfg
+    h = _handler("/api/profiles/mapping/seed", "POST", {"apply": False}, cfg)
+    h.do_POST()
+    status, body = _sent(h)
+    assert status == 200, "POST /api/profiles/mapping/seed must be routed, not 404"
+    assert body["applied"] == {"l2": "homelab-expert-l2"}
+
+
+def test_the_seed_route_is_not_reachable_by_other_methods(profiles_root):
+    """A seed is an action, so it is a POST and only a POST."""
+    from src.server.handler import LCPHandler
+    cfg, _ = _real_config({
+        "l2": {"chain": [{"provider": "deepseek", "model": "deepseek-chat"}]}})
+    LCPHandler.config = cfg
+    for method in ("GET", "PUT", "DELETE"):
+        h = _handler("/api/profiles/mapping/seed", method, {}, cfg)
+        getattr(h, "do_" + method)()
+        status, _ = _sent(h)
+        assert status in (404, 405), "%s must not seed, got %s" % (method, status)
+
+
+def test_the_seed_route_appears_in_the_routing_inventory():
+    """The route table is the inventory of the admin surface; a route that is not in
+    it is a route nothing knows about."""
+    from src.server.handler import LCPHandler
+    names = [r.name for r in LCPHandler._route_table().rules]
+    assert "api.profile.mapping.seed" in names
+
+
+def test_the_seed_path_does_not_collide_with_profile_creation(profiles_root):
+    """Ordering is not what keeps these apart — exact matching is, and this proves it
+    behaviourally rather than by asserting an order that carries no meaning here."""
+    from src.server.handler import LCPHandler
+    cfg, sections = _real_config({
+        "l2": {"chain": [{"provider": "deepseek", "model": "deepseek-chat"}]}})
+    LCPHandler.config = cfg
+
+    # a POST to the seed path seeds, and creates no profile called "mapping"
+    h = _handler("/api/profiles/mapping/seed", "POST", {"apply": True}, cfg)
+    h.do_POST()
+    assert _sent(h)[0] == 200
+    assert "mapping" not in sections["profiles"]
+
+    # and a POST to /api/profiles still creates a profile, not a seed
+    h2 = _handler("/api/profiles", "POST", {"name": "newbie"}, cfg)
+    h2.do_POST()
+    assert _sent(h2)[0] == 200
+    assert "newbie" in sections["profiles"]
+
+
+# ── 12. which rule list is in effect, and where an edit is written ───────────
+#
+# The trap here is silent data loss. `/api/routing/rules` replaces the whole list *for
+# the scope it is given*, and a profile's own list replaces the shared one. So a page
+# that shows the shared rules but saves them scoped to the profile shadows the shared
+# list for that profile alone; a page that shows a profile's rules but saves them
+# shared overwrites every other profile's rules. The payload therefore says which list
+# is in effect, and the script saves to that same scope.
+
+def test_the_routing_view_names_the_list_in_effect(cfg, profiles_root, engine):
+    from src.ui import pages
+    html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": "routing"})
+    # the fixture has no per-profile override, so the shared list applies
+    assert '"rules_scope": "shared"' in html
+    assert "no list of" in html and "shared" in html
+
+
+def test_saving_the_shared_rules_does_not_touch_a_profile_override(profiles_root, engine):
+    """The hazard, end to end, against a real store: the page shows the shared rules, so
+    saving them must not shadow or overwrite a profile's own list.
+
+    The endpoint ends by returning the router's status; that is stubbed out because the
+    router reads the process-wide settings singleton, which other tests replace. What is
+    under test is *which key the rules were written to*, and the store answers that.
+    """
+    from src.server.handler import LCPHandler
+    from src.api.cost_cache import SettingsStore
+    from unittest.mock import patch
+    cfg, _ = _real_config({
+        "l2": {"chain": [{"provider": "deepseek", "model": "deepseek-chat"}]}})
+    LCPHandler.config = cfg
+    store = SettingsStore(engine)
+    store.set_routing_rules([{"task": "unit_tests", "action": "prefer",
+                              "provider": "p", "model": "m"}], profile="coder")
+
+    with patch("src.server.endpoints.resolve_service",
+               lambda name, fallback=None: store), \
+         patch("src.api.router.routing_status", lambda *a, **k: {}):
+        h = _handler("/api/routing/rules", "POST",
+                     {"rules": [{"task": "planning", "action": "prefer",
+                                 "provider": "deepseek", "model": "x"}]}, cfg)
+        h._serve_routing_rules_api()
+
+    assert [r["task"] for r in store.get_routing_rules()] == ["planning"]
+    assert [r["task"] for r in store.get_routing_rules(profile="coder")] == ["unit_tests"], \
+        "writing the shared list must leave another profile's own list alone"
+
+
+def test_saving_a_profiles_own_rules_scopes_them_to_that_profile(profiles_root, engine):
+    from src.server.handler import LCPHandler
+    from src.api.cost_cache import SettingsStore
+    from unittest.mock import patch
+    cfg, _ = _real_config({
+        "l2": {"chain": [{"provider": "deepseek", "model": "deepseek-chat"}]}})
+    LCPHandler.config = cfg
+    store = SettingsStore(engine)
+    store.set_routing_rules([{"task": "casual_chat", "action": "prefer",
+                              "provider": "p", "model": "m"}])
+
+    with patch("src.server.endpoints.resolve_service",
+               lambda name, fallback=None: store), \
+         patch("src.api.router.routing_status", lambda *a, **k: {}):
+        h = _handler("/api/routing/rules", "POST",
+                     {"rules": [{"task": "planning", "action": "prefer",
+                                 "provider": "deepseek", "model": "x"}],
+                      "profile": "l2"}, cfg)
+        h._serve_routing_rules_api()
+
+    assert [r["task"] for r in store.get_routing_rules(profile="l2")] == ["planning"]
+    assert [r["task"] for r in store.get_routing_rules()] == ["casual_chat"], \
+        "writing a profile's own list must leave the shared list alone"
+
+
+def test_a_profile_declaring_nothing_is_not_labelled_static(cfg, profiles_root, engine):
+    """Absent is absent. A badge saying "static routing" on a profile nobody has
+    configured is a claim about behaviour that nothing supports."""
+    from src.api.config import validate_profile_fields
+    fields = validate_profile_fields("l2", {"chain": [{"provider": "p", "model": "m"}]})
+    assert fields["routing"] == "", "an undeclared routing mode must stay undeclared"
+    for bad in ("fast", "auto", 3, ["dynamic"]):
+        with pytest.raises(Exception):
+            validate_profile_fields("l2", {"routing": bad})
+    # an explicit choice still round-trips, case-insensitively
+    assert validate_profile_fields("l2", {"routing": "Dynamic"})["routing"] == "dynamic"
+    assert validate_profile_fields("l2", {"routing": "static"})["routing"] == "static"
+
+
+def test_the_card_badge_reads_the_router_not_the_field(cfg, profiles_root):
+    """The badge says what the profile does, so the router's answer beats the field."""
+    from src.ui import pages
+    two = {"chain": [{"provider": "p", "model": "a"}, {"provider": "p", "model": "b"}]}
+
+    on = pages._profile_card(cfg, "l2", two, {}, kind="profile", routing_on=True)
+    assert on["routing_label"] == "dynamic"
+    off = pages._profile_card(cfg, "l2", two, {}, kind="profile", routing_on=False)
+    assert off["routing_label"] == "static"
+
+    # the declared field is a fallback, used only when the router did not answer
+    declared = dict(two, routing="dynamic")
+    unasked = pages._profile_card(cfg, "l2", declared, {}, kind="profile", routing_on=None)
+    assert unasked["routing_label"] == "dynamic"
+
+    # nothing declared and nobody asked: no claim at all
+    unknown = pages._profile_card(cfg, "l2", two, {}, kind="profile", routing_on=None)
+    assert unknown["routing_label"] == ""
+
+    # one model is one model, whatever the router would do with more
+    single = {"chain": [{"provider": "p", "model": "a"}]}
+    only = pages._profile_card(cfg, "l2", single, {}, kind="profile", routing_on=True)
+    assert only["routing_label"] == "static"

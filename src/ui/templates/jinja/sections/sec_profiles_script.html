@@ -31,7 +31,7 @@ function openAddProfile(prefillAgent) {
     document.getElementById('pemSaveStatus').textContent = '';
     document.getElementById('pemSaveBtn').textContent = 'Create Profile';
     document.getElementById('pemAgentProfile').value = prefillAgent || '';
-    document.getElementById('pemRoutingDynamic').checked = false;
+    document.getElementById('pemRoutingMode').value = '';
     onRoutingToggle();
     renderPemTools();
     renderPemChain();
@@ -102,16 +102,19 @@ function removeIntent(i) {
 // chain the router has no decision to make, so the toggle says so rather than
 // pretending the profile is routed dynamically.
 function onRoutingToggle() {
-  var on = document.getElementById('pemRoutingDynamic').checked;
-  var label = document.getElementById('pemRoutingLabel');
+  // Three states, not two: absent means "inherit the gateway's switch", which is what
+  // a profile that declares nothing gets — and is not the same as choosing static.
+  var mode = document.getElementById('pemRoutingMode').value;
   var hint = document.getElementById('pemRoutingHint');
-  label.textContent = on ? 'Dynamic \u2014 score the chain for every request' : 'Static \u2014 walk the chain in order';
   var steps = _editProfileChain.length;
-  if (on && steps < 2) {
+  if (mode === 'dynamic' && steps < 2) {
     hint.textContent = steps === 1
       ? 'One model in the chain: the router has nothing to choose between yet.'
       : 'No models in the chain yet.';
     hint.style.color = 'hsl(var(--amber-fg))';
+  } else if (mode === '') {
+    hint.textContent = 'This profile follows the gateway\u2019s own switch.';
+    hint.style.color = 'hsl(var(--muted-foreground))';
   } else {
     hint.textContent = '';
   }
@@ -145,7 +148,7 @@ function editProfile(name) {
       // The declared mapping wins; when there is none the derived proposal is
       // shown, so confirming it is one Save rather than typing a name.
       document.getElementById('pemAgentProfile').value = prof.agent_profile || prof.suggested_agent_profile || '';
-      document.getElementById('pemRoutingDynamic').checked = (prof.routing === 'dynamic');
+      document.getElementById('pemRoutingMode').value = prof.routing || '';
       onRoutingToggle();
       renderPemTools();
       renderPemChain();
@@ -223,7 +226,7 @@ function renderPemChain() {
     });
   }
   document.getElementById('pemChainList').innerHTML = html;
-  if (typeof onRoutingToggle === 'function' && document.getElementById('pemRoutingDynamic')) onRoutingToggle();
+  if (typeof onRoutingToggle === 'function' && document.getElementById('pemRoutingMode')) onRoutingToggle();
   var listEl = document.getElementById('pemChainList');
   if (listEl && typeof Sortable !== 'undefined') {
     new Sortable(listEl, {
@@ -270,7 +273,7 @@ function saveProfileEdit() {
     return api('POST', '/api/profiles', {
       name: name,
       agent_profile: document.getElementById('pemAgentProfile').value,
-      routing: document.getElementById('pemRoutingDynamic').checked ? 'dynamic' : 'static',
+      routing: document.getElementById('pemRoutingMode').value,
       intents: _editProfileIntents,
       description: document.getElementById('pemDescription').value.trim()
     }).then(function(create) {
@@ -299,7 +302,7 @@ function saveProfileEdit() {
       description: document.getElementById('pemDescription').value.trim(),
       auth_required: document.getElementById('pemAuthRequired').checked,
       agent_profile: document.getElementById('pemAgentProfile').value,
-      routing: document.getElementById('pemRoutingDynamic').checked ? 'dynamic' : 'static',
+      routing: document.getElementById('pemRoutingMode').value,
       intents: _editProfileIntents
     });
   }).then(function(profResult) {

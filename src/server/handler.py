@@ -651,11 +651,6 @@ class LCPHandler(
         elif self.path.startswith("/api/chains/") and len(self.path.split("/")) == 4:
             profile = self.path.split("/")[3]
             self._serve_chain_reorder(profile)
-        elif self.path == "/api/profiles/mapping/seed":
-            # M2d: derive the lane -> agent-profile mapping and optionally store it.
-            # Must come before the generic /api/profiles/ branches: this path has
-            # five segments and would otherwise fall through to the 404 default.
-            self._serve_profile_mapping_seed()
         elif self.path.startswith("/api/profiles/") and self.path.endswith("/budget"):
             # PUT /api/profiles/{name}/budget
             parts = self.path.split("/")
@@ -1030,6 +1025,10 @@ def _build_routes() -> RouteTable:
 
     t.post("api.profile.avatar", regex(r"^/api/profiles/(?P<name>[^/]+)/avatar$"),
           lambda h, p: h._serve_profile_avatar_put(h._path_part(h.path, 3)))
+    # M2d: seed the lane -> agent-profile mapping. Registered here, ahead of the
+    # exact "/api/profiles" rule, because the first matching rule wins.
+    t.post("api.profile.mapping.seed", exact("/api/profiles/mapping/seed"),
+           lambda h, p: h._serve_profile_mapping_seed())
     t.post("api.profiles", exact("/api/profiles"),
            lambda h, p: h._serve_profile_create())
 

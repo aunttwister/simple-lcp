@@ -58,11 +58,20 @@
   </div>
   <p class="pd-note" id="prouPolicyStatus"></p>
 
-  <h2 class="pd-sect">Rules <span class="pd-sect-note">pin a task to a model for this profile</span></h2>
+  <h2 class="pd-sect">Rules <span class="pd-sect-note">pin a task to a model</span></h2>
   <p class="pd-note">
     A rule matches a task the classifier recognised and either prefers a model for it
-    or blocks one. Rules listed here apply to <b>{{ profile.name }}</b>; a rule whose
-    task is <b>*</b> matches every task.
+    or blocks one; a rule whose task is <b>*</b> matches every task.
+    {% if routing.rules_scope == 'profile' %}
+    These are <b>{{ profile.name }}</b>'s own rules. A profile's own list replaces the
+    gateway's shared list, so nothing outside this list applies to it.
+    {% else %}
+    These are the gateway's <b>shared</b> rules &mdash; {{ profile.name }} has no list of
+    its own, so the shared one applies.
+    {% endif %}
+    {% if routing.rules_other_scoped %}
+    {{ routing.rules_other_scoped }} of them name another profile and only take effect for it.
+    {% endif %}
   </p>
   <div id="prouRules"></div>
   <div class="prou-add">

@@ -23,10 +23,12 @@
   <p class="pd-note">
     {{ pool.chain|length }} of {{ pool.model_count }} registered models
     across {{ pool.providers|length }} providers.
-    {% if profile_config.routing == 'dynamic' %}
-    Dynamic routing is on, so the router may reorder these per request.
+    {% if pool.routing_on %}
+    The router is on for this profile, so it may reorder these per request.
+    {% elif pool.routing_on is none %}
+    The router's state for this profile is unknown from here.
     {% else %}
-    Dynamic routing is off, so requests walk this list top to bottom.
+    The router is off for this profile, so requests walk this list top to bottom.
     {% endif %}
   </p>
 

@@ -247,7 +247,7 @@ INTENTS_MAX = 32
 
 # `routing` is the per-profile choice between walking the chain in order and
 # letting the dynamic router score it. Static is the pre-existing behaviour.
-ROUTING_MODES = ("static", "dynamic")
+ROUTING_MODES = ("", "static", "dynamic")
 
 # Matches the API's cap on the card description.
 PROFILE_DESC_MAX = 120
@@ -287,10 +287,18 @@ def validate_profile_fields(name: str, prof: dict) -> dict:
     else:
         out["agent_profile"] = ""
 
-    routing = prof.get("routing", "static")
+    # Absent is its own state, and it is not "static": a profile that declares nothing
+    # is routed by the gateway's own switch, which is what happens today. Making the
+    # default "static" would have the field claim a decision nobody made — and put a
+    # "static routing" badge on a profile the router is in fact scoring.
+    routing = prof.get("routing", "") or ""
+    if isinstance(routing, str):
+        routing = routing.strip().lower()
     if routing not in ROUTING_MODES:
         raise ConfigError(
-            f"Profile '{name}': 'routing' must be one of {list(ROUTING_MODES)}"
+            f"Profile '{name}': 'routing' must be one of "
+            f"{[m for m in ROUTING_MODES if m] or ['static', 'dynamic']}"
+            " (or absent to inherit the gateway setting)"
         )
     out["routing"] = routing
 

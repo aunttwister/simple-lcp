@@ -15,6 +15,11 @@
   if (!document.getElementById('prouRules')) return;
   var ROUTING = JSON.parse(document.getElementById('prouting-init').textContent || '{}');
   var PROFILE = ROUTING.profile || '';
+  // Which list these rules came from decides where a change is written. Writing a
+  // profile's list when the shown rules were the shared one would shadow the shared
+  // rules for this profile alone; writing the shared list when they were its own
+  // would overwrite every other profile's rules.
+  var RULES_SCOPE = ROUTING.rules_scope || 'shared';
 
   function el(id) { return document.getElementById(id); }
 
@@ -35,12 +40,14 @@
       html += '<tr><td colspan="6" class="empty">No rules for this profile.</td></tr>';
     }
     rows.forEach(function (r, i) {
+      var scope = (r.profile || '');
+      var mine = !scope || scope === '*' || scope === PROFILE;
       html += '<tr>' +
         '<td class="mono">' + esc(r.task) + '</td>' +
         '<td>' + esc(r.action) + '</td>' +
         '<td class="mono">' + esc(r.provider) + '</td>' +
         '<td class="mono">' + esc(r.model || '(any)') + '</td>' +
-        '<td class="mono">' + esc(r.profile || '(any profile)') + '</td>' +
+        '<td class="mono">' + (mine ? esc(scope || '(every profile)') : esc(scope) + ' \u2190 not this one') + '</td>' +
         '<td><button class="btn-sm" onclick="prouRemoveRule(' + i + ')">\u2715</button></td>' +
         '</tr>';
     });
@@ -56,10 +63,16 @@
 
   function persistRules() {
     say(el('prouRuleStatus'), 'Saving\u2026');
-    api('POST', '/api/routing/rules', { rules: ROUTING.rules, profile: PROFILE })
+    var body = { rules: ROUTING.rules };
+    if (RULES_SCOPE === 'profile') body.profile = PROFILE;
+    api('POST', '/api/routing/rules', body)
       .then(function (d) {
         if (d && d.error) { say(el('prouRuleStatus'), d.error); return; }
-        say(el('prouRuleStatus'), 'Saved \u2014 applies to new requests immediately.', true);
+        say(el('prouRuleStatus'),
+            RULES_SCOPE === 'profile'
+              ? 'Saved to ' + PROFILE + '\u2019s own rules \u2014 applies to new requests immediately.'
+              : 'Saved to the shared rules \u2014 applies to new requests immediately.',
+            true);
       })
       .catch(function (e) { say(el('prouRuleStatus'), 'Save failed: ' + (e.message || e)); });
   }

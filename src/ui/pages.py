@@ -51,7 +51,8 @@ def _profile_budgets(engine) -> dict:
 
 
 def _profile_card(config, name, pcfg, budgets, agent="", kind="profile",
-                  mapping_source="none", routed_by=None, lane="") -> dict:
+                  mapping_source="none", routed_by=None, lane="",
+                  routing_on=None) -> dict:
     """One card for the profiles grid (M2d).
 
     One kind of card, one builder, since M2d the grid is grouped by *what a profile
@@ -89,11 +90,23 @@ def _profile_card(config, name, pcfg, budgets, agent="", kind="profile",
         budget_label = ""
         if pb:
             budget_label = "$%.2f/$%.0f (%s%%)" % (pb["current_spend"], pb["amount"], pb["spend_pct"])
-        routing = str(pcfg.get("routing") or "static")
+        routing = str(pcfg.get("routing") or "")
         intents = list(pcfg.get("intents") or [])
         # A routing mode is only a *choice* when there is more than one model to
         # choose between; one step means the dynamic router has nothing to decide.
-        routing_effective = routing if len(chain) > 1 else "static"
+        # `routing_on` is the router's own answer for this profile (None when the
+        # router could not be asked) and beats the declared field, because the badge
+        # says what the profile *does*, not what it was asked to do.
+        if len(chain) <= 1:
+            routing_effective = "static"
+        elif routing_on is not None:
+            routing_effective = "dynamic" if routing_on else "static"
+        elif routing:
+            routing_effective = routing
+        else:
+            # The router did not say and nothing is declared: no badge. A label here
+            # would be a claim about behaviour that nothing supports.
+            routing_effective = ""
         if kind == "lcp_only":
             kind_label = "profile without an agent"
         else:
@@ -131,7 +144,7 @@ def _profile_card(config, name, pcfg, budgets, agent="", kind="profile",
             "chain_steps": len(steps),
             "routing": routing,
             "routing_effective": routing_effective,
-            "routing_label": "dynamic" if routing_effective == "dynamic" else "static",
+            "routing_label": routing_effective,
             "intents": intents,
             "intents_label": ", ".join(intents) if intents else "",
         }
@@ -139,7 +152,7 @@ def _profile_card(config, name, pcfg, budgets, agent="", kind="profile",
         return None
 
 
-def _profile_groups(config, budgets) -> dict:
+def _profile_groups(config, budgets, routing_on=None) -> dict:
     """The profiles grid, grouped by what a profile is (M2d).
 
     Three groups, and only the first two are LCP profiles:
@@ -171,7 +184,7 @@ def _profile_groups(config, budgets) -> dict:
         try:
             fields = validate_profile_fields(lane, pcfg)
         except Exception:  # never blank the grid on one bad profile
-            fields = {"agent_profile": "", "routing": "static", "intents": [],
+            fields = {"agent_profile": "", "routing": "", "intents": [],
                       "description": str(pcfg.get("description") or "")}
         agent = fields["agent_profile"]
         source = "declared"
@@ -182,7 +195,8 @@ def _profile_groups(config, budgets) -> dict:
         card = _profile_card(config, lane, pcfg, budgets, agent=agent,
                              kind="profile" if agent else "lcp_only",
                              mapping_source=source,
-                             routed_by=profile_data.agents_for_lane(lane, agents))
+                             routed_by=profile_data.agents_for_lane(lane, agents),
+                             routing_on=(routing_on or {}).get(lane))
         if card:
             (declared if agent else lcp_only).append(card)
     uncovered = profile_data.uncovered_agents(lanes, mapping=effective, agents=agents)
@@ -253,7 +267,14 @@ def render_profiles_page(config, engine=None, params=None) -> str:
     params = dict(params or {})
     tab = _tab(params, ("profiles", "config"), "profiles")
     budgets = _profile_budgets(engine)
-    groups = _profile_groups(config, budgets)
+    # One router call for the whole grid: the badge on each card says what the profile
+    # does, so it has to come from the router rather than the profile's declared field.
+    _status = _routing_status_safe(config)
+    names_for_status = list(config.profiles.keys()) if (
+        config is not None and hasattr(config, "profiles")) else []
+    groups = _profile_groups(config, budgets,
+                             routing_on={n: _effective_routing_on(_status, n)
+                                         for n in names_for_status})
     # Every Hermes profile directory, for the Edit modal's Agent Profile selector: a
     # profile may legitimately be mapped to any of them, including the legacy copies.
     from ..api import profile_data
@@ -544,7 +565,32 @@ def _profile_config_payload(config, name, pcfg) -> dict:
     }
 
 
-def _profile_routing_view(config, name) -> dict:
+def _routing_status_safe(config) -> dict:
+    """The router's status, or {} when it cannot be asked.
+
+    A control plane that 500s because the router is unhappy is worse than one that
+    says it does not know — every caller here already has a "not available" state.
+    """
+    try:
+        from ..api.router import routing_status
+        return routing_status(config) or {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _effective_routing_on(status, name):
+    """Is the router on for this profile? None when the router did not say.
+
+    `None` is not `False`: a badge reading "static" because the router could not be
+    reached would be a claim about behaviour, where the truth is that we did not ask.
+    """
+    entry = ((status or {}).get("per_profile") or {}).get(name)
+    if isinstance(entry, dict) and "enabled" in entry:
+        return bool(entry.get("enabled"))
+    return None
+
+
+def _profile_routing_view(config, name, status=None) -> dict:
     """The Routing tab's view: this profile's effective dynamic-routing settings.
 
     The router already computes them and already scopes them per profile
@@ -557,11 +603,17 @@ def _profile_routing_view(config, name) -> dict:
     out = {"available": False, "profile": name, "enabled": None, "policy": "",
            "min_score": None, "rules": [], "has_override": False,
            "tasks": [], "decisions": [], "reason": ""}
-    try:
-        from ..api.router import routing_status
-        status = routing_status(config) or {}
-    except Exception as e:
-        out["reason"] = "%s: %s" % (type(e).__name__, e)
+    if status is None:
+        try:
+            status = _routing_status_safe(config)
+        except Exception as e:  # noqa: BLE001 — the helper already guards; belt and braces
+            status = {}
+        if not status:
+            out["reason"] = "the router did not return a status"
+    if status:
+        pass
+    else:
+        return out
         return out
     per_profile = (status.get("per_profile") or {}).get(name)
     if per_profile is None:
@@ -581,10 +633,19 @@ def _profile_routing_view(config, name) -> dict:
         except (TypeError, ValueError):
             return None
 
+    # `rules` is the list that is *in effect* for this profile — and which list that
+    # is depends on the router's precedence: a per-profile list replaces the shared
+    # one; otherwise the shared list applies. Both are shown, and `rules_scope` says
+    # which it is, because writing back to the wrong scope would either shadow the
+    # shared rules or overwrite rules belonging to other profiles.
     rules = []
+    rules_other_scoped = 0
     for r in (per_profile.get("rules") or []):
         if not isinstance(r, dict):
             continue
+        scope_of_rule = _str(r.get("profile"))
+        if scope_of_rule and scope_of_rule not in ("*", name):
+            rules_other_scoped += 1
         rules.append({k: (_str(v) if not isinstance(v, (int, float, bool)) else v)
                       for k, v in r.items()})
 
@@ -594,6 +655,8 @@ def _profile_routing_view(config, name) -> dict:
         "policy": _str(per_profile.get("policy")),
         "min_score": _num(per_profile.get("min_score")),
         "rules": rules,
+        "rules_scope": "profile" if per_profile.get("has_override") else "shared",
+        "rules_other_scoped": rules_other_scoped,
         "has_override": bool(per_profile.get("has_override")),
         "tasks": [str(t) for t in sorted(
             set((status.get("per_task") or {}).keys())
@@ -610,7 +673,7 @@ def _profile_routing_view(config, name) -> dict:
     return out
 
 
-def _profile_pool_view(config, name) -> dict:
+def _profile_pool_view(config, name, routing_on=None) -> dict:
     """The Models tab's view: the chain, and everything it could be picked from.
 
     The pool *is* the chain — the router scores exactly these `(provider, model)`
@@ -643,6 +706,10 @@ def _profile_pool_view(config, name) -> dict:
             chain.append({"provider": st.get("provider", ""), "model": st.get("model", "")})
     return {"chain": chain, "catalogue": catalogue,
             "providers": [c["provider"] for c in catalogue],
+            # The effective dynamic-routing switch, from the router — not the profile's
+            # declared field. A page that showed the declaration here contradicted the
+            # Routing tab next to it, which reads the router.
+            "routing_on": routing_on,
             "model_count": sum(len(c["models"]) for c in catalogue)}
 
 
@@ -677,11 +744,17 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     # or an agent profile ("homelab-expert-l2"), which owns the artefacts itself.
     agents = profile_data.agent_profiles(list(profiles.keys())) if wanted else {}
     if wanted in profiles:
-        lane, agent, kind = wanted, profile_data.primary_agent_for_lane(wanted, agents), "lane"
+        lane, agent, kind = wanted, profile_data.primary_agent_for_lane(wanted, agents), "profile"
     elif wanted in agents:
         lane, agent, kind = agents[wanted].get("lane", ""), wanted, "agent"
     else:
         lane = agent = kind = ""
+
+    # Ask the router once, here, and hand the answer to every surface on this page
+    # that shows it: the Routing tab, the Models tab's sentence and the hero badge.
+    # Each of them asking separately is how the page came to contradict itself.
+    routing_status_data = _routing_status_safe(config)
+    routing_on = _effective_routing_on(routing_status_data, wanted)
 
     # Which directory the skills, memory and task tree are read from: the agent
     # profile's when the name was a lane, the name itself when it was a profile.
@@ -690,7 +763,7 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     budgets = _profile_budgets(engine)
     if not kind:
         card = None
-    elif kind == "lane":
+    elif kind == "profile":
         # An LCP profile: what the grid shows for it, including whether the mapping
         # to an agent is declared or only derived from the Hermes side.
         pcfg = profiles.get(wanted) or {}
@@ -703,7 +776,8 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
         card = _profile_card(config, wanted, pcfg, budgets, agent=shown,
                              kind="profile" if shown else "lcp_only",
                              mapping_source="declared" if declared else ("suggested" if shown else "none"),
-                             routed_by=profile_data.agents_for_lane(wanted, agents))
+                             routed_by=profile_data.agents_for_lane(wanted, agents),
+                             routing_on=routing_on)
     else:
         # An agent profile directory that is not itself a gateway profile. It owns a
         # skills tree, memory and tasks — but no chain, so the Routing and Models tabs
@@ -769,13 +843,15 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     elif tab == "cron":
         ctx["view"] = _work_cron_view({"profile": artefacts or wanted})
     elif tab == "routing":
-        ctx["routing"] = (_profile_routing_view(config, wanted) if wanted in profiles
+        ctx["routing"] = (_profile_routing_view(config, wanted, status=routing_status_data)
+                          if wanted in profiles
                           else {"available": False, "profile": wanted, "rules": [],
                                 "reason": "this is an agent profile, not a gateway "
                                           "profile, so it has no routing settings of "
                                           "its own"})
     elif tab == "models":
-        ctx["pool"] = (_profile_pool_view(config, wanted) if wanted in profiles
+        ctx["pool"] = (_profile_pool_view(config, wanted, routing_on=routing_on)
+                       if wanted in profiles
                        else {"chain": [], "catalogue": [], "providers": [],
                              "model_count": 0})
     # The API Keys tab fetches /api/keys itself and filters rows against
