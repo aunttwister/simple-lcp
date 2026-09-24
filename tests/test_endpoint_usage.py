@@ -325,11 +325,12 @@ class TestLogsApi:
 # ── Page routes ───────────────────────────────────────────────────────────
 
 class TestPageRoutes:
-    def test_usage_page_redirects_to_activity(self, temp_db):
+    def test_usage_page_serves_its_own_page(self, temp_db):
+        """M2b: Usage left Activity and is a page again — 200, not a redirect."""
         _seed(temp_db)
         h = TestHandler(path="/usage", engine=temp_db)
         h.do_GET()
-        assert _status(h) == 302
+        assert _status(h) == 200
 
     def test_logs_page_redirects_to_activity(self, temp_db):
         _seed(temp_db)

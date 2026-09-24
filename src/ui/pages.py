@@ -38,16 +38,17 @@ def _logs_view(params) -> dict:
 
 
 def render_activity_page(config, engine=None, params=None, headers=None) -> str:
-    """Render the Activity page — overview | usage | logs (M2).
+    """Render the Activity page — overview | logs (M2, two tabs since M2b).
 
     The observability surface in one nav entry. Server-side tabs, the shape the
     logs page already used: only the active tab's section renders, so a tab pays
     for its own queries and ships only its own script. ``view`` selects the log
-    realm inside the logs tab. Alerts are deliberately not here (R10).
+    realm inside the logs tab. Alerts are deliberately not here (R10), and Usage
+    left in M2b — spend and balances are a billing view, not a log.
     """
     from .render import render_page
     params = dict(params or {})
-    tab = _tab(params, ("overview", "usage", "logs"), "overview")
+    tab = _tab(params, ("overview", "logs"), "overview")
     ctx = {"active_page": "activity", "tab": tab, "params": params}
     if tab == "logs":
         ctx["view"] = _logs_view(params)
@@ -64,10 +65,16 @@ def render_providers_page(config, engine=None, params=None) -> str:
 
 
 def render_profiles_page(config, engine=None, params=None) -> str:
-    """Render the Profiles page — the profile surface, with API keys as a tab (M2).
+    """Render the Profiles page — the profile surface (M2, four tabs since M2b).
 
-    One nav entry for everything profile-scoped: the profiles themselves, and the
-    API keys that are scoped to them (R9).
+    One nav entry for everything profile-scoped: the profiles themselves, the API
+    keys that call them (R9), the cron jobs they run, and the work-layer paths they
+    read. Cron and Config were nav entries of their own; both describe a profile, so
+    both moved in here.
+
+    ``?profile=`` filters the Cron tab to one profile — the jobs already belong to a
+    profile, so the tab is a cross-profile view by default and a single profile's
+    jobs when asked.
     """
     from .render import render_page
     # Include profile budget data
@@ -85,11 +92,15 @@ def render_profiles_page(config, engine=None, params=None) -> str:
                     }
         except Exception:
             pass
-    return render_page("pages/profiles.html", config, engine,
-                       active_page="profiles",
-                       tab=_tab(params, ("profiles", "keys"), "profiles"),
-                       params=dict(params or {}),
-                       profile_budgets=profile_budgets)
+    params = dict(params or {})
+    tab = _tab(params, ("profiles", "keys", "cron", "config"), "profiles")
+    ctx = {"active_page": "profiles", "tab": tab, "params": params,
+           "profile_budgets": profile_budgets}
+    if tab == "cron":
+        ctx["view"] = _work_cron_view(params)
+    elif tab == "config":
+        ctx["view"] = _work_config_view()
+    return render_page("pages/profiles.html", config, engine, **ctx)
 
 
 def render_keys_page(config, engine, params=None) -> str:
@@ -98,8 +109,17 @@ def render_keys_page(config, engine, params=None) -> str:
 
 
 def render_usage_page(config, engine=None, params=None) -> str:
-    """Legacy /usage — now the Usage tab of Activity (M2)."""
-    return render_activity_page(config, engine, {"tab": "usage"})
+    """Render the Usage page (M2b) — spend and balances, outside Activity.
+
+    A billing view rather than a log: what each provider cost, what is left on the
+    balances, and the state of the scrape cache behind those numbers. The section is
+    the same partial Activity used as its Usage tab, so ``tab="usage"`` is what the
+    guard inside it matches.
+    """
+    from .render import render_page
+    return render_page("pages/usage.html", config, engine,
+                       active_page="usage", tab="usage",
+                       params=dict(params or {}))
 
 
 def render_logs_page(config, engine=None, params=None) -> str:
@@ -218,12 +238,18 @@ def render_work_fleet_page(config, engine=None) -> str:
                        active_page="work_fleet", view=view)
 
 
-def render_work_cron_page(config, engine=None) -> str:
-    from .render import render_page
+def _work_cron_view(params=None) -> dict:
+    """The Cron tab's data: the host snapshot, recent ops, and the resolved sources.
+
+    The LCP container cannot read ``/root/.hermes/profiles``, so everything here
+    comes from the snapshot and op spool the host-side timer writes. ``?profile=``
+    narrows the profile list to one — the jobs already belong to a profile, so the
+    tab is a cross-profile view by default and a single profile's jobs when asked.
+    """
     from ..api import work_cron
     try:
         view = work_cron.cron_view()
-    except Exception as e:  # never blank the page on a data error
+    except Exception as e:  # never blank the tab on a data error
         view = {
             "available": False,
             "hint": "cron view failed: %s: %s" % (type(e).__name__, e),
@@ -244,26 +270,41 @@ def render_work_cron_page(config, engine=None) -> str:
         view["sources"] = work_sources.resolved_view()
     except Exception:
         view["sources"] = None
-    return render_page("pages/work_cron.html", config, engine,
-                       active_page="work_cron", view=view)
+    wanted = str((params or {}).get("profile") or "").strip().lower()
+    if wanted and isinstance(view.get("profiles"), list):
+        kept = [p for p in view["profiles"]
+                if str(p.get("profile", "")).lower() == wanted]
+        view["profiles"] = kept
+        view["profile_filter"] = wanted
+    return view
 
 
-def render_work_config_page(config, engine=None) -> str:
-    """Render the Work > Config page (Jinja2).
+def _work_config_view() -> dict:
+    """The Config tab's data: every path the work layer reads, per profile.
 
-    The Work Configuration page owns every source path the work layer reads
-    (profiles directory, task trees, cron stores, the op spool). The payload
-    is the resolved sources view; saving happens through PUT /api/work/sources
-    and the host-side collector/executor pick the file up on their ticks.
+    ``work-sources.json`` already carries a per-profile section (``tasks_root`` and
+    ``cron_store`` overrides on top of the host defaults), so this view is the
+    per-profile config — the page edits it, the host-side collector picks it up.
     """
-    from .render import render_page
     from ..api import work_sources
     try:
-        sources = work_sources.resolved_view()
-    except Exception as e:
-        sources = None
-    return render_page("pages/work_config.html", config, engine,
-                       active_page="work_config", view={"sources": sources})
+        return {"sources": work_sources.resolved_view()}
+    except Exception:
+        return {"sources": None}
+
+
+def render_work_cron_page(config, engine=None, params=None) -> str:
+    """Legacy /work/cron — now the Cron tab of Profiles (M2b)."""
+    p = dict(params or {})
+    p["tab"] = "cron"
+    return render_profiles_page(config, engine, p)
+
+
+def render_work_config_page(config, engine=None, params=None) -> str:
+    """Legacy /work/config — now the Config tab of Profiles (M2b)."""
+    p = dict(params or {})
+    p["tab"] = "config"
+    return render_profiles_page(config, engine, p)
 
 
 def render_work_conversations_page(config, engine=None, params=None) -> str:

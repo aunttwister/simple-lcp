@@ -109,15 +109,19 @@ def _compute_monthly(engine) -> dict:
     return monthly
 
 
-# ── M2: legacy page names fold into the merged pages ─────────────────────────
-# The pre-merge pages (dashboard / usage / logs / providers / keys) were folded
-# into the five control-plane pages and their templates are gone. A caller that
-# still names one — an older test, a stale render helper — resolves to the merged
-# page with the tab that now owns that content, instead of TemplateNotFound.
-# name -> (merged template, tab, any context the section needs to render)
+# ── M2/M2b: legacy page names fold into the pages that absorbed them ─────────
+# The pre-merge pages (dashboard / logs / providers / keys) were folded into the
+# control-plane pages and their templates are gone. A caller that still names one
+# — an older test, a stale render helper — resolves to the page with the tab that
+# now owns that content, instead of TemplateNotFound.
+#
+# ``pages/usage.html`` is NOT in this table: M2b gave Usage its own page again, so
+# the name maps to a real template and must not be rewritten (an alias here sends
+# it to Activity, whose allowed tabs no longer include "usage" — the page then
+# silently renders the overview instead of Usage).
+# name -> (owning template, tab, any context the section needs to render)
 _LEGACY_PAGE_TABS = {
     "pages/dashboard.html": ("pages/activity.html", "overview", {}),
-    "pages/usage.html": ("pages/activity.html", "usage", {}),
     "pages/logs.html": ("pages/activity.html", "logs",
                         {"view": {"tab": "conversations"}, "params": {}}),
     "pages/providers.html": ("pages/models.html", "providers", {}),

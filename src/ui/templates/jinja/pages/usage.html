@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Usage — LCP{% endblock %}
+
+{#
+  M2b — Usage is its own page again, outside Activity.
+
+  Activity answers "what happened" (cost/token overview + log realms). Usage is a
+  billing view: spend per provider, balances, credits, and the scrape cache that
+  fills them. It was a tab of Activity for one revision; it reads as its own thing.
+
+  The section is the same partial Activity used, guarded by `tab == 'usage'`, so
+  the page passes tab="usage" and nothing else changes.
+#}
+
+{% block head_extra %}
+{% include "sections/sec_usage_head.html" %}
+{% endblock %}
+
+{% block content %}
+<h1>Usage</h1>
+<p class="subtitle">
+  What each provider has cost, what is left on the balances, and when the cache
+  behind those numbers was last refreshed.
+</p>
+
+{% include "sections/sec_usage.html" %}
+{% endblock %}
+
+{% block scripts %}
+{% include "sections/sec_usage_script.html" %}
+{% endblock %}

@@ -310,54 +310,6 @@ def runboard_step(engine=None) -> dict:
     }
 
 
-def workspace_step(engine=None) -> dict:
-    """Build the WORKSPACE module manifest entry.
-
-    workspace is the work bench: Decisions, Tasks, Categories, Fleet. It is
-    deliberately a SEPARATE module from runboard, which is the instrument panel.
-
-        runboard   -> "how is it going?"     (metrics, graphs, board)
-        workspace  -> "what needs doing?"    (the human work surfaces)
-
-    They are split because their failure modes are opposite. runboard is an
-    instrument: remove it and you lose visibility, nothing else. workspace is a
-    view of work, and must survive runboard being absent -- the tasks and the
-    decisions still exist whether or not anything is graphing them.
-
-    ``installed`` is not a directory check like the other modules, because
-    workspace has no venv and no weights: it reads filesystems and one SQLite
-    file. Its real precondition is that its read-only sources are REACHABLE, so
-    that is what it probes. A module whose install check cannot fail is not
-    checking anything.
-    """
-    from .workspace import workspace_status
-
-    status = workspace_status()
-    return {
-        "kind": "module",
-        "name": "workspace",
-        "title": "Workspace (work surfaces)",
-        "description": (
-            "The work bench: Decisions, Tasks, Categories and Fleet. Reads "
-            "read-only sources -- the runboard decisions ledger, the task tree, "
-            "and profile session DBs -- and reports honestly when one is "
-            "missing rather than rendering an empty table. Degrades per-view: a "
-            "missing optional source disables that view, not the module."
-        ),
-        "required": False,
-        "installed": bool(status.get("available")),
-        "baked": False,
-        "blocked_reason": None,
-        "status": status,
-        "install_path": None,
-        # No venv, no weights -- the sources ARE the dependency.
-        "sources": status.get("sources"),
-        "views_live": status.get("views_live"),
-        "views_degraded": status.get("views_degraded"),
-        "installing": None,
-    }
-
-
 def manifest(config, engine=None) -> dict:
     """Return the full setup manifest (provider steps + benchmark + modules)."""
     return {
@@ -366,7 +318,10 @@ def manifest(config, engine=None) -> dict:
             router_step(engine),
             memory_step(),
             runboard_step(engine),
-            workspace_step(engine),
+            # The workspace module was retired in M2b: the work surfaces (Tasks,
+            # Fleet) are always available, so there was nothing left for an
+            # install/uninstall pair to gate. Its paths are configured per profile
+            # on the Profiles > Config tab.
         ],
     }
 
@@ -836,35 +791,6 @@ def remove_runboard(engine) -> dict:
     set_state(engine, "module:runboard", "removed")
     logger.info("setup_runboard_removed", removed=removed)
     return {"removed": True, "module": "runboard", "paths": removed}
-
-
-def remove_workspace(engine) -> dict:
-    """Disable the workspace module and clear setup state.
-
-    Unlike every other module, workspace has NO runtime to uninstall: no venv,
-    no weights, no pip target. Its dependency is the reachability of its
-    read-only sources, which LCP does not own -- the task tree belongs to the
-    agent profile and the ledger to the runboard collector.
-
-    So removal DISABLES the module rather than deleting anything. That is the
-    honest behaviour: there is nothing here we are entitled to delete, and
-    telling the admin "removed" while wiping someone else's data would be worse
-    than doing nothing. It reports explicitly that no paths were touched, so the
-    difference between "disabled" and "uninstalled" is visible rather than
-    implied.
-    """
-    set_state(engine, "module:workspace", "removed")
-    logger.info("setup_workspace_removed", removed=[])
-    return {
-        "removed": True,
-        "module": "workspace",
-        "paths": [],
-        "note": (
-            "Disabled. workspace has no runtime to uninstall -- it stores "
-            "nothing and owns no dependencies. Its read-only sources (task "
-            "tree, decisions ledger, session DBs) were left untouched."
-        ),
-    }
 
 
 # ── Semantic routing module install (background + progress) ─────────────────

@@ -2412,8 +2412,9 @@ class UsageEndpoints:
             self._send_json({"error": str(e)}, 500)
 
     def _serve_usage_page(self):
-        """Legacy /usage — now the Usage tab of Activity (M2)."""
-        self._redirect("/activity?tab=usage")
+        """Server-rendered Usage page (M2b) — spend and balances, outside Activity."""
+        from ..ui.pages import render_usage_page
+        self._send_html(render_usage_page(self.config, self.engine, self._qs()))
 
 
 # ── Dashboard / Page Endpoints ───────────────────────────────────────────────
@@ -2463,7 +2464,7 @@ class DashboardEndpoints:
         return {"Host": host, "X-Forwarded-Proto": scheme}
 
     def _serve_activity_page(self):
-        """Server-rendered Activity page (?tab=overview|usage|logs[&view=...])."""
+        """Server-rendered Activity page (?tab=overview|logs[&view=...])."""
         from ..ui.pages import render_activity_page
         self._send_html(render_activity_page(self.config, self.engine,
                                              self._qs(), self._host_headers()))
@@ -2957,7 +2958,7 @@ class DashboardEndpoints:
         self._redirect("/models?tab=providers")
 
     def _serve_profiles_page(self):
-        """Server-rendered Profiles page (?tab=profiles|keys) — M2."""
+        """Server-rendered Profiles page (?tab=profiles|keys|cron|config) — M2/M2b."""
         from ..ui.pages import render_profiles_page
         self._send_html(render_profiles_page(self.config, self.engine, self._qs()))
 
@@ -3229,8 +3230,6 @@ class SetupEndpoints:
                 result = setup_mod.remove_memory(self.engine)
             elif kind == "module" and name == "runboard":
                 result = setup_mod.remove_runboard(self.engine)
-            elif kind == "module" and name == "workspace":
-                result = setup_mod.remove_workspace(self.engine)
             else:
                 self._send_json({"error": f"unknown remove target: {kind}/{name}"}, 404)
                 return
@@ -3346,22 +3345,16 @@ class WorkEndpoints:
             self._send_json({"error": str(e)}, 500)
 
     def _serve_work_cron_page(self):
-        """Server-rendered Work > Cron page."""
-        from ..ui.pages import render_work_cron_page
-        html = render_work_cron_page(self.config, self.engine)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+        """Legacy /work/cron — redirects to the Cron tab of Profiles (M2b)."""
+        target = "/profiles?tab=cron"
+        profile = (self._qs() or {}).get("profile")
+        if profile:
+            target += "&profile=" + str(profile)
+        self._redirect(target)
 
     def _serve_work_config_page(self):
-        """Server-rendered Work > Config page."""
-        from ..ui.pages import render_work_config_page
-        html = render_work_config_page(self.config, self.engine)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+        """Legacy /work/config — redirects to the Config tab of Profiles (M2b)."""
+        self._redirect("/profiles?tab=config")
 
     def _serve_work_cron_api(self):
         """GET /api/work/cron — the Cron view as JSON."""
@@ -3488,7 +3481,7 @@ class WorkEndpoints:
             self._send_json({"error": str(e)}, 500)
 
     def _serve_work_status_api(self):
-        """GET /api/work/status — the workspace MODULE's own health.
+        """GET /api/work/status — the work layer's own health.
 
         Distinct from a view's payload: this reports which read-only sources are
         reachable and therefore which views can render. It exists so a missing

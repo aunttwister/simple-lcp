@@ -1,12 +1,15 @@
 {% extends "base.html" %}
-{% block title %}{% if tab == 'usage' %}Usage — LCP{% elif tab == 'logs' %}Logs — LCP{% else %}Activity{% if profile_filter %} ({{ profile_filter | upper }}){% endif %} — LCP{% endif %}{% endblock %}
+{% block title %}{% if tab == 'logs' %}Logs — LCP{% else %}Activity{% if profile_filter %} ({{ profile_filter | upper }}){% endif %} — LCP{% endif %}{% endblock %}
 
 {#
-  M2 — the observability surface.
+  M2 / M2b — the observability surface.
 
   Everything that describes what happened, in one nav entry: the cost/token overview
-  (the old dashboard), Usage & Spending, and every log realm (conversations, raw
-  requests, provider routing decisions, board decisions) as sub-tabs of Logs.
+  (the old dashboard) and every log realm (conversations, raw requests, provider
+  routing decisions, board decisions) as sub-tabs of Logs.
+
+  Usage left this page (M2b): spend and balances are a billing view, not a log, and
+  they now have their own nav entry.
 
   Alerts deliberately does NOT live here: alerts are things to act on, not to read
   (R10). Each section lives in sections/sec_*.html and renders only when its
@@ -15,28 +18,24 @@
 
 {% block head_extra %}
 {% include "sections/sec_dashboard_head.html" %}
-{% include "sections/sec_usage_head.html" %}
 {% endblock %}
 
 {% block content %}
 <h1>Activity{% if profile_filter %} — {{ profile_filter | upper }}{% endif %}</h1>
 <p class="subtitle">
-  What the gateway did: cost and tokens, spend per provider, and every log realm.
+  What the gateway did: cost and tokens, and every log realm.
 </p>
 
 <div class="page-tabs">
   <a class="tab-btn{% if tab == 'overview' %} active{% endif %}" href="/activity">Overview</a>
-  <a class="tab-btn{% if tab == 'usage' %} active{% endif %}" href="/activity?tab=usage">Usage</a>
   <a class="tab-btn{% if tab == 'logs' %} active{% endif %}" href="/activity?tab=logs">Logs</a>
 </div>
 
 {% include "sections/sec_dashboard.html" %}
-{% include "sections/sec_usage.html" %}
 {% include "sections/sec_logs.html" %}
 {% endblock %}
 
 {% block scripts %}
 {% include "sections/sec_dashboard_script.html" %}
-{% include "sections/sec_usage_script.html" %}
 {% include "sections/sec_logs_script.html" %}
 {% endblock %}

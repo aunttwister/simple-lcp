@@ -1,48 +1,36 @@
 {#
-  M2 — profile-first navigation: five control-plane entries instead of nine.
+  M2b — flat navigation. No group labels: every entry is a page, and the two
+  groups ("Work" / "Gateway") only made the reader classify before clicking.
 
-  Profiles   — the profile surface (profiles + the API keys scoped to them)
+  Profiles   — the profile surface: the profiles themselves, the API keys scoped
+               to them, the cron jobs that belong to them, and the work-layer
+               paths they read. First, because the profile is the unit every
+               other page is scoped to.
   Models     — the capability matrix + where those models come from
-  Activity   — everything that happened: overview, usage, all log realms
-  Alerts     — things to act on (kept separate: R10 — alerts and budgets are
-               defined per subject and belong on their own page)
+  Activity   — what happened: the cost/token overview and every log realm
+  Usage      — spend per provider, balances, and the scrape cache (its own page:
+               it is a billing view, not a log)
+  Alerts     — things to act on (R10: alerts and budgets are per subject)
   Setup      — install wizard and module config
+  Tasks      — the work module's task tree
+  Fleet      — the work module's machines
 
-  Work is a module with its own four entries. The usage cache refresh + provider
-  credit submenu ride on the Activity entry, since Usage is a tab of Activity now.
-
-  The element ids (sbUsageRefreshBtn, usageChevron, usageSubmenu) are unchanged:
-  static/js/sidebar.js wires the submenu by id, and dashboard.css styles
-  `.sb-usage-nav > a`, so both keep working.
+  The provider-credit submenu and the usage-cache refresh button lived on the
+  Activity entry; both are gone. Usage carries its own refresh controls, so no
+  capability is lost — only the duplicate shortcut.
 #}
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
     <span>LCP</span>
   </div>
   <nav class="sidebar-nav">
-    <div class="nav-label">Work</div>
-    <a href="/work/tasks"{% if active_page == 'work_tasks' %} class="active"{% endif %}>Tasks</a>
-    <a href="/work/fleet"{% if active_page == 'work_fleet' %} class="active"{% endif %}>Fleet</a>
-    <a href="/work/cron"{% if active_page == 'work_cron' %} class="active"{% endif %}>Cron</a>
-    <a href="/work/config"{% if active_page == 'work_config' %} class="active"{% endif %}>Config</a>
-
-    <div class="nav-label">Gateway</div>
     <a href="/profiles"{% if active_page == 'profiles' %} class="active"{% endif %}>Profiles</a>
     <a href="/models"{% if active_page == 'models' %} class="active"{% endif %}>Models</a>
-    <div class="sb-usage-nav" id="usageNav">
-      <a href="/activity"{% if active_page == 'activity' %} class="active"{% endif %}>
-        Activity
-        <span class="sb-usage-refresh" id="sbUsageRefreshBtn" role="button" tabindex="0"
-          onclick="event.preventDefault();event.stopPropagation();sbUsageRefresh(event)"
-          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();sbUsageRefresh(event)}"
-          title="Refresh cached provider data" aria-label="Refresh usage cache" aria-live="polite">
-          <span class="sb-usage-refresh-icon" aria-hidden="true">↻</span>
-        </span>
-        <span class="sb-usage-chev" id="usageChevron" onclick="event.preventDefault();event.stopPropagation();toggleUsageSubmenu()" title="Toggle provider details"><i aria-hidden="true"></i></span>
-      </a>
-      <div class="sb-usage-submenu" id="usageSubmenu"></div>
-    </div>
+    <a href="/activity"{% if active_page == 'activity' %} class="active"{% endif %}>Activity</a>
+    <a href="/usage"{% if active_page == 'usage' %} class="active"{% endif %}>Usage</a>
     <a href="/alerts"{% if active_page == 'alerts' %} class="active"{% endif %}>Alerts <span id="sidebarAlertBadge" class="sb-alert-badge" style="display:none">0</span></a>
     <a href="/setup"{% if active_page == 'setup' %} class="active"{% endif %}>Setup</a>
+    <a href="/work/tasks"{% if active_page == 'work_tasks' %} class="active"{% endif %}>Tasks</a>
+    <a href="/work/fleet"{% if active_page == 'work_fleet' %} class="active"{% endif %}>Fleet</a>
   </nav>
 </aside>

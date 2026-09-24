@@ -733,11 +733,27 @@ class TestStaticEndpoints:
         h.do_GET()
         assert _status(h) == 200
 
-    def test_page_usage_redirects(self, temp_db):
+    def test_page_usage_serves_its_own_page(self, temp_db):
+        """M2b: Usage is its own page again, outside Activity."""
         h = TestHandler(path="/usage", engine=temp_db)
         h.do_GET()
+        assert _status(h) == 200
+        assert _header(h, "Content-Type").startswith("text/html")
+
+    def test_legacy_work_pages_redirect_into_profiles(self, temp_db):
+        """Cron and Config stopped being pages: their URLs land on the Profiles tabs."""
+        for path, loc in (("/work/cron", "/profiles?tab=cron"),
+                          ("/work/config", "/profiles?tab=config")):
+            h = TestHandler(path=path, engine=temp_db)
+            h.do_GET()
+            assert _status(h) == 302, path
+            assert _header(h, "Location") == loc, path
+
+    def test_legacy_cron_url_keeps_the_profile_filter(self, temp_db):
+        h = TestHandler(path="/work/cron?profile=l2", engine=temp_db)
+        h.do_GET()
         assert _status(h) == 302
-        assert _header(h, "Location") == "/activity?tab=usage"
+        assert _header(h, "Location") == "/profiles?tab=cron&profile=l2"
 
     def test_page_logs_redirects_and_keeps_the_realm(self, temp_db):
         """A bookmarked realm survives the merge: ?view= rides along."""

@@ -673,6 +673,17 @@ class TestSetupEndpointsExtra:
         h.do_DELETE()
         assert _status(h) == 404
 
+    def test_setup_remove_retired_workspace_module(self, temp_db):
+        """M2b retired the workspace module, so its uninstall target is gone too.
+
+        The work surfaces (Tasks, Fleet) are always available, so there is nothing
+        left for an install/uninstall pair to gate — and a route that still answered
+        would imply otherwise.
+        """
+        h = TestHandler(path="/api/setup/remove/module/workspace", method="DELETE", engine=temp_db)
+        h.do_DELETE()
+        assert _status(h) == 404
+
     def test_setup_install_provider(self, temp_db):
         from unittest.mock import patch as _patch
         store = MagicMock()
