@@ -36,6 +36,7 @@ branches, same tag. The only thing missing is GitHub's fork-network relation.
 - [Alerts and budgets by subject (R10)](#alerts-and-budgets-by-subject-r10)
 - [A profile document (R2/R3/R4)](#a-profile-document-r2r3r4)
 - [UI target (R8)](#ui-target-r8)
+- [Profile model review — amendments, 2026-09-24](#profile-model-review--amendments-2026-09-24)
 - [Removals (R1/R9/R13)](#removals-r1r9r13)
 - [Parked decisions](#parked-decisions)
 - [Not established](#not-established)
@@ -345,6 +346,66 @@ The work is **join + render + the two data fixes**, not new instrumentation.
 | `naptune-admin`, `career` profiles | 19 requests ever, between them |
 
 ---
+
+## Profile model review — amendments, 2026-09-24
+
+The profile page was built and reviewed on staging (cards, a level-3 page per profile, breadcrumbs).
+Five things came back from that review. Each is recorded here in the order it was asked for, with
+what already exists behind it.
+
+**1. Map LCP profiles to Hermes profiles from CONFIG, and stop listing the same thing twice.**
+The grid shows both sides of the lane/profile link — 6 lanes and 8 agent profiles, 14 cards — and it
+*infers* the link: the profile whose name ends in the lane, falling back to scanning each Hermes
+profile's `config.yaml` for the gateway URL. Inference was the best available while the mapping was
+nowhere written down, but it is not a mapping. An explicit **`agent_profile`** field on the LCP
+profile replaces it, and the grid then groups by what a profile is instead of listing every name.
+
+**2. A profile does not have to be a Hermes profile.** `cron` and `coder` were created in LCP and
+have no Hermes directory behind them; they route, they hold API keys, they have their own chains.
+Having no skills, memory or task tree is a property of that kind of profile, not a gap — the UI
+stops framing it as missing.
+
+**3. Per-profile configuration, sent on initialization.** Both readings are wanted: the profile's
+config travels inside the page's init payload so the detail page initialises with it rather than
+each tab fetching it; and the gateway hydrates the per-profile routing configuration at container
+start, the way `providers`, `pricing` and `model_limits` already do. One consequence to keep in
+mind: that path has no hot reload, so a routing-config change needs a restart.
+
+**4. Intents per profile, and the dynamic-router toggle — both already exist in the router; neither
+is surfaced where a profile is.** This is the substantive finding of the review, so it is worth
+being exact:
+
+- The intent machinery is already here and is **not** something to rebuild. `src/api/router.py`
+  walks the conversation for the newest *genuine* user instruction (`_extract_intent_text`, which
+  skips tool-result echoes and client-context wrappers), and the semantic classifier
+  (`task_classifier.py`, bge-small-en-v1.5 centroids) turns that text into a **task** — this is the
+  "semantic embedded decision making for what's the intent of a message" from the memo.
+  `CapabilityRouter` then scores every `(provider, model)` step of the profile's chain by its
+  benchmarked capability for that task, a cost bias, circuit-breaker health and the active rules.
+- The per-profile toggle also already exists, as the setting **`routing_enabled:<profile>`**,
+  alongside `routing_policy:<profile>`, `routing_min_score:<profile>` and `routing_rules:<profile>`.
+  They are served by `/api/routing/status`, `/api/routing/policy` and `/api/routing/rules`, and
+  rendered in **Models → Providers**. Live on staging there are already three per-profile rules
+  stored (`coder` prefers `deepseek-v4-flash` for `planning`, `unit_tests`, `code_generation`).
+- What is genuinely missing is the memo's own requirement: a profile's **available intents** must
+  narrow the decision — *"based on the profile, the dynamic router … is going to also take into the
+  account the available intents of a certain profile, so it can be more precise"*. Today the
+  classifier is profile-blind: it classifies a message identically no matter which profile is being
+  routed. So `intents` becomes a real profile field and the router intersects the classifier's
+  scores with it.
+- And both controls currently live on a page about **providers**. They belong on the profile, beside
+  the chain they act on.
+
+**5. The pool is the chain.** The memo says to "define a pool of models slash providers", and the
+router already scores exactly that pool: every `(provider, model)` step in the profile's `chain`.
+So the pool does **not** get a second field that could drift out of sync with the chain — it gets a
+picker. Today the chain is edited as an ordered list of pairs; it becomes a selection from every
+registered provider and model (`/api/providers` returns each provider's `models[]` and whether its
+key is present), with the order still meaningful, because it is the static fallback order.
+
+**Still open from the plan:** the deterministic router (R6) and balance-aware ranking (R12) remain
+M4 and M5; this section changes where the controls live and adds the per-profile intent input, not
+the ranking algorithm.
 
 ## Parked decisions
 
