@@ -322,6 +322,28 @@ def validate_profile_fields(name: str, prof: dict) -> dict:
             cleaned.append(it)
     out["intents"] = cleaned
 
+    # L2's margin gate. When the classifier's top two intents sit closer together
+    # than this, the decision is a coin flip, so the router does not reorder at all
+    # and the static chain head stands — the plan's "delete the decisions that are
+    # coin flips". 0.0 is what an absent field means and it keeps today's behaviour
+    # exactly: every winner reorders, byte for byte.
+    gate = prof.get("intent_margin_gate", 0.0)
+    if gate is None:
+        gate = 0.0
+    # bool is an int subclass, so `isinstance(True, int)` is True — refuse it
+    # explicitly, or `True` would silently mean a gate of 1.0 (never reorder).
+    if isinstance(gate, bool) or not isinstance(gate, (int, float)):
+        raise ConfigError(
+            f"Profile '{name}': 'intent_margin_gate' must be a number between 0 and 1"
+        )
+    gate = float(gate)
+    if gate != gate or not 0.0 <= gate <= 1.0:  # gate != gate catches NaN
+        raise ConfigError(
+            f"Profile '{name}': 'intent_margin_gate' must be between 0 and 1 "
+            f"(0 disables the gate)"
+        )
+    out["intent_margin_gate"] = gate
+
     desc = prof.get("description", "")
     if desc is None:
         desc = ""

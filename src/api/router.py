@@ -1414,6 +1414,39 @@ class CapabilityRouter:
             return replace(detail, task=scored[0][0], path="intent_narrowed")
         return replace(detail, task=intents[0], path="intent_declared")
 
+    def _intent_margin_gate(self, config: Any, profile: Optional[str]) -> float:
+        """The profile's L2 gate, or 0.0 when it declares none.
+
+        0.0 is the off switch and the absent-field default, so a profile that says
+        nothing about margins is routed exactly as it was before the gate existed.
+        Tolerant of a duck-typed config, like `_profile_intents`: routing must never
+        break on a config shape.
+        """
+        if not profile or config is None:
+            return 0.0
+        try:
+            from .config import validate_profile_fields
+            pcfg = (config.profiles or {}).get(profile) or {}
+            return float(validate_profile_fields(profile, pcfg).get(
+                "intent_margin_gate") or 0.0)
+        except Exception:  # noqa: BLE001 — a bad gate must not stop a request
+            return 0.0
+
+    @staticmethod
+    def _intent_margin(detail: "ClassifyResult"):
+        """(top1 - top2, top1_task, top2_task) from the classifier's own top-N.
+
+        ``None`` when there is no margin to speak of — fewer than two tasks scored,
+        or the classification did not come from the semantic classifier at all. A lone
+        candidate is not a coin flip, and a keyword/token path has no score to weigh,
+        so neither is gated.
+        """
+        scored = [(t, float(s)) for t, s in (detail.semantic or [])
+                  if isinstance(s, (int, float))]
+        if len(scored) < 2:
+            return None, None, None
+        return scored[0][1] - scored[1][1], scored[0][0], scored[1][0]
+
     def select_step(self, messages: list[dict], tools: Optional[list[dict]] = None,
                     max_tokens: int = 1024, chain: Optional[list[dict]] = None,
                     profile: Optional[str] = None, config: Optional[object] = None,
@@ -1533,6 +1566,34 @@ class CapabilityRouter:
         #    excluded, so the router picks the next-best model that FITS rather
         #    than sending an oversized request to a too-small context.
         if target_model is None:
+            # L2 — the margin gate. The plan's layer order puts explicit rules (L1)
+            # above this, so it only runs when no prefer mandate fired: a rule is a
+            # deliberate pin and does not get second-guessed by a coin flip. When the
+            # classifier's top two intents are closer than the gate, there is no
+            # decision to make, so none is made — the static chain head stands and the
+            # request is not reordered. Recorded with the margin so the non-decision is
+            # replayable and the gate can be tuned from the log.
+            gate = self._intent_margin_gate(config, profile)
+            if gate > 0.0:
+                margin, top1, top2 = self._intent_margin(detail)
+                if margin is not None and margin < gate:
+                    # Only persisted columns are set here — score carries the margin and
+                    # semantic_json already carries the full top-N it came from, so the
+                    # non-decision is replayable from the row alone. The gate itself has
+                    # no column, so it goes in the note, appended to the rules audit
+                    # rather than replacing it: the note is how the gate gets tuned.
+                    gate_note = (f"margin {margin:.3f} < gate {gate:g} "
+                                 f"({top1} vs {top2}): not reordered")
+                    self._record_decision({
+                        **self._decision_base(detail, messages, profile or "",
+                                              policy, note, fired_desc),
+                        "action": "margin_gate", "model": chain[0]["model"],
+                        "provider": chain[0]["provider"],
+                        "score": round(margin, 3),
+                        "note": f"{note}; {gate_note}" if note else gate_note,
+                    })
+                    return None
+
             default_logical = logical_model_name(chain[0]["model"], self.db_path)
             candidates = self._candidate_models(
                 chain, blocked_models, config, request_tokens)

@@ -1450,6 +1450,9 @@ class ProfileEndpoints:
                 "agent_profile": declared,
                 "routing": fields["routing"],
                 "intents": fields["intents"],
+                # M3: L2's margin gate. 0.0 means off, which is what an absent
+                # field means — the modal shows the value it would store.
+                "intent_margin_gate": fields["intent_margin_gate"],
                 # Who else sends traffic here (read from the Hermes side). The
                 # declared agent is whose artefacts the profile presents; these are
                 # the other callers, which is information, not a defect.
@@ -1577,14 +1580,15 @@ class ProfileEndpoints:
                 self._send_json({"error": "description must be a string"}, 400)
                 return
             pcfg["description"] = desc.strip()[:120]
-        # M2d fields: agent_profile / routing / intents. Validated through the same
-        # contract the config loader uses, so a stored value is always a loadable one
-        # (a value the loader would reject makes the whole profiles section fall back
-        # to the seed, which would be silent and severe).
-        if any(k in body for k in ("agent_profile", "routing", "intents")):
+        # M2d/M3 fields: agent_profile / routing / intents / intent_margin_gate.
+        # Validated through the same contract the config loader uses, so a stored value
+        # is always a loadable one (a value the loader would reject makes the whole
+        # profiles section fall back to the seed, which would be silent and severe).
+        _FIELDS = ("agent_profile", "routing", "intents", "intent_margin_gate")
+        if any(k in body for k in _FIELDS):
             from ..api.config import validate_profile_fields, ConfigError
             candidate = dict(pcfg)
-            for key in ("agent_profile", "routing", "intents"):
+            for key in _FIELDS:
                 if key in body:
                     candidate[key] = body[key]
             try:
@@ -1592,7 +1596,7 @@ class ProfileEndpoints:
             except ConfigError as exc:
                 self._send_json({"error": str(exc)}, 400)
                 return
-            for key in ("agent_profile", "routing", "intents"):
+            for key in _FIELDS:
                 pcfg[key] = fields[key]
         cfg.save()
         self._send_json({"ok": True, "profile": name})
