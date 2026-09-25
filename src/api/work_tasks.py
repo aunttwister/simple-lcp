@@ -540,17 +540,15 @@ def tasks_view(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     cls_idx = _classification_index()
 
     if not moments:
-        return {
-            "available": os.path.isdir(root),
-            "empty": {
-                "reason": "no task directories found at %s" % root,
-                "hint": "Set LCP_WORK_TASKS_DIR to the profile's work/tasks tree.",
-            },
-            "counts": {s: 0 for s in STATES},
-            "total": 0,
-            "tasks": [],
-            "todos": None,
-        }
+        # A present-but-empty tree is a normal state, not an error, and it must still
+        # carry the shape the template reads. This branch used to omit `filter`, so
+        # the Tasks page 500'd on `view.filter.states_options` whenever the tree
+        # existed but held no tasks (found 2026-09-25 reproducing a red CI run).
+        view = empty_tasks_view(
+            "no task directories found at %s" % root,
+            "Set LCP_WORK_TASKS_DIR to the profile's work/tasks tree.")
+        view["available"] = os.path.isdir(root)
+        return view
 
     # ── filter + pagination params ──
     params = params or {}
@@ -639,6 +637,51 @@ def tasks_view(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             "pages": pages,
             "total_filtered": total_filtered,
         },
+    }
+
+
+def empty_tasks_view(reason: str, hint: str = "") -> Dict[str, Any]:
+    """The shape ``tasks_view`` promises, with nothing in it.
+
+    The pages layer renders this when a read fails, so it has to satisfy the whole
+    contract the template expects. A *leaf* key the template never dereferences can
+    be left out; a missing *parent* cannot — ``sec_ptasks.html`` reads
+    ``view.filter.states_options``, and an attribute lookup on an undefined value is
+    the one thing Jinja raises on. That is how the "never blank the page on a data
+    error" guard turned a handled read error into a 500 whenever the task tree was
+    present but empty (found 2026-09-25 while reproducing a red CI run: the guard
+    did not cover the shape it was guarding).
+
+    One shape, two callers — the failure path here and the pages-layer fallback —
+    so the two cannot drift apart again.
+    """
+    return {
+        "available": False,
+        "empty": {"reason": reason or "could not read the task tree", "hint": hint},
+        # tasks tab
+        "counts": {s: 0 for s in STATES},
+        "total": 0,
+        "classified": 0,
+        "by_label": {},
+        "labels_meta": {},
+        "conflicts": [],
+        "tasks": [],
+        "todos": None,
+        "filter": {
+            "states": list(STATES),
+            "states_options": list(STATES),
+            "q": "",
+            "tag": "",
+            "per": 20,
+            "page": 1,
+            "pages": 1,
+            "total_filtered": 0,
+        },
+        # assessments tab
+        "records": [],
+        "applied": 0,
+        "skipped": 0,
+        "by_action": {},
     }
 
 

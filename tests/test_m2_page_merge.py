@@ -226,7 +226,7 @@ def test_usage_is_a_page_of_its_own(cfg, engine):
     assert 'href="/activity"' in html  # ...but still reachable from the nav
 
 
-def test_profile_cron_tab_is_scoped_to_its_profile(cfg, engine):
+def test_profile_cron_tab_is_scoped_to_its_profile(cfg, engine, cron_snapshot):
     """The cron tab of a profile shows that profile's jobs, not the cross-profile view.
 
     M2c moved cron under the profile, so the view is always narrowed now — the
@@ -241,9 +241,75 @@ def test_profile_cron_tab_is_scoped_to_its_profile(cfg, engine):
     assert "Cron jobs for <b>l2</b>" in html
 
 
+def test_the_cron_tab_says_so_when_the_snapshot_is_missing(cfg, engine, monkeypatch):
+    """The other half of the contract: no snapshot means the tab says so.
+
+    This is the state a fresh install is in before the host-side collector has run,
+    and it is what a CI runner always sees. Pinned deliberately, because the test
+    above spent eleven pushes asserting the opposite without saying so.
+
+    The missing path is forced rather than assumed: asserting "there is no snapshot"
+    by relying on the dev box not having one would be the same environment coupling
+    that caused the red CI in the first place.
+    """
+    from src.api import work_cron
+    from src.ui.pages import render_profile_detail_page
+    monkeypatch.setattr(work_cron, "_snapshot_path", lambda: "/nonexistent/cron-jobs.json")
+    html = render_profile_detail_page(cfg, engine, "l2", {"tab": "cron"})
+    assert "snapshot missing" in html
+    # and it does not pretend to be showing jobs it never read
+    assert 'id="cron-modal"' not in html
+
+
 def _pages_module():
     import src.ui.pages as p
     return p
+
+
+# ── the Tasks page must survive having nothing to show ───────────────────────
+
+def test_an_empty_task_tree_renders_the_page_instead_of_500ing(tmp_path, monkeypatch, cfg, engine):
+    """A present-but-empty tree is a normal state, and the page must render it.
+
+    ``tasks_view`` returned a shape without ``filter`` on this path, while
+    ``sec_ptasks.html`` reads ``view.filter.states_options`` — an attribute lookup on
+    an undefined value, which is the one thing Jinja raises on. So the Tasks page
+    500'd on an empty tree, and the "never blank the page on a data error" guard
+    could not catch it, because nothing had raised where the guard was looking.
+    Found 2026-09-25 while reproducing a red CI run.
+    """
+    from src.api import work_tasks
+    from src.ui.pages import render_work_tasks_page
+    monkeypatch.setenv("LCP_WORK_TASKS_DIR", str(tmp_path))
+    view = work_tasks.tasks_view({})
+    assert view["total"] == 0
+    assert view["filter"]["states_options"]     # exactly what the template dereferences
+    html = render_work_tasks_page(cfg, engine, {})
+    # The tree exists but holds nothing, so `available` is true and the page renders
+    # its normal chrome with zero rows. The point of the assertion is that the filter
+    # was iterated at all: `view.filter.states_options` is the lookup that used to
+    # raise, and it only exists on this branch.
+    assert 'data-state="new"' in html
+    assert 'id="task-count-line"' in html
+
+
+def test_the_failed_read_fallback_renders_the_same_shape(cfg, engine, monkeypatch):
+    """The other half: when the read *raises*, the fallback must still render.
+
+    The guard that catches the read error used to build its own view by hand, with a
+    different shape from the real one — so it turned a handled error into a 500. Both
+    callers now build the view in one place.
+    """
+    from src.api import work_tasks
+    from src.ui.pages import render_work_tasks_page
+
+    def _boom(_params=None):
+        raise OSError("task tree unreadable")
+
+    monkeypatch.setattr(work_tasks, "tasks_view", _boom)
+    html = render_work_tasks_page(cfg, engine, {})
+    assert "could not read the task tree" in html
+    assert "OSError" in html
 
 
 # ── titles follow the tab ────────────────────────────────────────────────────

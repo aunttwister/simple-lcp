@@ -15,6 +15,43 @@ def temp_dir():
 
 
 @pytest.fixture
+def cron_snapshot(tmp_path, monkeypatch):
+    """A cron snapshot at a path the test controls.
+
+    The Cron tab reads a snapshot the *host-side* collector writes
+    (``<tasks_dir>/.work-layers/cron-jobs.json``). Without one the view reports
+    ``available: False`` and the tab renders its "snapshot missing" state, so any
+    test asserting what the tab shows was really asserting "this host has cron
+    data" — which is true on the dev box and false on a CI runner. That is how
+    two tests went red in CI at M2b while passing locally for eleven pushes.
+
+    Tests that care what the Cron tab renders take this fixture; tests that care
+    what it renders *without* data should keep it out and assert the degraded
+    state instead.
+    """
+    import json
+
+    from src.api import work_cron
+
+    snap = tmp_path / "cron-jobs.json"
+    snap.write_text(json.dumps({
+        "generated_at": "2026-09-24T00:00:00+00:00",
+        "counts": {"total": 2, "active": 1, "paused": 1, "disabled": 0, "error": 0},
+        "profiles": [{
+            "profile": "l2",
+            "legacy": False,
+            "hidden": False,
+            "jobs": [
+                {"id": "nightly", "name": "nightly digest", "status": "active"},
+                {"id": "paused-one", "name": "paused job", "status": "paused"},
+            ],
+        }],
+    }))
+    monkeypatch.setattr(work_cron, "_snapshot_path", lambda: str(snap))
+    return snap
+
+
+@pytest.fixture
 def config_store(temp_dir):
     """A SettingsStore bound to a temp DB, seeded with a minimal config.
 

@@ -329,7 +329,7 @@ def test_the_directory_crumb_has_no_link(cfg, engine):
 
 
 @pytest.mark.parametrize("tab", ["skills", "memory", "tasks", "cron", "keys"])
-def test_each_profile_tab_renders_only_its_own_section(cfg, engine, tab):
+def test_each_profile_tab_renders_only_its_own_section(cfg, engine, tab, cron_snapshot):
     """Section isolation across the five new tabs."""
     from src.ui import pages
     html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": tab})

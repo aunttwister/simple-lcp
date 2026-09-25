@@ -401,12 +401,11 @@ def render_work_tasks_page(config, engine=None, params=None) -> str:
         else:
             view = work_tasks.tasks_view(params)
     except Exception as e:  # never blank the page on a data error
-        view = {
-            "available": False,
-            "empty": {"reason": "could not read the task tree",
-                      "hint": "%s: %s" % (type(e).__name__, e)},
-            "counts": {}, "total": 0, "tasks": [], "todos": None, "conflicts": [],
-        }
+        # The fallback must satisfy the same shape the template reads, or the guard
+        # converts a handled read error into a 500 — which it did, whenever the task
+        # tree was present but empty. One shape, defined in one place.
+        view = work_tasks.empty_tasks_view(
+            "could not read the task tree", "%s: %s" % (type(e).__name__, e))
     view["tab"] = tab
     return render_page("pages/work_tasks.html", config, engine,
                        active_page="work_tasks", view=view,
