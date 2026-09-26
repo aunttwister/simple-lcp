@@ -18,10 +18,28 @@
   "cmd": "[ -d /your/data/app/lcp/cron-ops/ops ] && [ -d /your/data/app/lcp/cron-ops/done ]"
  },
  {
+  "id": "cr-004",
+  "group": "cron-sources",
+  "title": "fixture is hidden from the cron listing",
+  "cmd": "curl -s '{{BASE}}/api/work/cron' | python3 -c \"import sys,json; d=json.load(sys.stdin); f=[p for p in d['profiles'] if p['profile']=='qa-fixture']; assert len(f)==1, 'fixture missing from snapshot'; assert f[0]['hidden'] is True, 'fixture is not hidden'\""
+ },
+ {
+  "id": "cr-005",
+  "group": "cron-sources",
+  "title": "fixture is not an agent profile (no config.yaml)",
+  "cmd": "[ ! -f /root/.hermes/profiles/qa-fixture/config.yaml ]"
+ },
+ {
+  "id": "cr-009",
+  "group": "cron-sources",
+  "title": "fixture reset: remove stale probes",
+  "cmd": "python3 -c \"import json,os,subprocess;p='/root/.hermes/profiles/qa-fixture/cron/jobs.json';j=json.load(open(p)).get('jobs',[]) if os.path.exists(p) else [];ids=[x['id'] for x in j if x.get('name')=='qa-suite-probe'];[subprocess.run(['/root/.hermes/hermes-agent/venv/bin/python','-m','hermes_cli.main','--profile','qa-fixture','cron','remove',i],capture_output=True) for i in ids];print('removed',len(ids))\""
+ },
+ {
   "id": "cr-010",
   "group": "cron-sources",
   "title": "reject: unknown action",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"explode\\\", \\\"profile\\\": \\\"backups\\\"}')\" = \"400\" ]"
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"explode\\\", \\\"profile\\\": \\\"qa-fixture\\\"}')\" = \"400\" ]"
  },
  {
   "id": "cr-011",
@@ -33,36 +51,42 @@
   "id": "cr-012",
   "group": "cron-sources",
   "title": "reject: create without prompt/script",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\"}')\" = \"400\" ]"
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"qa-fixture\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\"}')\" = \"400\" ]"
  },
  {
   "id": "cr-013",
   "group": "cron-sources",
   "title": "reject: script with slash",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"script\\\": \\\"../evil.sh\\\"}')\" = \"400\" ]"
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"qa-fixture\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"script\\\": \\\"../evil.sh\\\"}')\" = \"400\" ]"
  },
  {
   "id": "cr-014",
   "group": "cron-sources",
   "title": "reject: edit empty fields",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"edit\\\", \\\"profile\\\": \\\"backups\\\", \\\"job_id\\\": \\\"a1b2c3d4e5f6\\\", \\\"fields\\\": {}}')\" = \"400\" ]"
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"edit\\\", \\\"profile\\\": \\\"qa-fixture\\\", \\\"job_id\\\": \\\"a1b2c3d4e5f6\\\", \\\"fields\\\": {}}')\" = \"400\" ]"
  },
  {
   "id": "cr-015",
   "group": "cron-sources",
   "title": "reject: bad deliver",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"deliver\\\": \\\"nowhere\\\"}')\" = \"400\" ]"
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"qa-fixture\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"deliver\\\": \\\"nowhere\\\"}')\" = \"400\" ]"
  },
  {
   "id": "cr-016",
   "group": "cron-sources",
   "title": "reject: workdir outside /your/data",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"workdir\\\": \\\"/etc\\\"}')\" = \"400\" ]"
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"qa-fixture\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"workdir\\\": \\\"/etc\\\"}')\" = \"400\" ]"
  },
  {
   "id": "cr-020",
   "group": "cron-sources",
-  "title": "create op accepted (backups)",
-  "cmd": "op=$(curl -s -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\"action\":\"create\",\"profile\":\"backups\",\"name\":\"qa-suite-probe\",\"schedule\":\"2033-01-01T00:00:00\",\"prompt\":\"qa probe - safe to delete\",\"deliver\":\"local\"}'); echo \"$op\" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d.get(\"status\")==\"pending\", d'"
+  "title": "create op accepted (qa-fixture)",
+  "cmd": "op=$(curl -s -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\"action\":\"create\",\"profile\":\"qa-fixture\",\"name\":\"qa-suite-probe\",\"schedule\":\"2033-01-01T00:00:00\",\"prompt\":\"qa probe - safe to delete\",\"deliver\":\"local\"}'); echo \"$op\" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d.get(\"status\")==\"pending\", d'"
+ },
+ {
+  "id": "cr-021",
+  "group": "cron-sources",
+  "title": "accepted create leaves no real profile touched",
+  "cmd": "python3 -c \"import json;bad=[n for n in ('homelab-expert-l1','homelab-expert-l2','blog-writer') if any(x.get('name')=='qa-suite-probe' for x in json.load(open('/root/.hermes/profiles/'+n+'/cron/jobs.json')).get('jobs',[]))];assert not bad, 'probe leaked into a live profile: %s' % bad\""
  }
 ]
