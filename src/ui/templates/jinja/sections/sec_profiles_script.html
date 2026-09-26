@@ -32,6 +32,7 @@ function openAddProfile(prefillAgent) {
     document.getElementById('pemSaveBtn').textContent = 'Create Profile';
     document.getElementById('pemAgentProfile').value = prefillAgent || '';
     document.getElementById('pemRoutingMode').value = '';
+    document.getElementById('pemMarginGate').value = '';
     onRoutingToggle();
     renderPemTools();
     renderPemChain();
@@ -149,6 +150,11 @@ function editProfile(name) {
       // shown, so confirming it is one Save rather than typing a name.
       document.getElementById('pemAgentProfile').value = prof.agent_profile || prof.suggested_agent_profile || '';
       document.getElementById('pemRoutingMode').value = prof.routing || '';
+      // M3: the gate round-trips like the other profile fields. Off is shown blank
+      // rather than as 0, so "unset" is visible instead of implied.
+      var gate = prof.intent_margin_gate;
+      document.getElementById('pemMarginGate').value =
+        (gate === null || gate === undefined || Number(gate) === 0) ? '' : gate;
       onRoutingToggle();
       renderPemTools();
       renderPemChain();
@@ -254,6 +260,17 @@ function addChainStep() {
   renderPemChain();
 }
 
+// M3 — the modal's margin gate, in the shape the API contract expects: a number in
+// [0,1], or null for "off". The loader coerces null to 0.0 and 0.0 is the off switch,
+// so blank round-trips as off. Sending "" or NaN would be a 400, hence the coercion.
+function marginGateValue() {
+  var raw = (document.getElementById('pemMarginGate').value || '').trim();
+  if (raw === '') return null;
+  var v = parseFloat(raw);
+  if (isNaN(v)) return null;
+  return Math.max(0, Math.min(1, v));
+}
+
 function saveProfileEdit() {
   var statusEl = document.getElementById('pemSaveStatus');
   statusEl.textContent = 'Saving...';
@@ -275,6 +292,7 @@ function saveProfileEdit() {
       agent_profile: document.getElementById('pemAgentProfile').value,
       routing: document.getElementById('pemRoutingMode').value,
       intents: _editProfileIntents,
+      intent_margin_gate: marginGateValue(),
       description: document.getElementById('pemDescription').value.trim()
     }).then(function(create) {
       if (!create.ok) { statusEl.textContent = create.error || 'Create failed'; statusEl.style.color = 'hsl(var(--red-fg))'; return; }
@@ -303,7 +321,8 @@ function saveProfileEdit() {
       auth_required: document.getElementById('pemAuthRequired').checked,
       agent_profile: document.getElementById('pemAgentProfile').value,
       routing: document.getElementById('pemRoutingMode').value,
-      intents: _editProfileIntents
+      intents: _editProfileIntents,
+      intent_margin_gate: marginGateValue()
     });
   }).then(function(profResult) {
     if (profResult && profResult.error) {

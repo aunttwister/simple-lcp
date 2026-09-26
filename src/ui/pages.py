@@ -589,6 +589,28 @@ def _effective_routing_on(status, name):
     return None
 
 
+def _profile_margin_gate(config, name) -> float:
+    """This profile's L2 margin gate, read the way the router reads it.
+
+    The gate is a *profile-config* field, unlike everything else the Routing tab
+    shows — the router reads it from the profile's config (`_intent_margin_gate`),
+    not from its own settings store, so the tab reads it from the same place and the
+    Edit modal writes to the same place. 0.0 is both the off switch and the
+    absent-field default.
+
+    It goes through `validate_profile_fields` rather than reading the raw dict
+    directly: a page that displayed a value the loader would reject (and therefore
+    silently fall back to the seed over) would be lying about what is in effect.
+    Tolerant of a duck-typed config, like the router's own reader.
+    """
+    try:
+        from ..api.config import validate_profile_fields
+        pcfg = (getattr(config, "profiles", None) or {}).get(name) or {}
+        return float(validate_profile_fields(name, pcfg).get("intent_margin_gate") or 0.0)
+    except Exception:  # noqa: BLE001 — a bad gate must not break the tab
+        return 0.0
+
+
 def _profile_routing_view(config, name, status=None) -> dict:
     """The Routing tab's view: this profile's effective dynamic-routing settings.
 
@@ -602,6 +624,9 @@ def _profile_routing_view(config, name, status=None) -> dict:
     out = {"available": False, "profile": name, "enabled": None, "policy": "",
            "min_score": None, "rules": [], "has_override": False,
            "tasks": [], "decisions": [], "reason": ""}
+    # M3: set before the early returns below, so a profile with a gate but no router
+    # entry still shows the gate it actually has rather than a default.
+    out["intent_margin_gate"] = _profile_margin_gate(config, name)
     if status is None:
         try:
             status = _routing_status_safe(config)

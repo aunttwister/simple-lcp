@@ -317,8 +317,17 @@ class TestDeepSeekFetchSummary:
         assert bal["currency"] == "CNY"
 
     def test_summary_no_api_key(self):
-        """Without API key, summary should be None."""
-        assert self.plugin.fetch_summary() is None
+        """Without API key, summary should be None.
+
+        ``clear=True`` is the point of the test, not decoration. This host exports a
+        real DEEPSEEK_API_KEY, so without clearing it `fetch_summary()` reaches the
+        live API (it returned a real balance) and the test asserts the opposite of
+        what it means to. That makes it pass only where CI runs and fail on the host
+        it was written on — the same class of defect as the two host-data-coupled
+        tests that kept CI red for eleven pushes.
+        """
+        with patch.dict("os.environ", {}, clear=True):
+            assert self.plugin.fetch_summary() is None
 
     def test_summary_api_error(self):
         """API error should propagate as None."""

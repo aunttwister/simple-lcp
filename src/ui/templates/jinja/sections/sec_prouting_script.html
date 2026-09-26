@@ -105,6 +105,32 @@
     });
   };
 
+  // M3 — the margin gate. Unlike everything else on this tab it is NOT a router
+  // setting: the router reads it from the profile's config (`_intent_margin_gate`),
+  // so it writes to /api/profiles/<name> — the same endpoint the Edit modal uses —
+  // rather than to /api/routing/policy. One Save per store is what keeps the page
+  // from disagreeing with itself.
+  window.prouSaveMarginGate = function () {
+    var input = el('prouMarginGate');
+    var status = el('prouGateStatus');
+    var raw = (input.value || '').trim();
+    // Blank means off. The loader treats null and 0.0 identically (0 disables the
+    // gate) and rejects anything that is not a number in range, so validate here
+    // rather than sending a value it would refuse.
+    var value = raw === '' ? null : parseFloat(raw);
+    if (raw !== '' && (isNaN(value) || value < 0 || value > 1)) {
+      say(status, 'Enter a number between 0 and 1 (0 = off).');
+      return;
+    }
+    say(status, 'Saving\u2026', true);
+    api('PUT', '/api/profiles/' + PROFILE, { intent_margin_gate: value })
+      .then(function (d) {
+        if (d && d.error) { say(status, d.error); return; }
+        say(status, value ? 'Saved \u2014 gate ' + value + '.' : 'Saved \u2014 gate off.', true);
+      })
+      .catch(function (e) { say(status, 'Save failed: ' + (e.message || e)); });
+  };
+
   window.prouClearOverride = function () {
     if (!confirm('Drop this profile\u2019s routing settings and inherit the global ones?')) return;
     api('POST', '/api/routing/policy', { profile: PROFILE, clear_profile: true }).then(function (d) {

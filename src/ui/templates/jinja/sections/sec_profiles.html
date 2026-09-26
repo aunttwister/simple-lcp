@@ -137,6 +137,16 @@
       </div>
     </div>
     <div style="margin-bottom:0.75rem">
+      <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Intent Margin Gate</label>
+      <input id="pemMarginGate" type="number" min="0" max="1" step="0.05" placeholder="0 = off"
+        style="width:6.5rem;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+      <div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.125rem">
+        Only matters when routing is dynamic. When the classifier's top two intents score closer together
+        than this, the chain keeps its declared order instead of reordering on a near-tie.
+        <b>0 or blank = off</b>, which is what an unset field means.
+      </div>
+    </div>
+    <div style="margin-bottom:0.75rem">
       <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Access Control</label>
       <label class="toggle" id="pemAuthWrap" title="Require an API key for this profile">
         <input type="checkbox" id="pemAuthRequired" onchange="this.parentNode.querySelector('.toggle-label').textContent = this.checked ? 'API key required' : 'No key required (public)'">

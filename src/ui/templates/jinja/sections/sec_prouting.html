@@ -58,6 +58,26 @@
   </div>
   <p class="pd-note" id="prouPolicyStatus"></p>
 
+  <h2 class="pd-sect">Intent margin gate <span class="pd-sect-note">stop reordering on a near-tie</span></h2>
+  <p class="pd-note">
+    This one is a <b>{{ profile.name }}</b> setting, not a router setting &mdash; the router reads it from
+    the profile's config, so it saves to the profile, not to <span class="mono">/api/routing/policy</span>.
+    When dynamic routing would reorder the chain and the classifier's top two intents score closer together
+    than this margin, there is no decision to make and the chain keeps its declared order.
+    <b>0 = off</b>, and off is what an unset field means.
+  </p>
+  <div class="prou-grid">
+    <div>
+      <label class="prou-label">Margin</label>
+      <input id="prouMarginGate" type="number" step="0.05" min="0" max="1"
+             placeholder="0 = off" value="{{ '' if routing.intent_margin_gate == 0 else routing.intent_margin_gate }}">
+    </div>
+    <div class="prou-grid-action">
+      <button class="btn-sm btn-primary" onclick="prouSaveMarginGate()">Save gate</button>
+    </div>
+  </div>
+  <p class="pd-note" id="prouGateStatus"></p>
+
   <h2 class="pd-sect">Rules <span class="pd-sect-note">pin a task to a model</span></h2>
   <p class="pd-note">
     A rule matches a task the classifier recognised and either prefers a model for it
