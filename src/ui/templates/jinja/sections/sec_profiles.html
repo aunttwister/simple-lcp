@@ -145,6 +145,11 @@
         than this, the chain keeps its declared order instead of reordering on a near-tie.
         <b>0 or blank = off</b>, which is what an unset field means.
       </div>
+      <div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.125rem">
+        <b>Measured 2026-09-26: do not set this in production as it stands</b> &mdash; 97% of the
+        reorders it blocks are provider swaps for the same model, so it forgoes ~$390/month and
+        ~10.3h of latency on l2. See the profile's Routing tab (PLAN &sect;26).
+      </div>
     </div>
     <div style="margin-bottom:0.75rem">
       <label style="display:block;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Access Control</label>

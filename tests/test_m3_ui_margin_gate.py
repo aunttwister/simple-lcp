@@ -174,6 +174,23 @@ def test_the_tab_rejects_a_gate_the_api_would_refuse(cfg, profiles_root, engine)
     assert "Enter a number between 0 and 1" in html
 
 
+def test_the_tab_warns_that_the_gate_measurably_backfires(cfg, profiles_root, engine):
+    """The gate ships off, and PLAN §26 measured that switching it on costs money:
+    the reorders it blocks are mostly provider swaps the intent margin says nothing
+    about. A control that let someone turn that on without saying so would be the
+    page withholding the one thing it knows — and the enable is one click."""
+    html = _routing_tab(cfg, engine, "l2")
+    assert "do not switch this on in production" in html
+    assert "97% of the reorders" in html       # the finding, not just a caution
+    assert "390/month" in html                 # and the money
+    assert "&sect;26" in html                  # where to read it
+
+
+def test_off_is_described_as_the_safe_state(cfg, profiles_root, engine):
+    html = _routing_tab(cfg, engine, "l2")
+    assert "Leaving it off changes nothing" in html
+
+
 # ── 4. the add/edit modal ────────────────────────────────────────────────────
 
 def test_the_modal_offers_the_field(cfg, profiles_root):
@@ -195,3 +212,11 @@ def test_the_modal_shows_off_as_blank_and_round_trips_it(cfg, profiles_root):
     assert "Number(gate) === 0) ? '' : gate" in html
     # blank is sent as null, which the loader treats as 0.0 == off
     assert "if (raw === '') return null;" in html
+
+
+def test_the_modal_also_carries_the_warning(cfg, profiles_root):
+    """The create path can set the gate from a blank profile, so it needs the same
+    caution as the tab — not a shorter version of nothing."""
+    html = pages.render_profiles_page(cfg, engine=None, params={})
+    assert "do not set this in production as it stands" in html
+    assert "390/month" in html

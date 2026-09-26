@@ -66,6 +66,18 @@
     than this margin, there is no decision to make and the chain keeps its declared order.
     <b>0 = off</b>, and off is what an unset field means.
   </p>
+  <p class="pd-note" id="prouGateWarning">
+    <b>Measured 2026-09-26 &mdash; do not switch this on in production as it stands.
+    Leaving it off changes nothing.</b>
+    Over a 14-day window, <b>97% of the reorders the gate would block are pure provider swaps
+    for the same logical model</b> &mdash; a choice the intent margin carries no information
+    about, because it is decided by provider ranking (breaker state, balance, cost, chain
+    order). A 0.02 gate would have kept ~6,835 requests on the dearer lane:
+    <b>~$150 forgone per 14 days (~$390/month)</b> and <b>~10.3 hours of extra wall-clock
+    wait</b> on {{ profile.name }}. The gate is the right idea aimed one layer too low:
+    it should veto changing the <i>model</i>, not choosing a cheaper <i>provider</i>.
+    See PLAN &sect;26; the re-aim is M4.
+  </p>
   <div class="prou-grid">
     <div>
       <label class="prou-label">Margin</label>
