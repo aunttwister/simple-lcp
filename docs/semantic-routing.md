@@ -249,7 +249,7 @@ It bit the Work layer twice:
 
 | case | symptom | fix |
 |---|---|---|
-| runboard decisions ledger | page rendered, `available: False` | mount `/your/data/app/runboard/decisions.db:/app/work/decisions.db:ro` |
+| decisions ledger | page rendered, `available: False` | mount the ledger at `/app/work/decisions.db:ro` |
 | profile session DBs | `OperationalError: unable to open database file` for every profile | mount `/root/.hermes/profiles:/app/profiles:ro` |
 
 **Rules that follow:**
@@ -271,6 +271,5 @@ It bit the Work layer twice:
 5. **A module's model weights and venv are part of the module.** They install
    under `<LCP_MODULES_DIR>/…` and are present **only when the module is
    installed**. Never assume a runtime exists because the code imports it — probe
-   it (`*_available()`) and fail soft. This includes the runboard judge:
-   `rlcd-modernbert` and its venv belong to the runboard module, not to LCP
-   core.
+   it (`*_available()`) and fail soft. This includes every optional judge model:
+   its weights and venv belong to the module that installs them, not to LCP core.

@@ -22,9 +22,9 @@ ENV_VARS = (
     "LCP_WORK_PROFILES_DIR",
 )
 
-# The exact schema of the live runboard decisions ledger: the verdict column is
-# 'label' and the actor column is 'engine'. A fixture with a made-up 'choice'
-# column would silently exercise nothing.
+# The exact schema of the live decisions ledger: the verdict column is 'label'
+# and the actor column is 'engine'. A fixture with a made-up 'choice' column
+# would silently exercise nothing.
 LIVE_LEDGER_SCHEMA = """
 CREATE TABLE decisions (
     id INTEGER, event_id TEXT, run TEXT, event_t REAL, event_kind TEXT,

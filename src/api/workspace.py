@@ -1,16 +1,16 @@
 """Workspace module -- the human work surfaces.
 
-This is the WORK BENCH, deliberately separate from the runboard module (the
-instrument panel). The distinction, because it is the whole reason for the
-split:
+This is the WORK BENCH, deliberately separate from the instrument panel (run
+telemetry, graphs, board). The distinction, because it is the whole reason for
+the split:
 
-    runboard   answers "how is it going?"   -- run/usage metrics, graphs, board
+    telemetry  answers "how is it going?"   -- run/usage metrics, graphs, board
     workspace  answers "what needs doing?"  -- Decisions, Tasks, Categories, Fleet
 
-They are separate modules because they have opposite failure modes. runboard is
-an *instrument*: it can be removed and nothing is lost but visibility. workspace
-is a *view of work*: it must survive runboard being absent, because the tasks and
-the decisions still exist whether or not anything is graphing them.
+They are separate concerns because they have opposite failure modes. An
+instrument can be removed and nothing is lost but visibility. workspace is a
+*view of work*: it must survive its telemetry sources being absent, because the
+tasks and the decisions still exist whether or not anything is graphing them.
 
 That is enforced structurally, not by convention. Every source workspace reads is
 mounted READ-ONLY, and each one is probed independently. When a source is
@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 # the env overrides let a host-side run (tests, CLI) point at the real files.
 
 def decisions_db() -> str:
-    """The runboard decisions ledger. Optional -- Decisions degrades to empty."""
+    """The decisions ledger. Optional -- Decisions degrades to empty."""
     return os.environ.get("LCP_WORK_DECISIONS_DB", "/app/work/decisions.db")
 
 

@@ -3458,8 +3458,6 @@ class SetupEndpoints:
                 result = setup_mod.remove_router(self.engine)
             elif kind == "module" and name == "memory":
                 result = setup_mod.remove_memory(self.engine)
-            elif kind == "module" and name == "runboard":
-                result = setup_mod.remove_runboard(self.engine)
             else:
                 self._send_json({"error": f"unknown remove target: {kind}/{name}"}, 404)
                 return
@@ -3475,9 +3473,9 @@ class WorkEndpoints:
     """Work layer: the moments LCP records about sessions, tasks, providers.
 
     This is the work-surface half of LCP, merged in as a module by admin
-    direction. It reads the runboard decisions ledger read-only and renders
-    moments -- it never writes to the board, so a Work view cannot change what
-    was published.
+    direction. It reads the decisions ledger read-only and renders moments --
+    it never writes to the ledger, so a Work view cannot change what was
+    published.
     """
 
     config: Any

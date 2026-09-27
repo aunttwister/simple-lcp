@@ -95,7 +95,6 @@ The default image is lean. Modules install from the **Setup** page into `LCP_MOD
 |---|---|
 | `router` | in-process semantic task classifier (sentence-transformers) |
 | `memory` | per-profile semantic memory backend (LanceDB) |
-| `runboard` | work-layer task and decision views |
 
 Build args `WITH_ROUTER=1` / `WITH_MEMORY=1` bake a module into the image instead of installing it
 at runtime.

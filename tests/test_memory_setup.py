@@ -79,10 +79,13 @@ class TestMemoryStep:
     def test_manifest_includes_memory(self, mock_config):
         m = setup_mod.manifest(mock_config)
         names = {mod["name"] for mod in m["modules"]}
-        assert {"router", "memory", "runboard"} <= names
-        # M2b retired the workspace module: the work surfaces are always available,
-        # so there is nothing for an install/uninstall pair to gate.
+        assert {"router", "memory"} <= names
+        # M2b retired the workspace module (the work surfaces are always
+        # available, so there is nothing for an install/uninstall pair to gate)
+        # and runboard was removed from LCP outright: it stays a standalone
+        # service, so the manifest must not offer it.
         assert "workspace" not in names
+        assert "runboard" not in names
 
     def test_router_step_manifest(self, monkeypatch):
         """The semantic-routing module is its own manifest entry."""

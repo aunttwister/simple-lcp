@@ -38,7 +38,9 @@ from ..ui import tables
 # Sources
 # ---------------------------------------------------------------------------
 
-DEFAULT_DECISIONS_DB = "/your/data/app/runboard/decisions.db"
+# The decisions ledger, as mounted read-only into the container. Overridable so
+# a host-side run (tests, CLI) can point at the real file.
+DEFAULT_DECISIONS_DB = "/app/work/decisions.db"
 
 # ── Sort allow-list ─────────────────────────────────────────────────────────
 # (key, label, ORDER BY fragment). First entry is the default and it is the
@@ -227,8 +229,8 @@ def decisions_view(db_path: Optional[str] = None,
             "available": False,
             "empty": {
                 "reason": "decisions ledger not found at %s" % path,
-                "hint": ("Set LCP_WORK_DECISIONS_DB to the runboard decisions.db, or "
-                         "install the runboard module to populate it."),
+                "hint": ("Set LCP_WORK_DECISIONS_DB to the decisions ledger path, or "
+                         "mount the ledger at /app/work/decisions.db."),
             },
             "funnel": None,
             "ledger": None,
