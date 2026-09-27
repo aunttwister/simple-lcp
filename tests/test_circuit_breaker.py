@@ -124,8 +124,12 @@ class TestStats:
         cb.record_failure("h1", "https://x", "l2")  # degraded
         for _ in range(6):
             cb.record_failure("dead-prov", "https://y", "l2")
-        # Also have a healthy one
+        # Also have a healthy one. A READ must not create it (status_of /
+        # is_available are non-materializing since the phantom-key fix), so the
+        # entry is created the way production creates one: by a real request.
         assert cb.is_available("healthy-prov", "https://z", "l2")
+        assert cb.stats["total"] == 2, "a read created a health entry"
+        cb.record_success("healthy-prov", "https://z", "l2")
         s = cb.stats
         assert s["total"] == 3
         assert s["healthy"] == 1

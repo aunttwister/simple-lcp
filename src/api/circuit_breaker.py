@@ -135,25 +135,57 @@ class CircuitBreaker:
     def _key(self, provider: str, base_url: str, profile: str) -> tuple:
         return (provider, base_url, profile)
 
+    def _default_health(self, key: tuple) -> dict:
+        """A fresh health view for a key that has never been tracked."""
+        return {
+            "consecutive_failures": 0,
+            "last_failure": None,
+            "last_failure_reason": None,
+            "last_success": None,
+            "status": "healthy",
+            "tripped_until": None,
+            "manual_override": None,  # None | 'degraded' | 'dead'
+            "_key": key,  # (provider, base_url, profile) for persistence
+        }
+
     def get_health(self, provider: str, base_url: str, profile: str) -> dict:
-        """Get or create health entry for a provider+profile."""
+        """Get or create health entry for a provider+profile.
+
+        This is the WRITE path. Anything that only reads status must use
+        ``peek()`` instead: materializing on a read is how a routing
+        evaluation with an empty provider invented the ``("/", url, "")``
+        entry that showed up in ``/health`` as the phantom ``"/"`` key.
+        """
         key = self._key(provider, base_url, profile)
         if key not in self._health:
-            self._health[key] = {
-                "consecutive_failures": 0,
-                "last_failure": None,
-                "last_failure_reason": None,
-                "last_success": None,
-                "status": "healthy",
-                "tripped_until": None,
-                "manual_override": None,  # None | 'degraded' | 'dead'
-                "_key": key,  # (provider, base_url, profile) for persistence
-            }
+            self._health[key] = self._default_health(key)
         return self._health[key]
 
+    def peek(self, provider: str, base_url: str, profile: str) -> dict:
+        """Read a provider's health WITHOUT creating an entry.
+
+        Returns the live entry when the key is tracked, otherwise a detached
+        default view, so callers can read fields unconditionally. The detached
+        view is always ``healthy`` and is never stored, which is what keeps a
+        read-only caller from adding to ``get_all_health()`` — and therefore
+        from adding a key to ``/health``.
+        """
+        key = self._key(provider, base_url, profile)
+        h = self._health.get(key)
+        if h is None:
+            return self._default_health(key)
+        return h
+
     def status_of(self, provider: str, base_url: str, profile: str) -> str:
-        """Return the current status string ('healthy'|'degraded'|'dead')."""
-        return self.get_health(provider, base_url, profile)["status"]
+        """Return the current status string ('healthy'|'degraded'|'dead').
+
+        Read-only: never materializes a health entry, and an empty provider is
+        answered without a lookup at all (it is not an addressable provider, so
+        it must never be tracked).
+        """
+        if not provider:
+            return "healthy"
+        return self.peek(provider, base_url, profile)["status"]
 
     def is_available(self, provider: str, base_url: str, profile: str) -> bool:
         """Check if provider is available (not tripped).
@@ -162,8 +194,14 @@ class CircuitBreaker:
         provider is promoted one level (dead → degraded → healthy) instead of
         jumping straight back to healthy. A single success during degraded
         promotes to healthy; a single failure re-trips to dead.
+
+        Read-only for untracked keys: an unknown provider reports available and
+        stays untracked, so a routing gate cannot create health state. Promotes
+        only ever mutate an entry that already exists.
         """
-        h = self.get_health(provider, base_url, profile)
+        if not provider:
+            return True
+        h = self.peek(provider, base_url, profile)
         if h["status"] == "healthy":
             return True
         if h["tripped_until"] is not None and time.time() >= h["tripped_until"]:
