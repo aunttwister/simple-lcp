@@ -1,5 +1,6 @@
 # QA case generator 7: workload — per-task detail sweeps + pagination matrices.
 import json
+import os
 import urllib.request
 
 CASES = []
@@ -24,6 +25,31 @@ try:
         })
 except Exception:
     pass
+
+# ── Pinned: detail closed tasks (paths that never move again) ────────────────
+# The dynamic block above snapshots page 1 of the OPEN tree, so every case in it
+# dies the moment a task is moved between states -- which is exactly what
+# happens every time the backlog is pruned (four cases went stale on
+# 2026-09-26 alone). These pin the closed buckets, whose paths are immutable
+# once a task lands there, so the suite keeps a detail-endpoint baseline no
+# matter how much the open tree churns.
+PINNED_CLOSED_TASKS = (
+    "completed/daily-journal",
+    "completed/google-tasks-automation",
+    "completed/reddit-daily-digest",
+    "completed/ezb-weekly-expense-report",
+    "cancelled/pve03-transplant-x99",
+    "cancelled/pi-agent-setup",
+)
+
+for i, key in enumerate(PINNED_CLOSED_TASKS):
+    CASES.append({
+        "id": "wl-detail-closed-%02d" % (i + 1), "group": G,
+        "title": "detail %s" % key,
+        "cmd": ("curl -s '{{BASE}}/api/work/tasks/detail?task=%s' | python3 -c "
+                "\"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+                % urllib.parse.quote(key, safe="")),
+    })
 
 # ── Dynamic: detail first 3 conversations ──
 try:
@@ -86,6 +112,6 @@ for tag in ["infrastructure", "automation", "research", "dashboard-ui"]:
                     % (st, tag)),
         })
 
-with open("/your/data/docker-apps/lcp/qa/cases.workload.json", "w") as fh:
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.workload.json"), "w") as fh:
     json.dump(CASES, fh, indent=1)
 print("cases.workload:", len(CASES))

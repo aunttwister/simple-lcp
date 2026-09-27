@@ -1,5 +1,6 @@
 # QA case generator 5: gateway routing, classifier, decisions, fleet.
 import json
+import os
 
 CASES = []
 G = "gateway"
@@ -58,6 +59,6 @@ CASES += [
      "cmd": "sleep 2; python3 -c \"import sqlite3; con=sqlite3.connect('/your/data/app/lcp-staging/data/costs.db'); n=con.execute(\\\"SELECT count(*) FROM routing_decisions WHERE ts > datetime('now','-5 minutes')\\\").fetchone()[0]; assert n>=1\""},
 ]
 
-with open("/your/data/docker-apps/lcp/qa/cases.gateway.json", "w") as fh:
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.gateway.json"), "w") as fh:
     json.dump(CASES, fh, indent=1)
 print("cases.gateway:", len(CASES))

@@ -1,5 +1,6 @@
 # QA case generator 10: final batch to cross 200 — all-pages + margin checks.
 import json
+import os
 
 CASES = []
 G = "misc"
@@ -27,6 +28,6 @@ CASES += [
      "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/setup')\" = \"200\" ]"},
 ]
 
-with open("/your/data/docker-apps/lcp/qa/cases.extra.json", "w") as fh:
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.extra.json"), "w") as fh:
     json.dump(CASES, fh, indent=1)
 print("cases.extra:", len(CASES))

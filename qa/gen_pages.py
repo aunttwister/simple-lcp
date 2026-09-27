@@ -1,5 +1,6 @@
 # QA case generator 1: pages, nav groups, core API endpoints.
 import json
+import os
 
 CASES = []
 
@@ -73,6 +74,6 @@ for cid, path, key in API:
                 % (path, suffix)),
     })
 
-with open("/your/data/docker-apps/lcp/qa/cases.pages.json", "w") as fh:
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.pages.json"), "w") as fh:
     json.dump(CASES, fh, indent=1)
 print("cases.pages:", len(CASES))

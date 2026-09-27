@@ -557,7 +557,7 @@
    "id": "ms-conv-2",
    "group": "misc",
    "title": "LLM summary coverage > 500 conversations",
-   "cmd": "python3 -c \"import sqlite3; con=sqlite3.connect('/your/data/app/lcp-staging/data/costs.db'); n=con.execute(\\\"SELECT count(*) FROM conversations WHERE summary_source='llm'\\\").fetchone()[0]; assert n>500, n\""
+   "cmd": "python3 -c \"import sqlite3; con=sqlite3.connect('/your/data/app/lcp/data/costs.db'); n=con.execute(\\\"SELECT count(*) FROM conversations WHERE summary_source='llm'\\\").fetchone()[0]; assert n>500, n\""
   },
   {
    "id": "ms-conv-3",
@@ -1084,89 +1084,125 @@
   {
    "id": "wl-detail-01",
    "group": "workload",
-   "title": "detail in_progress/naptune-staging-l1-qa",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fnaptune-staging-l1-qa' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+   "title": "detail new/netbox-inventory-expansion",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fnetbox-inventory-expansion' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
    "id": "wl-detail-02",
    "group": "workload",
-   "title": "detail in_progress/l1-staging-qa-sweep",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fl1-staging-qa-sweep' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+   "title": "detail new/infisical-deploy",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Finfisical-deploy' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
    "id": "wl-detail-03",
    "group": "workload",
-   "title": "detail in_progress/email-report-workflow",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Femail-report-workflow' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+   "title": "detail completed/37signals-book-half-summaries",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2F37signals-book-half-summaries' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
    "id": "wl-detail-04",
    "group": "workload",
-   "title": "detail in_progress/mimo-style-run-dashboard",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fmimo-style-run-dashboard' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+   "title": "detail in_progress/simplify-lcp",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fsimplify-lcp' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
    "id": "wl-detail-05",
    "group": "workload",
-   "title": "detail in_progress/runboard-lcp-merge",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Frunboard-lcp-merge' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+   "title": "detail new/l2-gateway-patch-reload-failure",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fl2-gateway-patch-reload-failure' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
    "id": "wl-detail-06",
    "group": "workload",
-   "title": "detail in_progress/searxng-degraded-engines",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fsearxng-degraded-engines' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+   "title": "detail new/container-fleet-management-research",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fcontainer-fleet-management-research' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
    "id": "wl-detail-07",
+   "group": "workload",
+   "title": "detail new/migrate-password-management-to-1password",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fmigrate-password-management-to-1password' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+  },
+  {
+   "id": "wl-detail-08",
+   "group": "workload",
+   "title": "detail new/naptune-perf-optimization-k6",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fnaptune-perf-optimization-k6' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+  },
+  {
+   "id": "wl-detail-09",
+   "group": "workload",
+   "title": "detail completed/opencode-credits-scraping-fix",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fopencode-credits-scraping-fix' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+  },
+  {
+   "id": "wl-detail-10",
+   "group": "workload",
+   "title": "detail in_progress/naptune",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fnaptune' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+  },
+  {
+   "id": "wl-detail-11",
+   "group": "workload",
+   "title": "detail completed/runboard-console-token-state",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Frunboard-console-token-state' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+  },
+  {
+   "id": "wl-detail-12",
+   "group": "workload",
+   "title": "detail completed/runboard-live-run-throughput",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Frunboard-live-run-throughput' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+  },
+  {
+   "id": "wl-detail-13",
+   "group": "workload",
+   "title": "detail completed/runboard-console-unified-chrome",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Frunboard-console-unified-chrome' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+  },
+  {
+   "id": "wl-detail-14",
+   "group": "workload",
+   "title": "detail completed/migrate-legacy-hermes-profiles",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fmigrate-legacy-hermes-profiles' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+  },
+  {
+   "id": "wl-detail-15",
+   "group": "workload",
+   "title": "detail new/services-homepage-and-dns-registry",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fservices-homepage-and-dns-registry' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+  },
+  {
+   "id": "wl-detail-closed-01",
    "group": "workload",
    "title": "detail completed/daily-journal",
    "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fdaily-journal' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
-   "id": "wl-detail-08",
-   "group": "workload",
-   "title": "detail completed/ezb-weekly-expense-report",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fezb-weekly-expense-report' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-09",
+   "id": "wl-detail-closed-02",
    "group": "workload",
    "title": "detail completed/google-tasks-automation",
    "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fgoogle-tasks-automation' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
-   "id": "wl-detail-10",
+   "id": "wl-detail-closed-03",
    "group": "workload",
    "title": "detail completed/reddit-daily-digest",
    "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Freddit-daily-digest' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
-   "id": "wl-detail-11",
+   "id": "wl-detail-closed-04",
    "group": "workload",
-   "title": "detail cancelled/uk-container-restart-monitoring",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=cancelled%2Fuk-container-restart-monitoring' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
+   "title": "detail completed/ezb-weekly-expense-report",
+   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fezb-weekly-expense-report' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
-   "id": "wl-detail-12",
-   "group": "workload",
-   "title": "detail cancelled/uk-api-migration",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=cancelled%2Fuk-api-migration' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-13",
-   "group": "workload",
-   "title": "detail cancelled/skill-eval-round-20250624",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=cancelled%2Fskill-eval-round-20250624' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-14",
+   "id": "wl-detail-closed-05",
    "group": "workload",
    "title": "detail cancelled/pve03-transplant-x99",
    "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=cancelled%2Fpve03-transplant-x99' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
   },
   {
-   "id": "wl-detail-15",
+   "id": "wl-detail-closed-06",
    "group": "workload",
    "title": "detail cancelled/pi-agent-setup",
    "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=cancelled%2Fpi-agent-setup' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""

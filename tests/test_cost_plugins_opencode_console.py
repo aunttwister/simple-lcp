@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from api.cost_plugins import opencode_api as oa
-from api.cost_plugins.opencode import OpenCodeCostPlugin
+from src.api.cost_plugins import opencode_api as oa
+from src.api.cost_plugins.opencode import OpenCodeCostPlugin
 
 CONFIG_PAYLOAD = {
     "config": {

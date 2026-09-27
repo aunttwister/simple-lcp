@@ -1,5 +1,6 @@
 # QA case generator 2: Tasks page — lazy table, filters, pagination, detail.
 import json
+import os
 
 CASES = []
 G = "tasks"
@@ -72,6 +73,6 @@ CASES += [
      "cmd": "k=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"tasks\"][0][\"key\"])'); curl -s \"{{BASE}}/api/work/tasks/detail?task=$k\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""},
 ]
 
-with open("/your/data/docker-apps/lcp/qa/cases.tasks.json", "w") as fh:
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.tasks.json"), "w") as fh:
     json.dump(CASES, fh, indent=1)
 print("cases.tasks:", len(CASES))

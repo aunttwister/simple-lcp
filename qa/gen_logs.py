@@ -1,5 +1,6 @@
 # QA case generator 3: Logs unified page + conversations.
 import json
+import os
 
 CASES = []
 G = "logs-convo"
@@ -98,6 +99,6 @@ CASES += [
      "cmd": "cid=$(curl -s '{{BASE}}/api/work/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/work/conversations/detail?cid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['id']=='$cid'; assert len(d['events'])>0; assert 'kind' in d['events'][0]\""},
 ]
 
-with open("/your/data/docker-apps/lcp/qa/cases.logs.json", "w") as fh:
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.logs.json"), "w") as fh:
     json.dump(CASES, fh, indent=1)
 print("cases.logs:", len(CASES))

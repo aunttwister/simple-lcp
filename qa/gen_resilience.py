@@ -1,5 +1,6 @@
 # QA case generator 8: resilience — idempotency, negatives, validation matrix.
 import json
+import os
 
 CASES = []
 G = "resilience"
@@ -81,6 +82,6 @@ CASES.append({
             "done; wait 2>/dev/null; echo ok") ,
 })
 
-with open("/your/data/docker-apps/lcp/qa/cases.resilience.json", "w") as fh:
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.resilience.json"), "w") as fh:
     json.dump(CASES, fh, indent=1)
 print("cases.resilience:", len(CASES))

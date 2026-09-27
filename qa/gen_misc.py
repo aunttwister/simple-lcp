@@ -1,5 +1,6 @@
 # QA case generator 9: misc — retired pages, services, deeper pagination.
 import json
+import os
 
 CASES = []
 G = "misc"
@@ -80,6 +81,6 @@ CASES += [
      "cmd": "out=$(curl -s '{{BASE}}/work/tasks'); echo \"$out\" | grep -c 'href=\"/work/tasks\"' | python3 -c 'import sys; assert int(sys.stdin.read())==1'"},
 ]
 
-with open("/your/data/docker-apps/lcp/qa/cases.misc.json", "w") as fh:
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.misc.json"), "w") as fh:
     json.dump(CASES, fh, indent=1)
 print("cases.misc:", len(CASES))

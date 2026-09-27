@@ -1,5 +1,6 @@
 # QA case generator 6: lifecycle, modules, sources, misc + RESTORE steps.
 import json
+import os
 
 CASES = []
 G = "lifecycle"
@@ -48,6 +49,6 @@ CASES += [
      "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/usage/stats')\" = \"200\" ]"},
 ]
 
-with open("/your/data/docker-apps/lcp/qa/cases.lifecycle.json", "w") as fh:
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.lifecycle.json"), "w") as fh:
     json.dump(CASES, fh, indent=1)
 print("cases.lifecycle:", len(CASES))
