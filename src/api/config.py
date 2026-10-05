@@ -155,11 +155,23 @@ SEED_CONFIG: dict[str, Any] = {
          "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
         {"provider": "commandcode", "model": "deepseek/deepseek-v4-flash",
          "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+        # Command Code lists this as a DISTINCT model ("DeepSeek V4.1 Flash
+        # Fast"), not another spelling of Flash, with its own rates (catalogue
+        # JSON in commandcode.ai/docs/resources/pricing-limits, 2026-10-05).
+        # It is live as `l2` chain step 4; without this row a real call records
+        # $0 and silently under-counts spend.
+        {"provider": "commandcode", "model": "deepseek/deepseek-v4.1-flash-fast",
+         "cache_hit": 0.016, "cache_miss": 0.16, "output": 0.58},
         # Self-hosted DGX Spark (local-zgx) — $0 marginal cost. Without an entry
         # here, a *successful* upstream response was discarded with
         # ConfigError("No pricing found") -> HTTP 500 LCP-4001 whenever the
         # provider had no pricing plugin (l1 / coder). See fix-lcp-vision-support.
         {"provider": "local-zgx", "model": "qwen3.8-flash-next",
+         "cache_hit": 0.0, "cache_miss": 0.0, "output": 0.0},
+        # The other local-spark provider name, same box class. Explicit $0 keeps
+        # `l2` chain step 1 (the local GLM) off the pricing_unresolved warning
+        # path on every single request.
+        {"provider": "local-sparks", "model": "GLM-5.3-Flash-EXL3",
          "cache_hit": 0.0, "cache_miss": 0.0, "output": 0.0},
     ],
     "circuit_breaker": {

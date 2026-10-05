@@ -356,5 +356,59 @@ def test_seed_config_prices_every_spelling_used_by_the_chain():
         for provider in ("deepseek", "opencode"):
             assert (provider, model) in pairs, f"seed pricing missing {provider}/{model}"
     for model in ("deepseek/deepseek-v4.1-flash", "deepseek/deepseek-v4-flash",
-                  "deepseek/deepseek-v4-pro"):
+                  "deepseek/deepseek-v4-pro", "deepseek/deepseek-v4.1-flash-fast"):
         assert ("commandcode", model) in pairs, f"seed pricing missing commandcode/{model}"
+    # Both local-spark provider names must be explicitly $0, so the local chain
+    # step does not log pricing_unresolved on every request.
+    assert ("local-sparks", "GLM-5.3-Flash-EXL3") in pairs
+    assert ("local-zgx", "qwen3.8-flash-next") in pairs
+
+
+# ── 6. deepseek-v4.1-flash-fast is a DISTINCT model, not a Flash spelling ──
+
+
+class TestFlashFastIsItsOwnModel:
+    """`deepseek-v4.1-flash-fast` sits in the live `l2` chain as step 4.
+
+    Command Code's catalogue lists it as its own model ("DeepSeek V4.1 Flash
+    Fast") with its own rates, so it must NOT be priced as the plain Flash
+    spelling — and it must not fall through to a $0 record.
+    """
+
+    def test_it_is_priced_on_commandcode(self):
+        assert CommandCodeCostPlugin().get_pricing("deepseek/deepseek-v4.1-flash-fast")
+
+    def test_its_rates_differ_from_plain_flash(self):
+        cc = CommandCodeCostPlugin()
+        fast = cc.get_pricing("deepseek/deepseek-v4.1-flash-fast")
+        plain = cc.get_pricing("deepseek/deepseek-v4.1-flash")
+        assert fast != plain, "flash-fast must not share the plain Flash row"
+        assert fast["output"] == pytest.approx(0.58)
+        assert fast["cache_miss"] == pytest.approx(0.16)
+
+    def test_it_is_not_treated_as_an_alias_of_flash(self):
+        # A registry that mapped it to the Flash canonical would group two
+        # different models into one dropdown entry, which is the class of bug
+        # this whole change exists to remove.
+        from src.api.router import logical_model_name
+        assert logical_model_name("deepseek/deepseek-v4.1-flash-fast") != \
+            logical_model_name("deepseek/deepseek-v4.1-flash")
+
+    def test_the_live_l2_chain_is_fully_priced(self, registry_db):
+        """Every step of the PRODUCTION l2 chain resolves a price — either real
+        rates or an explicit $0 for local inference. A None here means real
+        spend records as $0 without anyone noticing."""
+        cfg = _cfg([
+            {"provider": "local-sparks", "model": "GLM-5.3-Flash-EXL3",
+             "cache_hit": 0.0, "cache_miss": 0.0, "output": 0.0},
+            {"provider": "commandcode", "model": "deepseek/deepseek-v4-flash",
+             "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+            {"provider": "deepseek", "model": "deepseek-flash",
+             "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+        ], db_path=str(registry_db))
+        # The one pair with no config row must still come from the plugin table.
+        assert cfg.resolve_pricing("commandcode", "deepseek/deepseek-v4.1-flash-fast") \
+            or CommandCodeCostPlugin().get_pricing("deepseek/deepseek-v4.1-flash-fast")
+        for provider, model in (("commandcode", "deepseek/deepseek-v4-flash"),
+                                ("deepseek", "deepseek-flash")):
+            assert cfg.resolve_pricing(provider, model), f"{provider}/{model} unpriced"

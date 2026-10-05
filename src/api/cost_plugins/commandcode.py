@@ -68,6 +68,17 @@ _COMMANDCODE_PRICING: dict[str, dict[str, float]] = {
     "deepseek-v4-flash": dict(_FLASH_PRICING),
     "deepseek-v4.1-flash": dict(_FLASH_PRICING),
     "deepseek-v4-flash-vision-exp": dict(_FLASH_PRICING),
+    # `deepseek-v4.1-flash-fast` is NOT another spelling — Command Code's
+    # catalogue lists it as a distinct model, "DeepSeek V4.1 Flash Fast", with
+    # its own rates (verified in the catalogue JSON embedded in
+    # https://commandcode.ai/docs/resources/pricing-limits, 2026-10-05).
+    # Without this row it fell through to a $0 record while sitting in the live
+    # `l2` chain as step 4, silently under-counting real spend.
+    "deepseek-v4.1-flash-fast": {
+        "cache_hit": 0.016,
+        "cache_miss": 0.16,
+        "output": 0.58,
+    },
     # Anthropic Claude
     "claude-sonnet-4-6": {
         "cache_hit": 0.30,
