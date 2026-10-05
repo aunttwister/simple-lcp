@@ -579,10 +579,22 @@ class TestOpenCodeMonthToDate:
         assert out["limit_available"] is False
 
 
+# Reset timestamps are RELATIVE to now. They used to be hardcoded absolutes
+# (2026-09-26 / 2026-10-03), which silently turned
+# ``test_maps_every_window_with_reset_and_status`` red the moment the wall clock
+# passed them — a permanently-failing test that hides real regressions.
+from datetime import datetime, timedelta, timezone as _tz
+
+
+def _resets(delta: timedelta) -> str:
+    return (datetime.now(_tz.utc) + delta).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
 GO_USAGE_PAYLOAD = {
-    "rolling": {"status": "ok", "percent": 0, "resetsAt": "2026-09-26T22:17:08.376Z"},
-    "weekly": {"status": "ok", "percent": 0, "resetsAt": "2026-09-28T00:00:00.000Z"},
-    "monthly": {"status": "rate-limited", "percent": 100, "resetsAt": "2026-10-03T14:19:39.000Z"},
+    "rolling": {"status": "ok", "percent": 0, "resetsAt": _resets(timedelta(hours=2))},
+    "weekly": {"status": "ok", "percent": 0, "resetsAt": _resets(timedelta(days=3))},
+    "monthly": {"status": "rate-limited", "percent": 100,
+                "resetsAt": _resets(timedelta(days=12))},
 }
 
 

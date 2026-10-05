@@ -127,12 +127,34 @@ SEED_CONFIG: dict[str, Any] = {
     "pricing": [
         {"provider": "deepseek", "model": "deepseek-v4-pro",
          "cache_hit": 0.003625, "cache_miss": 0.435, "output": 0.87},
+        # DeepSeek-V4.1-Flash. `deepseek-flash` is the current API name;
+        # `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` are legacy names
+        # DeepSeek still accepts and serves with the same model at the same
+        # price; `deepseek-v4.1-flash` is this gateway's benchmark key. One
+        # model, four spellings, one set of rates — see
+        # https://api-docs.deepseek.com/quick_start/pricing (off-peak,
+        # verified 2026-10-05; peak is 2x).
+        {"provider": "deepseek", "model": "deepseek-flash",
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
         {"provider": "deepseek", "model": "deepseek-v4-flash",
-         "cache_hit": 0.0028, "cache_miss": 0.14, "output": 0.28},
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+        {"provider": "deepseek", "model": "deepseek-v4.1-flash",
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
         {"provider": "opencode", "model": "deepseek-v4-pro",
          "cache_hit": 0.003625, "cache_miss": 0.435, "output": 0.87},
+        {"provider": "opencode", "model": "deepseek-flash",
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
         {"provider": "opencode", "model": "deepseek-v4-flash",
-         "cache_hit": 0.0028, "cache_miss": 0.14, "output": 0.28},
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+        {"provider": "opencode", "model": "deepseek-v4.1-flash",
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+        # Command Code bills the catalogue ID (with the vendor prefix).
+        {"provider": "commandcode", "model": "deepseek/deepseek-v4-pro",
+         "cache_hit": 0.003625, "cache_miss": 0.435, "output": 0.87},
+        {"provider": "commandcode", "model": "deepseek/deepseek-v4.1-flash",
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+        {"provider": "commandcode", "model": "deepseek/deepseek-v4-flash",
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
         # Self-hosted DGX Spark (local-zgx) — $0 marginal cost. Without an entry
         # here, a *successful* upstream response was discarded with
         # ConfigError("No pricing found") -> HTTP 500 LCP-4001 whenever the
@@ -508,9 +530,135 @@ class Config:
         """
         return self._data.get("plugins", {})
 
+    # ── Model identity (registry-aware lookups) ───────────────────────────
+    #
+    # One model reaches the gateway under several spellings: the provider's
+    # own ID (``deepseek/deepseek-v4.1-flash``), the bare name another
+    # provider uses for the same model (``deepseek-v4.1-flash``), the
+    # gateway's logical name (``deepseek-flash``) and the benchmark key
+    # (``deepseek-v4.1-flash``). The ``model_registry`` table is what ties
+    # those together, so EVERY per-model lookup — pricing, limits — resolves
+    # through it rather than matching the raw provider-side string. One row
+    # then describes one model, however many names it has.
+
+    def _registry_db_path(self) -> str:
+        """The DB the model registry lives in (same DB as everything else)."""
+        try:
+            return (self._data.get("database") or {}).get("path") or "data/costs.db"
+        except Exception:  # noqa: BLE001 — duck-typed configs
+            return "data/costs.db"
+
+    def _canonical_names(self, model: str) -> list:
+        """Registry-resolved names for *model*, most specific first.
+
+        Returns ``[]`` when the registry is unavailable or the name is
+        unknown, so callers degrade to a plain exact-match lookup.
+        """
+        names: list = []
+        try:
+            from .router import logical_model_name, benchmark_model_name
+        except Exception:  # noqa: BLE001 — registry is optional
+            return names
+        db_path = self._registry_db_path()
+        try:
+            logical = logical_model_name(model, db_path)
+        except Exception:  # noqa: BLE001
+            return names
+        if not logical:
+            return names
+        names.append(logical)
+        try:
+            benchmark = benchmark_model_name(logical, db_path)
+        except Exception:  # noqa: BLE001
+            benchmark = None
+        if benchmark and benchmark not in names:
+            names.append(benchmark)
+        return names
+
+    @staticmethod
+    def _provider_matches(row_provider: Any, provider: str) -> bool:
+        """True when a pricing row's provider applies to *provider*.
+
+        ``"*"``/missing/empty is a WILDCARD, so a single row can price a
+        canonical model however many providers serve it.
+        """
+        if row_provider in (None, "", "*"):
+            return True
+        return str(row_provider) == str(provider)
+
+    def _find_pricing_row(self, provider: str, model: str,
+                          provider_matcher=None) -> Optional[dict]:
+        """Return the first pricing row for *model*, or ``None``."""
+        target = (model or "").strip()
+        if not target:
+            return None
+        target_lower = target.lower()
+        matcher = provider_matcher or (lambda rp: self._provider_matches(rp, provider))
+        for row in self.pricing:
+            row_model = str(row.get("model") or "")
+            if row_model != target and row_model.lower() != target_lower:
+                continue
+            if matcher(row.get("provider")):
+                return row
+        return None
+
+    def resolve_pricing(self, provider: str, model: str) -> Optional[dict]:
+        """Pricing for a ``(provider, model)`` pair, or ``None``. Never raises.
+
+        Resolution order — the first hit wins:
+
+        1. ``(provider, model)`` — the exact pair, plus any wildcard-provider
+           row for the same model string;
+        2. ``(provider, <canonical>)`` — the model's logical and benchmark
+           names, again with wildcard-provider rows;
+        3. ``(<any provider>, <canonical>)`` — cross-provider grouping: a
+           price declared once for the canonical model serves every provider
+           that serves it. This is the case the operator asked for — one
+           model, different provider names, one price.
+
+        Step 3 only runs when steps 1-2 miss, so a provider-specific rate
+        always wins over the shared one.
+
+        **A miss is not an error.** A model the gateway cannot price is a
+        reporting gap, not a request failure: callers record the request at
+        $0 and log ``pricing_unresolved`` instead of discarding a completion
+        the upstream already produced. Use :meth:`get_pricing` where an
+        exception is genuinely wanted.
+        """
+        exact = self._find_pricing_row(provider, model)
+        if exact is not None:
+            return exact
+
+        canonical = self._canonical_names(model)
+        for probe in canonical:
+            hit = self._find_pricing_row(provider, probe)
+            if hit is not None:
+                return hit
+
+        # Cross-provider: the canonical name priced under ANY provider.
+        for probe in canonical:
+            hit = self._find_pricing_row(
+                provider, probe, provider_matcher=lambda rp: True)
+            if hit is not None:
+                return hit
+
+        logger.warning("pricing_unresolved", provider=provider, model=model,
+                       canonical=canonical)
+        return None
+
     def get_model_limits(self, model_id: str) -> dict | None:
-        """Return context_window, max_output_tokens, description for a model, or None."""
-        return self.model_limits.get(model_id)
+        """Return context_window, max_output_tokens, description for a model, or None.
+
+        Registry-aware, like :meth:`resolve_pricing`: an entry keyed by the
+        model's logical or benchmark name serves every provider-side spelling
+        of the same model, so limits are declared once rather than once per
+        provider alias.
+        """
+        for probe in (model_id, *self._canonical_names(model_id)):
+            entry = self.model_limits.get(probe)
+            if entry:
+                return entry
+        return None
 
     def get_profile(self, name: str) -> dict | None:
         return self.profiles.get(name)
@@ -524,10 +672,16 @@ class Config:
         return key
 
     def get_pricing(self, provider: str, model: str) -> dict:
-        for p in self.pricing:
-            if p["provider"] == provider and p["model"] == model:
-                return p
-        raise ConfigError(f"No pricing found for {provider}/{model}")
+        """Registry-aware pricing; raises :class:`ConfigError` when unknown.
+
+        Thin wrapper over :meth:`resolve_pricing` that preserves the strict
+        contract for callers that genuinely want to fail (tests, admin
+        tooling). Request-path cost accounting uses ``resolve_pricing``.
+        """
+        pricing = self.resolve_pricing(provider, model)
+        if pricing is None:
+            raise ConfigError(f"No pricing found for {provider}/{model}")
+        return pricing
 
     def get_provider_cache_config(self, provider_name: str) -> dict:
         """Return cache config for a provider, or empty dict if not configured."""

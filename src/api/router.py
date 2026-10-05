@@ -412,6 +412,12 @@ _CONTEXT_OUTPUT_RESERVE = 8192   # headroom for the response (tokens)
 
 _registry_cache: Optional[dict[str, dict]] = None
 _registry_db_path: Optional[str] = None
+# Reverse alias index (provider-side ID / benchmark key / logical name →
+# logical name). Rebuilt only when the registry changes: ``logical_model_name``
+# runs on the routing hot path (every rule match, every chain step), and
+# rebuilding this dict per call was pure waste.
+_alias_cache: Optional[dict[str, str]] = None
+_alias_cache_src: Optional[dict] = None
 
 
 def get_model_registry(db_path: str = "data/costs.db") -> dict[str, dict]:
@@ -431,13 +437,32 @@ def get_model_registry(db_path: str = "data/costs.db") -> dict[str, dict]:
 
 def invalidate_registry_cache() -> None:
     """Clear the cached registry so the next lookup re-reads the DB."""
-    global _registry_cache, _registry_db_path
+    global _registry_cache, _registry_db_path, _alias_cache, _alias_cache_src
     _registry_cache = None
     _registry_db_path = None
+    _alias_cache = None
+    _alias_cache_src = None
 
 
 def _alias_to_logical(registry: dict[str, dict]) -> dict[str, str]:
-    """Build reverse index: provider-side model ID / benchmark key → logical name."""
+    """Build reverse index: provider-side model ID / benchmark key → logical name.
+
+    Two passes, so an EXPLICIT alias always beats a derived one:
+
+    1. the logical name, the benchmark key, and every declared
+       ``provider_mappings`` VALUE, verbatim;
+    2. the last path segment of each declared provider-side ID
+       (``deepseek/deepseek-v4.1-flash`` → ``deepseek-v4.1-flash``).
+
+    Pass 2 is what stops a vendor prefix creating a SECOND logical name for
+    one model: without it, a provider-side ID the registry maps only under a
+    sibling's spelling falls through to ``normalize_model_id`` and gets a
+    logical name that no longer matches the bare-name variant.
+    """
+    global _alias_cache, _alias_cache_src
+    if _alias_cache is not None and _alias_cache_src is registry:
+        return _alias_cache
+
     index: dict[str, str] = {}
     for logical, entry in registry.items():
         index[logical.lower()] = logical
@@ -446,11 +471,26 @@ def _alias_to_logical(registry: dict[str, dict]) -> dict[str, str]:
         for provider_side in (entry.get("provider_mappings") or {}).values():
             if provider_side:
                 index.setdefault(provider_side.lower(), logical)
+    for logical, entry in registry.items():
+        for provider_side in (entry.get("provider_mappings") or {}).values():
+            if not provider_side or "/" not in provider_side:
+                continue
+            index.setdefault(provider_side.rsplit("/", 1)[-1].strip().lower(), logical)
+
+    _alias_cache = index
+    _alias_cache_src = registry
     return index
 
 
 def logical_model_name(model: str, db_path: str = "data/costs.db") -> str:
     """Map any model ID to its logical gateway name via the DB registry.
+
+    A provider-side ID with a vendor prefix (``deepseek/deepseek-v4.1-flash``)
+    is matched against the alias index by its FULL string first, then by its
+    last path segment — both BEFORE falling back to ``normalize_model_id``.
+    That ordering matters: normalizing first strips the prefix, so a slash
+    spelling could never reach the alias index and would resolve to a
+    different logical name than the same model spelled without a prefix.
 
     Unknown names are normalized (strips ``/models/`` prefix and ``.gguf``
     extension, lowercased) so a llama.cpp path like
@@ -459,10 +499,15 @@ def logical_model_name(model: str, db_path: str = "data/costs.db") -> str:
     if not model:
         return model
     registry = get_model_registry(db_path)
+    index = _alias_to_logical(registry)
     key = model.strip().lower()
-    mapped = _alias_to_logical(registry).get(key)
+    mapped = index.get(key)
     if mapped:
         return mapped
+    if "/" in key:
+        mapped = index.get(key.rsplit("/", 1)[-1].strip())
+        if mapped:
+            return mapped
     return normalize_model_id(key)
 
 
@@ -890,15 +935,33 @@ class CapabilityRouter:
         Reads ``config.model_limits[model].context_window``; falls back to a
         conservative default so an unknown-capacity local model is never sent a
         request it can't hold.
+
+        When the config exposes a registry-aware ``get_model_limits``, that is
+        consulted FIRST and the plain ``model_limits`` dict is used if it comes
+        back empty — so limits declared once under a model's canonical or
+        benchmark name serve every provider-side spelling of it, while a
+        duck-typed config that only carries ``model_limits`` keeps working
+        (a bare ``MagicMock`` attribute is callable and returns a Mock, which
+        would otherwise shadow the real dict in every test and stub).
         """
-        try:
-            if config is not None:
-                limits = (config.model_limits or {}).get(logical_model) or {}
+        for source in ("get_model_limits", "model_limits"):
+            try:
+                if config is None:
+                    break
+                if source == "get_model_limits":
+                    getter = getattr(config, "get_model_limits", None)
+                    if not callable(getter):
+                        continue
+                    limits = getter(logical_model)
+                else:
+                    limits = (config.model_limits or {}).get(logical_model)
+                if not isinstance(limits, dict):
+                    continue
                 ctx = self._coerce_context(limits.get("context_window"))
                 if ctx:
                     return ctx
-        except Exception:  # noqa: BLE001 — duck-typed configs
-            pass
+            except Exception:  # noqa: BLE001 — duck-typed configs
+                continue
         return _DEFAULT_CONTEXT_WINDOW
 
     def _fits_context(self, logical_model: str, request_tokens: int,

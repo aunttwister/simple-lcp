@@ -32,7 +32,16 @@ class TestDeepSeekPricing:
     def test_get_pricing_flash(self):
         p = self.plugin.get_pricing("deepseek-v4-flash")
         assert p == _PRICING["deepseek-v4-flash"]
-        assert p["cache_hit"] == 0.0028
+        # DeepSeek-V4.1-Flash off-peak rate, verified against
+        # https://api-docs.deepseek.com/quick_start/pricing on 2026-10-05.
+        # The previous value (0.0028) was the retired V4-Flash price.
+        assert p["cache_hit"] == 0.003
+
+    def test_every_v41_flash_spelling_shares_one_price(self):
+        """Legacy names are served by the same model at the same price."""
+        for name in ("deepseek-flash", "deepseek-v4-flash", "deepseek-v4.1-flash",
+                     "deepseek-v4-flash-vision-exp"):
+            assert self.plugin.get_pricing(name)["output"] == 0.6
 
     def test_get_pricing_unknown(self):
         assert self.plugin.get_pricing("nonexistent-model") is None
@@ -63,7 +72,7 @@ class TestDeepSeekCalculateCost:
             "prompt_tokens": 0,
             "completion_tokens": 100_000,
         })
-        expected = (100_000 / 1_000_000) * 0.28
+        expected = (100_000 / 1_000_000) * 0.6
         assert cost == pytest.approx(expected)
 
     def test_cache_only_auto_miss(self):

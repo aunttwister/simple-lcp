@@ -38,9 +38,17 @@ logger = get_logger("lcp.cost.commandcode")
 _COMMANDCODE_BASE = "https://api.commandcode.ai/provider/v1"
 
 # ── Pre-known model pricing (per 1M tokens, USD) ────────────────────────────
-# Sourced from commandcode.ai/docs/resources/pricing-limits (August 2026).
-# Only models commonly routed through commandcode are listed. Unlisted models
-# are billed through config-based pricing from the gateway config.
+# Sourced from commandcode.ai/docs/resources/pricing-limits (August 2026), with
+# DeepSeek rates re-verified against https://api-docs.deepseek.com/quick_start/pricing
+# (off-peak) on 2026-10-05. Only models commonly routed through commandcode are
+# listed. Unlisted models are billed through config-based pricing from the
+# gateway config.
+_FLASH_PRICING: dict[str, float] = {
+    "cache_hit": 0.003,
+    "cache_miss": 0.15,
+    "output": 0.6,
+}
+
 _COMMANDCODE_PRICING: dict[str, dict[str, float]] = {
     # DeepSeek (primary models — 75% off deal)
     "deepseek-v4-pro": {
@@ -48,11 +56,18 @@ _COMMANDCODE_PRICING: dict[str, dict[str, float]] = {
         "cache_miss": 0.435,
         "output": 0.87,
     },
-    "deepseek-v4-flash": {
-        "cache_hit": 0.0028,
-        "cache_miss": 0.14,
-        "output": 0.28,
-    },
+    # Every spelling of DeepSeek-V4.1-Flash shares ONE entry — the Provider API
+    # catalog ID `deepseek/deepseek-v4.1-flash`, the bare benchmark name
+    # `deepseek-v4.1-flash`, the current DeepSeek API name `deepseek-flash`,
+    # and the legacy `deepseek-v4-flash` / `...-vision-exp` names that DeepSeek
+    # still accepts and serves with the same model. `_logical_model()` strips
+    # the catalog prefix, so keying on the bare names covers the ID form too.
+    # Verified against https://api-docs.deepseek.com/quick_start/pricing
+    # (off-peak) on 2026-10-05.
+    "deepseek-flash": dict(_FLASH_PRICING),
+    "deepseek-v4-flash": dict(_FLASH_PRICING),
+    "deepseek-v4.1-flash": dict(_FLASH_PRICING),
+    "deepseek-v4-flash-vision-exp": dict(_FLASH_PRICING),
     # Anthropic Claude
     "claude-sonnet-4-6": {
         "cache_hit": 0.30,

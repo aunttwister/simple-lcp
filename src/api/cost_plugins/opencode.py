@@ -24,17 +24,30 @@ from .base import CostPlugin, get_registry
 logger = get_logger("lcp.cost.opencode")
 
 # ── Pricing ─────────────────────────────────────────────────────────────────
+# OpenCode resells the same DeepSeek models, so these rates mirror
+# src/api/cost_plugins/deepseek.py. Every spelling of DeepSeek-V4.1-Flash —
+# `deepseek-flash` (current API name), `deepseek-v4-flash` and
+# `deepseek-v4-flash-vision-exp` (legacy, served by the same model), and
+# `deepseek-v4.1-flash` (the gateway's benchmark key) — shares ONE entry, so
+# the model cannot be priced differently depending on which of its names a
+# provider happened to use. Verified against
+# https://api-docs.deepseek.com/quick_start/pricing on 2026-10-05 (off-peak).
+_FLASH_PRICING: dict[str, float] = {
+    "cache_hit": 0.003,
+    "cache_miss": 0.15,
+    "output": 0.6,
+}
+
 _OPENCODE_PRICING: dict[str, dict[str, float]] = {
     "deepseek-v4-pro": {
         "cache_hit": 0.003625,
         "cache_miss": 0.435,
         "output": 0.87,
     },
-    "deepseek-v4-flash": {
-        "cache_hit": 0.0028,
-        "cache_miss": 0.14,
-        "output": 0.28,
-    },
+    "deepseek-flash": dict(_FLASH_PRICING),
+    "deepseek-v4-flash": dict(_FLASH_PRICING),
+    "deepseek-v4.1-flash": dict(_FLASH_PRICING),
+    "deepseek-v4-flash-vision-exp": dict(_FLASH_PRICING),
 }
 
 _FREE_MODELS = frozenset({

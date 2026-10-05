@@ -2083,6 +2083,57 @@ class PluginEndpoints:
 
 # ── Admin Settings API ───────────────────────────────────────────────────────
 
+def validate_routing_rules(rules) -> Optional[str]:
+    """Validate a routing-rules list. Returns an error message, or ``None``.
+
+    Each rule: ``{task, profile, action (prefer|block|policy), provider?,
+    model?, min_score?, policy?, enabled?}``.
+
+    **One rule per (profile, intent).** Two rules for the same intent in the
+    same scope make the outcome depend on list ORDER, which is exactly what a
+    prefer/block rule exists to remove. The second rule is rejected rather than
+    silently winning or losing. The key matches the router's own matching
+    semantics (``Router._rule_matches``), which compares a rule's ``profile``
+    and ``task`` — so the API cannot accept a pair the resolver would treat as
+    ambiguous. A list-valued task is keyed as a tuple.
+    """
+    if not isinstance(rules, list):
+        return "'rules' must be a list"
+    seen: dict = {}
+    for i, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            return f"rule {i} must be an object"
+        action = rule.get("action")
+        if action not in ("prefer", "block", "policy"):
+            return f"rule {i}: action must be prefer | block | policy"
+        if action != "policy":
+            if not rule.get("provider") and not rule.get("model"):
+                return f"rule {i}: prefer/block need provider and/or model"
+        if action == "policy" and rule.get("policy") not in ("eager", "cost_first", "explore"):
+            return f"rule {i}: policy rule needs a valid policy"
+        if rule.get("min_score") is not None:
+            try:
+                float(rule["min_score"])
+            except (TypeError, ValueError):
+                return f"rule {i}: min_score must be a number"
+
+        raw_task = rule.get("task")
+        if isinstance(raw_task, list):
+            task_key: object = tuple(str(t).strip() for t in raw_task)
+        else:
+            task_key = str(raw_task or "*").strip() or "*"
+        profile_key = str(rule.get("profile") or "*").strip() or "*"
+        key = (profile_key, task_key)
+        if key in seen:
+            shown = ", ".join(task_key) if isinstance(task_key, tuple) else task_key
+            return (f"rule {i}: intent '{shown}' (profile {profile_key}) already has a "
+                    f"rule — rule {seen[key]}. One rule per intent; edit that one "
+                    "instead of adding a second.")
+        seen[key] = i
+    return None
+
+
+
 class SettingsEndpoints:
     """Admin settings API: cost-cache TTL, routing policy, cache management.
 
@@ -2252,7 +2303,6 @@ class SettingsEndpoints:
                 _sync_dynamic_routing_enabled(settings, enabled)
         from ..api.router import routing_status
         self._send_json(routing_status(self.config))
-
     def _serve_routing_rules_api(self):
         """POST /api/routing/rules {rules: [...], profile?} — validate + persist.
 
@@ -2267,30 +2317,10 @@ class SettingsEndpoints:
             self._send_json({"error": "invalid JSON body"}, 400)
             return
         rules = body.get("rules")
-        if not isinstance(rules, list):
-            self._send_json({"error": "'rules' must be a list"}, 400)
+        error = validate_routing_rules(rules)
+        if error:
+            self._send_json({"error": error}, 400)
             return
-        for i, rule in enumerate(rules):
-            if not isinstance(rule, dict):
-                self._send_json({"error": f"rule {i} must be an object"}, 400)
-                return
-            action = rule.get("action")
-            if action not in ("prefer", "block", "policy"):
-                self._send_json({"error": f"rule {i}: action must be prefer | block | policy"}, 400)
-                return
-            if action != "policy":
-                if not rule.get("provider") and not rule.get("model"):
-                    self._send_json({"error": f"rule {i}: prefer/block need provider and/or model"}, 400)
-                    return
-            if action == "policy" and rule.get("policy") not in ("eager", "cost_first", "explore"):
-                self._send_json({"error": f"rule {i}: policy rule needs a valid policy"}, 400)
-                return
-            if rule.get("min_score") is not None:
-                try:
-                    float(rule["min_score"])
-                except (TypeError, ValueError):
-                    self._send_json({"error": f"rule {i}: min_score must be a number"}, 400)
-                    return
         from ..api.cost_cache import get_settings
         settings = resolve_service("settings", fallback=get_settings)
         if settings is None:

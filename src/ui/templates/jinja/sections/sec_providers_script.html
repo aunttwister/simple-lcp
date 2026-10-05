@@ -493,6 +493,10 @@ async function loadRouting(profile) {
     }
     renderRoutingTasks();
     renderRoutingDecisions();
+    // The rules table renders canonical (benchmark) names, so the registry
+    // must be loaded first — otherwise the first paint falls back to raw
+    // provider IDs and one model shows up under three spellings again.
+    if (!CANON_NAMES.length) await loadRuleRegistry();
     renderRoutingRules();
   } catch (e) {
     document.getElementById('routingStatus').textContent = 'Failed to load routing: ' + e.message;
@@ -554,7 +558,7 @@ function renderRoutingDecisions() {
     '<td class="mono">' + escC(d.task || '—') + '</td>' +
     '<td class="mono">' + escC(d.policy || '—') + '</td>' +
     '<td>' + escC(d.action || '—') + '</td>' +
-    '<td class="mono">' + escC((d.provider || '') + '/' + (d.model || '')) + '</td>' +
+    '<td class="mono" title="provider-side ID: ' + escC(d.model || '') + '">' + escC((d.provider || '') + '/' + canonFor(d.model || '')) + '</td>' +
     '<td class="mono">' + (d.score != null ? (d.score * 100).toFixed(1) + '%' : '—') + '</td>' +
     '<td class="mono">' + escC((d.rules || []).join(', ') || '—') + '</td>' +
     '</tr>'
@@ -573,6 +577,69 @@ async function loadProvModels() {
   } catch (e) { /* dropdowns fall back to '*' */ }
 }
 
+// ── Model identity ───────────────────────────────────────────────────────
+// The model registry (Models page) is the ONE place a model's identity is
+// declared: a logical name, its benchmark key, and the ID each provider
+// expects. Rules are written in those canonical terms, so one model offered
+// under three provider spellings is ONE option here instead of three.
+var RULE_REGISTRY = {};   // logical name -> registry entry
+var ALIAS_TO_CANON = {};  // any spelling (lowercased) -> canonical display name
+var CANON_NAMES = [];     // canonical display names, sorted
+var PROV_CANONS = {};     // provider -> [canonical display names it serves]
+
+function canonFor(model) {
+  if (!model) return model;
+  return ALIAS_TO_CANON[String(model).trim().toLowerCase()] || model;
+}
+
+function registryEntryForCanon(canon) {
+  const direct = RULE_REGISTRY[canon];
+  if (direct) return direct;
+  const key = Object.keys(RULE_REGISTRY).find(function (k) {
+    const e = RULE_REGISTRY[k];
+    return e.benchmark_key === canon || e.logical_name === canon;
+  });
+  return key ? RULE_REGISTRY[key] : null;
+}
+
+async function loadRuleRegistry() {
+  try {
+    const d = await api('GET', '/api/models/registry');
+    RULE_REGISTRY = {}; ALIAS_TO_CANON = {}; CANON_NAMES = []; PROV_CANONS = {};
+    (d.registry || []).forEach(function (e) {
+      if (!e.logical_name) return;
+      const canon = e.benchmark_key || e.logical_name;
+      RULE_REGISTRY[e.logical_name] = e;
+      ALIAS_TO_CANON[String(e.logical_name).toLowerCase()] = canon;
+      ALIAS_TO_CANON[String(canon).toLowerCase()] = canon;
+      if (CANON_NAMES.indexOf(canon) === -1) CANON_NAMES.push(canon);
+      const mappings = e.provider_mappings || {};
+      Object.keys(mappings).forEach(function (p) {
+        if (mappings[p]) ALIAS_TO_CANON[String(mappings[p]).toLowerCase()] = canon;
+        if (!PROV_CANONS[p]) PROV_CANONS[p] = [];
+        if (PROV_CANONS[p].indexOf(canon) === -1) PROV_CANONS[p].push(canon);
+      });
+    });
+    CANON_NAMES.sort();
+    Object.keys(PROV_CANONS).forEach(function (p) { PROV_CANONS[p].sort(); });
+  } catch (e) { /* the model dropdown falls back to raw provider lists */ }
+}
+
+function ruleModelLabel(canon, provider) {
+  // Show the canonical (benchmark) name, with the provider-side ID in
+  // parentheses so the operator can see WHICH spelling this maps to. That is
+  // the whole point: one entry, several provider names.
+  const entry = registryEntryForCanon(canon);
+  const mappings = (entry && entry.provider_mappings) || {};
+  if (provider && provider !== '*' && mappings[provider] && mappings[provider] !== canon) {
+    return canon + ' (' + mappings[provider] + ')';
+  }
+  const ids = Object.keys(mappings)
+    .map(function (p) { return mappings[p]; })
+    .filter(function (v, i, a) { return v && v !== canon && a.indexOf(v) === i; });
+  return ids.length ? canon + ' (' + ids.join(', ') + ')' : canon;
+}
+
 function ruleOptionsHtml(options, cur) {
   return options.map(o =>
     '<option value="' + escC(o.value) + '"' + (String(o.value) === String(cur) ? ' selected' : '') + '>' +
@@ -587,9 +654,32 @@ function ruleSelect(name, options, cur, onchange) {
     ruleOptionsHtml(options, cur) + '</select>';
 }
 
-function ruleTaskOptions(cur) {
+function ruleTaskOptions(cur, taken) {
+  // Tasks come from the capability matrix. *taken* (used only for the draft
+  // row) hides intents that already have a rule for this profile, because a
+  // second rule for one intent is order-dependent and refused by the API.
   const tasks = Object.keys(ROUTING.per_task || {});
-  return [{value:'*', label:'*'}, ...tasks.map(t => ({value:t, label:t}))];
+  return [{value:'*', label:'*'}, ...tasks.map(t => ({value:t, label:t}))]
+    .filter(o => o.value === '*' || !taken || !taken[o.value]);
+}
+
+function usedIntents(profile) {
+  const taken = {};
+  (ROUTING.rules || []).forEach(function (r) {
+    if (String(r.profile || '*') !== String(profile || '*')) return;
+    if (Array.isArray(r.task)) { r.task.forEach(function (t) { taken[t] = 1; }); }
+    else { taken[String(r.task || '*')] = 1; }
+  });
+  return taken;
+}
+
+function syncDraftIntents(sel) {
+  const tr = sel.closest('tr');
+  const taskSel = tr.querySelector('.rule-task');
+  if (!taskSel) return;
+  const cur = taskSel.value;
+  const taken = usedIntents(sel.value);
+  taskSel.innerHTML = ruleOptionsHtml(ruleTaskOptions(cur, taken), cur);
 }
 
 function ruleProfileOptions(cur) {
@@ -607,16 +697,38 @@ function ruleProviderOptions(cur) {
 }
 
 function ruleModelOptions(provider, cur) {
-  // When a specific provider is selected, list only its models. When provider
-  // is '*' (or empty), list ALL models across providers (deduped) so a rule can
-  // target a model regardless of which provider serves it.
+  // Options are CANONICAL models — the benchmark name shown on the Models
+  // page — never raw provider IDs. A model offered as ``deepseek-flash``,
+  // ``deepseek-v4.1-flash`` and ``deepseek/deepseek-v4.1-flash`` is therefore
+  // ONE option, not three. When a provider is pinned, only the models that
+  // provider is mapped to are offered.
+  let models = CANON_NAMES.slice();
+  if (!models.length) return [];   // registry unavailable → caller falls back
+  if (provider && provider !== '*' && PROV_CANONS[provider]) {
+    models = PROV_CANONS[provider].slice();
+  }
+  const opts = [{value:'*', label:'*'},
+    ...models.map(m => ({value:m, label:ruleModelLabel(m, provider)}))];
+  // Keep an unregistered/legacy value selectable rather than silently
+  // resetting the rule to '*'.
+  if (cur && cur !== '*' && !models.includes(cur)) {
+    opts.push({value: cur, label: ruleModelLabel(cur, provider)});
+  }
+  return opts;
+}
+
+// The picker falls back to the old raw-provider-ID list only when the
+// registry could not be read, so the control is never empty.
+function ruleModelOptionsCompat(provider, cur) {
+  const canon = ruleModelOptions(provider, cur);
+  if (canon.length) return canon;
   let models = [];
   if (provider && provider !== '*' && PROV_MODELS[provider]) {
     models = PROV_MODELS[provider].slice();
   } else {
     const seen = {};
-    Object.keys(PROV_MODELS).forEach(function(p) {
-      (PROV_MODELS[p] || []).forEach(function(m) { if (!seen[m]) { seen[m] = 1; models.push(m); } });
+    Object.keys(PROV_MODELS).forEach(function (p) {
+      (PROV_MODELS[p] || []).forEach(function (m) { if (!seen[m]) { seen[m] = 1; models.push(m); } });
     });
     models.sort();
   }
@@ -631,7 +743,7 @@ function syncRuleModelSelect(sel) {
   const modelSel = tr.querySelector('.rule-model');
   if (!modelSel) return;
   const cur = modelSel.value;
-  modelSel.innerHTML = ruleOptionsHtml(ruleModelOptions(sel.value, cur), cur);
+  modelSel.innerHTML = ruleOptionsHtml(ruleModelOptionsCompat(sel.value, cur), cur);
 }
 
 function renderRoutingRules() {
@@ -646,30 +758,34 @@ function renderRoutingRules() {
     rows.innerHTML = '<tr><td colspan="7" class="empty">No rules — routing uses policy + benchmark scores only.</td></tr>';
     return;
   }
-  rows.innerHTML = rules.map((r, i) =>
-    '<tr>' +
+  rows.innerHTML = rules.map((r, i) => {
+    const model = canonFor(r.model);
+    return '<tr>' +
     '<td>' + ruleSelect('task', ruleTaskOptions(r.task), r.task) + '</td>' +
     '<td>' + ruleSelect('profile', ruleProfileOptions(r.profile), r.profile) + '</td>' +
     '<td>' + ruleSelect('action', [{value:'prefer', label:'prefer'}, {value:'block', label:'block'}, {value:'policy', label:'policy'}], r.action) + '</td>' +
     '<td>' + ruleSelect('provider', ruleProviderOptions(r.provider), r.provider, 'syncRuleModelSelect(this)') + '</td>' +
-    '<td>' + ruleSelect('model', ruleModelOptions(r.provider, r.model), r.model) + '</td>' +
+    '<td>' + ruleSelect('model', ruleModelOptionsCompat(r.provider, model), model) + '</td>' +
     '<td><input class="rule-min" type="number" min="0" max="1" step="0.05" value="' + escC(r.min_score != null ? r.min_score : '') + '" placeholder="—" style="width:52px;padding:0.25rem 0.4rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.72rem"></td>' +
     '<td style="white-space:nowrap">' +
       '<button class="btn btn-outline btn-sm" onclick="saveRulesRow(' + i + ')">Save</button> ' +
       '<button class="btn btn-outline btn-sm" onclick="deleteRule(' + i + ')">✕</button>' +
-    '</td></tr>'
-  ).join('');
+    '</td></tr>';
+  }).join('');
   if (draftRule) rows.insertAdjacentHTML('beforeend', ruleDraftHtml(draftRule));
 }
 
 function ruleDraftHtml(rule) {
   rule = rule || {};
+  const profile = rule.profile || '*';
+  const taken = usedIntents(profile);
+  const model = canonFor(rule.model || '*');
   return '<tr class="rule-draft">' +
-    '<td>' + ruleSelect('task', ruleTaskOptions(rule.task || '*'), rule.task || '*') + '</td>' +
-    '<td>' + ruleSelect('profile', ruleProfileOptions(rule.profile || '*'), rule.profile || '*') + '</td>' +
+    '<td>' + ruleSelect('task', ruleTaskOptions(rule.task || '*', taken), rule.task || '*') + '</td>' +
+    '<td>' + ruleSelect('profile', ruleProfileOptions(profile), profile, 'syncDraftIntents(this)') + '</td>' +
     '<td>' + ruleSelect('action', [{value:'prefer', label:'prefer'}, {value:'block', label:'block'}, {value:'policy', label:'policy'}], rule.action || 'prefer') + '</td>' +
     '<td>' + ruleSelect('provider', ruleProviderOptions(rule.provider || '*'), rule.provider || '*', 'syncRuleModelSelect(this)') + '</td>' +
-    '<td>' + ruleSelect('model', ruleModelOptions(rule.provider || '*', rule.model || '*'), rule.model || '*') + '</td>' +
+    '<td>' + ruleSelect('model', ruleModelOptionsCompat(rule.provider || '*', model), model) + '</td>' +
     '<td><input class="rule-min" type="number" min="0" max="1" step="0.05" value="' + escC(rule.min_score != null ? rule.min_score : '') + '" placeholder="—" style="width:52px;padding:0.25rem 0.4rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.72rem"></td>' +
     '<td><button class="btn btn-primary btn-sm" onclick="saveNewRule(this)">Add</button></td>' +
     '</tr>';
@@ -741,9 +857,13 @@ async function saveRouting() {
   loadRouting();
 }
 
-loadRouting();
+loadRuleRegistry().then(loadRouting);
 loadProvModels();
 setInterval(function () { loadRouting(); }, 15000);
+// Re-read the registry on a slower cadence so an edit made on the Models page
+// (a new benchmark key, a new provider mapping) reaches the rule picker
+// without a page reload.
+setInterval(function () { loadRuleRegistry(); }, 60000);
 applyHashTab();
 {% endraw %}</script>
 {% endif %}

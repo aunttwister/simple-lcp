@@ -21,8 +21,15 @@ def extract_last_sse_chunk(raw_bytes):
 
 
 def estimate_cost_from_tokens(provider, model, cost_info, config):
-    """Calculate cost from token counts using configured pricing or plugins."""
+    """Calculate cost from token counts using configured pricing or plugins.
+
+    Never raises: a missing price records $0 rather than failing the response
+    it was asked to account for. Uses the same registry-aware lookup as
+    :func:`src.api.request_pipeline.calculate_cost`, so one price row covers
+    every provider spelling of a model.
+    """
     from ..api.cost_plugins import get_registry
+    from ..api.request_pipeline import _lookup_pricing
 
     # Try plugin registry first
     usage_for_plugin = {
@@ -36,8 +43,11 @@ def estimate_cost_from_tokens(provider, model, cost_info, config):
     if plugin_cost is not None:
         return round(plugin_cost, 8)
 
-    # Fall back to config-based pricing
-    pricing = config.get_pricing(provider, model)
+    # Fall back to config-based pricing (registry-aware, never fatal).
+    pricing = _lookup_pricing(config, provider, model)
+    if pricing is None:
+        return 0.0
+
     cache_hit = cost_info.get("cache_hit_tokens", 0)
     cache_miss = cost_info.get("cache_miss_tokens", 0)
     output = cost_info.get("completion_tokens", 0)

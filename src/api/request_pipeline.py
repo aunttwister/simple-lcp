@@ -472,12 +472,42 @@ def read_cache_hit_tokens(provider_name: str, response_body: dict | None,
     return 0
 
 
+def _lookup_pricing(config, provider: str, model: str) -> dict | None:
+    """Resolve a pricing row without ever raising. Returns a dict or ``None``.
+
+    Prefers the config's registry-aware ``resolve_pricing`` (one price serves
+    every provider spelling of one model) and falls back to ``get_pricing``
+    for duck-typed configs that predate it. A non-dict return — a stub config
+    whose attributes are mocks — is treated as "no answer" rather than being
+    used for arithmetic.
+    """
+    for name in ("resolve_pricing", "get_pricing"):
+        resolver = getattr(config, name, None)
+        if not callable(resolver):
+            continue
+        try:
+            row = resolver(provider, model)
+        except Exception:  # noqa: BLE001 — a pricing miss is not fatal here
+            continue
+        if isinstance(row, dict):
+            return row
+    return None
+
+
 def calculate_cost(provider: str, model: str, body: dict, response_body: dict | None,
                    config) -> dict:
     """Calculate token usage and cost from request+response.
 
     Tries the plugin registry first (for plugin-provided cost tracking),
-    then falls back to the generic config-based pricing.
+    then falls back to the generic config-based pricing — which resolves
+    through the model registry, so every provider spelling of one model is
+    priced from the same row.
+
+    **A missing price is not an error.** Returning a $0 row (and logging
+    ``pricing_unresolved``) keeps the token counts and the request record
+    while refusing to throw away a completion the upstream already produced
+    and already billed for. This call sits on the response path: raising here
+    turned a successful answer into an HTTP 500 LCP-4001.
     """
     usage = response_body.get("usage", {}) if response_body else {}
     prompt_tokens = usage.get("prompt_tokens", 0)
@@ -502,10 +532,22 @@ def calculate_cost(provider: str, model: str, body: dict, response_body: dict | 
             "cache_hit_tokens": cache_hit,
             "cache_miss_tokens": cache_miss,
             "cost": round(plugin_cost, 8),
+            "priced": True,
         }
 
-    # Fall back to config-based pricing
-    pricing = config.get_pricing(provider, model)
+    # Fall back to config-based pricing (registry-aware, never fatal).
+    pricing = _lookup_pricing(config, provider, model)
+    if pricing is None:
+        logger.warning("pricing_unresolved", provider=provider, model=model,
+                       reason="no plugin or config price — recording $0")
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cache_hit_tokens": cache_hit,
+            "cache_miss_tokens": cache_miss,
+            "cost": 0.0,
+            "priced": False,
+        }
 
     cache_hit_cost = (cache_hit / 1_000_000) * pricing["cache_hit"]
     cache_miss_cost = (cache_miss / 1_000_000) * pricing["cache_miss"]
@@ -517,6 +559,7 @@ def calculate_cost(provider: str, model: str, body: dict, response_body: dict | 
         "cache_hit_tokens": cache_hit,
         "cache_miss_tokens": cache_miss,
         "cost": round(cache_hit_cost + cache_miss_cost + output_cost, 8),
+        "priced": True,
     }
 
 

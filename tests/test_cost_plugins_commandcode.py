@@ -139,14 +139,16 @@ class TestCommandCodeIdentity:
         usage = {"prompt_tokens": 1000, "completion_tokens": 500,
                  "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1000}
         cost = plugin.calculate_cost("deepseek/deepseek-v4-flash", usage)
-        expected = (1000 / 1_000_000) * 0.14 + (500 / 1_000_000) * 0.28
+        # DeepSeek-V4.1-Flash off-peak rates, verified 2026-10-05.
+        expected = (1000 / 1_000_000) * 0.15 + (500 / 1_000_000) * 0.6
         assert cost == pytest.approx(expected)
 
     def test_calculate_cost(self, plugin):
         usage = {"prompt_tokens": 1000, "completion_tokens": 500,
                  "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1000}
         cost = plugin.calculate_cost("deepseek-v4-flash", usage)
-        expected = (1000 / 1_000_000) * 0.14 + (500 / 1_000_000) * 0.28
+        # DeepSeek-V4.1-Flash off-peak rates, verified 2026-10-05.
+        expected = (1000 / 1_000_000) * 0.15 + (500 / 1_000_000) * 0.6
         assert cost == pytest.approx(expected)
 
     def test_calculate_cost_zero_tokens(self, plugin):

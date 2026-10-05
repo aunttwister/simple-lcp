@@ -17,18 +17,33 @@ from urllib.request import Request, urlopen
 from .base import CostPlugin, get_registry
 
 # ── Official pricing (per 1M tokens, USD) ─────────────────────────────────
-# Source: https://api-docs.deepseek.com/quick_start/pricing (verified June 2026)
+# Source: https://api-docs.deepseek.com/quick_start/pricing (verified 2026-10-05).
+#
+# DeepSeek-V4.1-Flash is the current Flash model; `deepseek-flash` is its API
+# name. The docs state the legacy names `deepseek-v4-flash` and
+# `deepseek-v4-flash-vision-exp` are still accepted but served by the same
+# DeepSeek-V4.1-Flash model and billed at the Flash price, and the gateway's
+# benchmark key for that model is `deepseek-v4.1-flash`. All four spellings
+# therefore share ONE price entry — declared once and aliased, so a price
+# change cannot land on only some of a model's names.
+#
+# Off-peak rates. Peak (01:00-04:00 and 06:00-10:00 UTC, Mon-Fri) is 2x.
+_FLASH_PRICING: dict[str, float] = {
+    "cache_hit": 0.003,
+    "cache_miss": 0.15,
+    "output": 0.6,
+}
+
 _PRICING: dict[str, dict[str, float]] = {
     "deepseek-v4-pro": {
         "cache_hit": 0.003625,
         "cache_miss": 0.435,
         "output": 0.87,
     },
-    "deepseek-v4-flash": {
-        "cache_hit": 0.0028,
-        "cache_miss": 0.14,
-        "output": 0.28,
-    },
+    "deepseek-flash": dict(_FLASH_PRICING),
+    "deepseek-v4-flash": dict(_FLASH_PRICING),
+    "deepseek-v4.1-flash": dict(_FLASH_PRICING),
+    "deepseek-v4-flash-vision-exp": dict(_FLASH_PRICING),
 }
 
 _BALANCE_URL = "https://api.deepseek.com/user/balance"

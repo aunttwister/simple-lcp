@@ -498,41 +498,50 @@ class LCPHandler(
                 except Exception:
                     pass
                 last_chunk = extract_last_sse_chunk(full_sse)
-                if last_chunk and last_chunk.get("usage"):
-                    # Price a streamed response through exactly the same path as
-                    # a non-streamed one. This branch used to build the usage
-                    # dict inline with DeepSeek's flat cache field names
-                    # (`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`),
-                    # which a provider reporting the OpenAI-compatible nested
-                    # block (`usage.prompt_tokens_details.cached_tokens`) never
-                    # fills in — OpenCode and CommandCode both report it there.
-                    # Every prompt token was therefore recorded as a cache miss
-                    # and priced at the miss rate, overstating cost ~10x on all
-                    # streamed traffic (which is most of it).
-                    cost_info = calculate_cost(provider, model, body, last_chunk,
-                                               self.config)
-                    cost_info["latency_ms"] = latency_ms
-                else:
-                    # SSE stream without usage — fall back to pre-flight estimation
-                    cost_info = {
-                        "prompt_tokens": estimation["input_tokens"],
-                        "completion_tokens": 0,
-                        "cache_hit_tokens": 0,
-                        "cache_miss_tokens": estimation["input_tokens"],
-                        "cost": estimation["estimated_total_cost"],
-                        "latency_ms": latency_ms,
-                    }
-                record_cost(self.engine, profile, model, provider, cost_info, True, None, blocked_tools,
-                            conversation_id=conversation_id if self.headers.get("x-opencode-session") else None)
-
-                # Increment budget spend and fire alerts
+                # Cost accounting is bookkeeping that runs AFTER the stream has
+                # gone out. A failure in it — an unpriceable model, a DB hiccup —
+                # must never surface as a 500 on a response the client already
+                # received in full, so the whole block is guarded.
+                cost_info = {"prompt_tokens": 0, "completion_tokens": 0,
+                             "cache_hit_tokens": 0, "cache_miss_tokens": 0,
+                             "cost": 0.0, "latency_ms": latency_ms}
                 try:
+                    if last_chunk and last_chunk.get("usage"):
+                        # Price a streamed response through exactly the same path as
+                        # a non-streamed one. This branch used to build the usage
+                        # dict inline with DeepSeek's flat cache field names
+                        # (`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`),
+                        # which a provider reporting the OpenAI-compatible nested
+                        # block (`usage.prompt_tokens_details.cached_tokens`) never
+                        # fills in — OpenCode and CommandCode both report it there.
+                        # Every prompt token was therefore recorded as a cache miss
+                        # and priced at the miss rate, overstating cost ~10x on all
+                        # streamed traffic (which is most of it).
+                        cost_info = calculate_cost(provider, model, body, last_chunk,
+                                                   self.config)
+                        cost_info["latency_ms"] = latency_ms
+                    else:
+                        # SSE stream without usage — fall back to pre-flight estimation
+                        cost_info = {
+                            "prompt_tokens": estimation["input_tokens"],
+                            "completion_tokens": 0,
+                            "cache_hit_tokens": 0,
+                            "cache_miss_tokens": estimation["input_tokens"],
+                            "cost": estimation["estimated_total_cost"],
+                            "latency_ms": latency_ms,
+                        }
+                    record_cost(self.engine, profile, model, provider, cost_info, True, None, blocked_tools,
+                                conversation_id=conversation_id if self.headers.get("x-opencode-session") else None)
+
+                    # Increment budget spend and fire alerts
                     self._track_budget_spend(
                         profile, cost_info["cost"],
                         getattr(self, '_current_key_id', None)
                     )
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 — bookkeeping, not the response
+                    logger.error("cost_accounting_failed", profile=profile,
+                                 provider=provider, model=model, stream=True,
+                                 error=str(e), traceback=traceback.format_exc()[-500:])
 
                 total_wall_ms = int((time.time() - t0) * 1000)
                 logger.info(
@@ -567,21 +576,30 @@ class LCPHandler(
                     f"pct={verification['prompt_discrepancy_pct']}"
                 )
 
-            # Calculate cost
-            cost_info = calculate_cost(provider, model, body, response_body, self.config)
-            cost_info["latency_ms"] = latency_ms
-
-            # Record cost
-            record_cost(self.engine, profile, model, provider, cost_info, True, None, blocked_tools,
-                            conversation_id=conversation_id if self.headers.get("x-opencode-session") else None)
-
-            # Budget spend tracking — unified: increments profile + key budgets
-            # and syncs ApiKey.total_spend with key-scoped budgets.
+            # Cost accounting — bookkeeping, so it must never be able to turn a
+            # completion the upstream already produced (and charged for) into a
+            # failure response. Guarded end to end: an unpriceable model or a
+            # DB error degrades to a $0 line on a request that still succeeds.
+            cost_info = {"prompt_tokens": 0, "completion_tokens": 0,
+                         "cache_hit_tokens": 0, "cache_miss_tokens": 0,
+                         "cost": 0.0, "latency_ms": latency_ms}
             try:
+                # Calculate cost
+                cost_info = calculate_cost(provider, model, body, response_body, self.config)
+                cost_info["latency_ms"] = latency_ms
+
+                # Record cost
+                record_cost(self.engine, profile, model, provider, cost_info, True, None, blocked_tools,
+                                conversation_id=conversation_id if self.headers.get("x-opencode-session") else None)
+
+                # Budget spend tracking — unified: increments profile + key budgets
+                # and syncs ApiKey.total_spend with key-scoped budgets.
                 key_id = getattr(self, '_current_key_id', None)
                 self._track_budget_spend(profile, cost_info["cost"], key_id)
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001 — bookkeeping, not the response
+                logger.error("cost_accounting_failed", profile=profile,
+                             provider=provider, model=model, stream=False,
+                             error=str(e), traceback=traceback.format_exc()[-500:])
 
             # Send response with custom headers
             body_bytes = json.dumps(response_body).encode("utf-8")
