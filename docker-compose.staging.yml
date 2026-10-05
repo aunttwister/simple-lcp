@@ -16,9 +16,15 @@
 # in normal operation writes there except the Setup page's module installer.
 #
 # NEVER run `down`/`stop` against the prod project from this file. Bring this
-# instance up with (from the simple-lcp checkout):
+# instance up with (from the simple-lcp checkout) — note the --env-file: the
+# LCP_HOST_* paths live in host-paths.env, NOT in .env (which holds only the
+# secret), so without it compose aborts on
+#   required variable LCP_HOST_DATA_DIR is missing a value
 #   cd <the simple-lcp checkout>
-#   docker compose -f docker-compose.staging.yml -p lcp-staging up -d --build
+#   docker compose -f docker-compose.staging.yml --env-file host-paths.env \
+#     -p lcp-staging up -d --build
+# Also do NOT use the default docker-compose.yml from this checkout: it declares
+# container_name: lcp, which collides with the running prod container.
 services:
   lcp-staging:
     build:
