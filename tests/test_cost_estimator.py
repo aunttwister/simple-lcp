@@ -85,17 +85,17 @@ class TestEstimateCost:
                 == round(result["estimated_input_cost"] + result["estimated_output_cost"], 8))
 
     def test_known_model_uses_correct_pricing(self):
-        """deepseek-v4-pro uses 0.435 input / 0.87 output per 1M tokens."""
+        """deepseek-v4-pro uses 0.66 input / 1.98 output per 1M tokens."""
         result = estimate_cost("deepseek-v4-pro", 1_000_000, max_tokens=1_000_000)
-        assert result["estimated_input_cost"] == 0.435
-        assert result["estimated_output_cost"] == 0.87
-        assert result["estimated_total_cost"] == 1.305
+        assert result["estimated_input_cost"] == 0.66
+        assert result["estimated_output_cost"] == 1.98
+        assert result["estimated_total_cost"] == 2.64
 
     def test_unknown_model_falls_back_to_default(self):
-        """Unknown models fall back to 0.435/0.87 pricing."""
+        """Unknown models fall back to 0.66/1.98 pricing."""
         result = estimate_cost("nonexistent-model", 1_000_000, max_tokens=1_000_000)
-        assert result["estimated_input_cost"] == 0.435
-        assert result["estimated_output_cost"] == 0.87
+        assert result["estimated_input_cost"] == 0.66
+        assert result["estimated_output_cost"] == 1.98
 
     def test_custom_pricing(self):
         """Custom pricing dict overrides defaults."""

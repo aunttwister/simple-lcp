@@ -107,9 +107,9 @@ class TestOpenCodeCalculateCost:
             "completion_tokens": 200_000,
         })
         expected = (
-            (500_000 / 1_000_000) * 0.003625
-            + (1_000_000 / 1_000_000) * 0.435
-            + (200_000 / 1_000_000) * 0.87
+            (500_000 / 1_000_000) * 0.022
+            + (1_000_000 / 1_000_000) * 0.66
+            + (200_000 / 1_000_000) * 1.98
         )
         assert cost == pytest.approx(expected)
 
@@ -129,7 +129,7 @@ class TestOpenCodeCalculateCost:
         cost = plugin.calculate_cost("deepseek-v4-pro", {
             "completion_tokens": 200_000,
         })
-        assert cost == pytest.approx(0.174)
+        assert cost == pytest.approx(0.396)  # 200k output x 1.98
 
 
 # ═══════════════════════════════════════════════════════════════════════

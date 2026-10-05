@@ -27,7 +27,7 @@ class TestDeepSeekPricing:
     def test_get_pricing_known(self):
         p = self.plugin.get_pricing("deepseek-v4-pro")
         assert p == _PRICING["deepseek-v4-pro"]
-        assert p["cache_hit"] == 0.003625
+        assert p["cache_hit"] == 0.022
 
     def test_get_pricing_flash(self):
         p = self.plugin.get_pricing("deepseek-v4-flash")
@@ -62,9 +62,9 @@ class TestDeepSeekCalculateCost:
             "prompt_cache_miss_tokens": 1_000_000,
             "completion_tokens": 500_000,
         })
-        expected = (1_000_000 / 1_000_000) * 0.003625 \
-                   + (1_000_000 / 1_000_000) * 0.435 \
-                   + (500_000 / 1_000_000) * 0.87
+        expected = (1_000_000 / 1_000_000) * 0.022 \
+                   + (1_000_000 / 1_000_000) * 0.66 \
+                   + (500_000 / 1_000_000) * 1.98
         assert cost == pytest.approx(expected)
 
     def test_v4_flash_only_output(self):
@@ -81,7 +81,7 @@ class TestDeepSeekCalculateCost:
             "prompt_tokens": 500_000,
             "completion_tokens": 0,
         })
-        expected = (500_000 / 1_000_000) * 0.435
+        expected = (500_000 / 1_000_000) * 0.66
         assert cost == pytest.approx(expected)
 
     def test_cache_hit_auto_miss_derived(self):
@@ -92,7 +92,7 @@ class TestDeepSeekCalculateCost:
             "completion_tokens": 0,
         })
         # cache_miss = 1000 - 300 = 700
-        expected = (700 / 1_000_000) * 0.435 + (300 / 1_000_000) * 0.003625
+        expected = (700 / 1_000_000) * 0.66 + (300 / 1_000_000) * 0.022
         assert cost == pytest.approx(expected, rel=1e-5)
 
     def test_unknown_model_returns_none(self):

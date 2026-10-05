@@ -14,7 +14,7 @@ from typing import Optional
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from .base import CostPlugin, get_registry
+from .base import CostPlugin, get_registry, select_rates
 
 # ── Official pricing (per 1M tokens, USD) ─────────────────────────────────
 # Source: https://api-docs.deepseek.com/quick_start/pricing (verified 2026-10-05).
@@ -27,19 +27,34 @@ from .base import CostPlugin, get_registry
 # therefore share ONE price entry — declared once and aliased, so a price
 # change cannot land on only some of a model's names.
 #
-# Off-peak rates. Peak (01:00-04:00 and 06:00-10:00 UTC, Mon-Fri) is 2x.
+# Base rates are OFF-PEAK; the `peak_*` keys are exactly 2x and are selected at
+# billing time by `select_rates()` from the request's UTC timestamp.
 _FLASH_PRICING: dict[str, float] = {
     "cache_hit": 0.003,
     "cache_miss": 0.15,
     "output": 0.6,
+    "peak_cache_hit": 0.006,
+    "peak_cache_miss": 0.30,
+    "peak_output": 1.20,
+}
+
+# DeepSeek-V4-Pro-0813 (corrected 2026-10-05). Base rates are DeepSeek's own
+# OFF-PEAK rates per https://api-docs.deepseek.com/quick_start/pricing:
+# 1M input cache-hit $0.022, cache-miss $0.66, output $1.98. They previously held
+# MiMo V2.6 Pro's catalogue rates ($0.435 / $0.87) — a copy/paste error, fixed
+# with the operator's go-ahead. Peak = exactly 2x each base rate (DeepSeek's
+# rule: off-peak is half of peak).
+_V4_PRO_PRICING: dict[str, float] = {
+    "cache_hit": 0.022,
+    "cache_miss": 0.66,
+    "output": 1.98,
+    "peak_cache_hit": 0.044,
+    "peak_cache_miss": 1.32,
+    "peak_output": 3.96,
 }
 
 _PRICING: dict[str, dict[str, float]] = {
-    "deepseek-v4-pro": {
-        "cache_hit": 0.003625,
-        "cache_miss": 0.435,
-        "output": 0.87,
-    },
+    "deepseek-v4-pro": dict(_V4_PRO_PRICING),
     "deepseek-flash": dict(_FLASH_PRICING),
     "deepseek-v4-flash": dict(_FLASH_PRICING),
     "deepseek-v4.1-flash": dict(_FLASH_PRICING),
@@ -74,7 +89,7 @@ class DeepSeekCostPlugin(CostPlugin):
         return _PRICING.get(model)
 
     def calculate_cost(self, model: str, usage: dict) -> Optional[float]:
-        pricing = _PRICING.get(model)
+        pricing = select_rates(_PRICING.get(model), usage.get("__ts"))
         if pricing is None:
             return None
 

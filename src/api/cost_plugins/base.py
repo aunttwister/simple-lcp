@@ -1,6 +1,7 @@
 """Abstract base class and registry for cost tracking plugins."""
 
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional, Any
 
 if TYPE_CHECKING:  # pragma: no cover — runtime import only for type hints
@@ -11,6 +12,64 @@ else:
     # logging_config, not cost_plugins.
     from ..component import Component
     from ..runtime import Runtime
+
+
+# ── DeepSeek peak / off-peak billing windows ────────────────────────────────
+# Source: https://api-docs.deepseek.com/quick_start/pricing (verified 2026-10-05)
+#   "Off-peak rates are half of the peak rates. Peak hours are 01:00-04:00 and
+#    06:00-10:00 UTC, Monday through Friday, excluding Chinese public holidays.
+#    All other hours are off-peak, including weekends and Chinese public
+#    holidays in full."
+#
+# Every DeepSeek-backed row (deepseek, opencode, commandcode) stores the
+# OFF-PEAK triple as its base rates plus a ``peak_*`` triple. Cost is selected
+# at billing time from the request's UTC timestamp. Storing the off-peak triple
+# alone was the earlier defect: it understated real spend by 2x for every
+# peak-window request (measured at ~14% of 70k rows, 2026-10-05).
+DEEPSEEK_PEAK_BANDS: tuple[tuple[int, int], ...] = ((1, 4), (6, 10))
+
+
+def is_deepseek_peak(ts: Optional[datetime] = None) -> bool:
+    """True when *ts* falls inside a DeepSeek peak billing window.
+
+    Peak = 01:00-04:00 and 06:00-10:00 UTC, Monday-Friday. Weekends are
+    off-peak in full. Upstream also treats Chinese public holidays as off-peak;
+    modelling that would need a holiday calendar, so on those days this
+    overstates rather than understates — a handful of days a year.
+
+    *ts* defaults to now. Naive timestamps are read as UTC.
+    """
+    ts = ts if ts is not None else datetime.now(timezone.utc)
+    if not isinstance(ts, datetime):        # ignore junk from a bad caller
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    ts = ts.astimezone(timezone.utc)
+    if ts.weekday() >= 5:                   # Sat/Sun — off-peak in full
+        return False
+    return any(lo <= ts.hour < hi for lo, hi in DEEPSEEK_PEAK_BANDS)
+
+
+def select_rates(pricing: Optional[dict],
+                 ts: Optional[datetime] = None) -> Optional[dict]:
+    """Return the effective ``{cache_hit, cache_miss, output}`` rates for *ts*.
+
+    A row without ``peak_*`` fields is peak-agnostic — the local Spark tiers and
+    every non-DeepSeek provider — and is returned unchanged, so this is a no-op
+    for them. For a peak-capable row the peak triple is used inside a peak
+    window and the base (off-peak) triple outside it, so ONE row prices both.
+    """
+    if not pricing:
+        return pricing
+    if "peak_cache_miss" not in pricing:
+        return pricing
+    if not is_deepseek_peak(ts):
+        return pricing
+    return {
+        "cache_hit": pricing.get("peak_cache_hit", pricing.get("cache_hit", 0.0)),
+        "cache_miss": pricing.get("peak_cache_miss", pricing.get("cache_miss", 0.0)),
+        "output": pricing.get("peak_output", pricing.get("output", 0.0)),
+    }
 
 
 class CostPlugin(ABC):

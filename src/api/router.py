@@ -366,7 +366,7 @@ _HYSTERESIS = 0.05
 
 # Known model pricing (USD per 1M output tokens) — from the gateway config
 _MODEL_PRICES: dict[str, float] = {
-    "deepseek-v4-pro": 0.87,
+    "deepseek-v4-pro": 1.98,
     "deepseek-v4-flash": 0.27,
 }
 

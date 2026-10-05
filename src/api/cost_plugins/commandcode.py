@@ -27,7 +27,7 @@ from typing import Any, Optional
 from sqlalchemy import func
 
 from ..logging_config import get_logger
-from .base import CostPlugin, get_registry
+from .base import CostPlugin, get_registry, select_rates
 
 logger = get_logger("lcp.cost.commandcode")
 
@@ -47,14 +47,24 @@ _FLASH_PRICING: dict[str, float] = {
     "cache_hit": 0.003,
     "cache_miss": 0.15,
     "output": 0.6,
+    "peak_cache_hit": 0.006,
+    "peak_cache_miss": 0.30,
+    "peak_output": 1.20,
 }
 
 _COMMANDCODE_PRICING: dict[str, dict[str, float]] = {
     # DeepSeek (primary models — 75% off deal)
+    # DeepSeek-V4-Pro-0813. Corrected 2026-10-05 to DeepSeek's own OFF-PEAK
+    # rates per https://api-docs.deepseek.com/quick_start/pricing — this entry
+    # previously held MiMo V2.6 Pro's catalogue table by mistake. Peak = exactly
+    # 2x each base rate (same rule as deepseek.py).
     "deepseek-v4-pro": {
-        "cache_hit": 0.003625,
-        "cache_miss": 0.435,
-        "output": 0.87,
+        "cache_hit": 0.022,
+        "cache_miss": 0.66,
+        "output": 1.98,
+        "peak_cache_hit": 0.044,
+        "peak_cache_miss": 1.32,
+        "peak_output": 3.96,
     },
     # Every spelling of DeepSeek-V4.1-Flash shares ONE entry — the Provider API
     # catalog ID `deepseek/deepseek-v4.1-flash`, the bare benchmark name
@@ -74,10 +84,15 @@ _COMMANDCODE_PRICING: dict[str, dict[str, float]] = {
     # https://commandcode.ai/docs/resources/pricing-limits, 2026-10-05).
     # Without this row it fell through to a $0 record while sitting in the live
     # `l2` chain as step 4, silently under-counting real spend.
+    # Command Code lists this model with its own peak rate ($0.32 / $1.16) —
+    # i.e. 2x off-peak, same rule as every other DeepSeek row.
     "deepseek-v4.1-flash-fast": {
         "cache_hit": 0.016,
         "cache_miss": 0.16,
         "output": 0.58,
+        "peak_cache_hit": 0.032,
+        "peak_cache_miss": 0.32,
+        "peak_output": 1.16,
     },
     # Anthropic Claude
     "claude-sonnet-4-6": {
@@ -277,7 +292,8 @@ class CommandCodeCostPlugin(CostPlugin):
         return _COMMANDCODE_PRICING.get(_logical_model(model))
 
     def calculate_cost(self, model: str, usage: dict) -> Optional[float]:
-        pricing = _COMMANDCODE_PRICING.get(_logical_model(model))
+        pricing = select_rates(_COMMANDCODE_PRICING.get(_logical_model(model)),
+                               usage.get("__ts"))
         if pricing is None:
             return None
 

@@ -126,7 +126,8 @@ SEED_CONFIG: dict[str, Any] = {
     },
     "pricing": [
         {"provider": "deepseek", "model": "deepseek-v4-pro",
-         "cache_hit": 0.003625, "cache_miss": 0.435, "output": 0.87},
+         "cache_hit": 0.022, "cache_miss": 0.66, "output": 1.98,
+         "peak_cache_hit": 0.044, "peak_cache_miss": 1.32, "peak_output": 3.96},
         # DeepSeek-V4.1-Flash. `deepseek-flash` is the current API name;
         # `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` are legacy names
         # DeepSeek still accepts and serves with the same model at the same
@@ -135,33 +136,44 @@ SEED_CONFIG: dict[str, Any] = {
         # https://api-docs.deepseek.com/quick_start/pricing (off-peak,
         # verified 2026-10-05; peak is 2x).
         {"provider": "deepseek", "model": "deepseek-flash",
-         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6,
+         "peak_cache_hit": 0.006, "peak_cache_miss": 0.30, "peak_output": 1.20},
         {"provider": "deepseek", "model": "deepseek-v4-flash",
-         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6,
+         "peak_cache_hit": 0.006, "peak_cache_miss": 0.30, "peak_output": 1.20},
         {"provider": "deepseek", "model": "deepseek-v4.1-flash",
-         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6,
+         "peak_cache_hit": 0.006, "peak_cache_miss": 0.30, "peak_output": 1.20},
         {"provider": "opencode", "model": "deepseek-v4-pro",
-         "cache_hit": 0.003625, "cache_miss": 0.435, "output": 0.87},
+         "cache_hit": 0.022, "cache_miss": 0.66, "output": 1.98,
+         "peak_cache_hit": 0.044, "peak_cache_miss": 1.32, "peak_output": 3.96},
         {"provider": "opencode", "model": "deepseek-flash",
-         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6,
+         "peak_cache_hit": 0.006, "peak_cache_miss": 0.30, "peak_output": 1.20},
         {"provider": "opencode", "model": "deepseek-v4-flash",
-         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6,
+         "peak_cache_hit": 0.006, "peak_cache_miss": 0.30, "peak_output": 1.20},
         {"provider": "opencode", "model": "deepseek-v4.1-flash",
-         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6,
+         "peak_cache_hit": 0.006, "peak_cache_miss": 0.30, "peak_output": 1.20},
         # Command Code bills the catalogue ID (with the vendor prefix).
         {"provider": "commandcode", "model": "deepseek/deepseek-v4-pro",
-         "cache_hit": 0.003625, "cache_miss": 0.435, "output": 0.87},
+         "cache_hit": 0.022, "cache_miss": 0.66, "output": 1.98,
+         "peak_cache_hit": 0.044, "peak_cache_miss": 1.32, "peak_output": 3.96},
         {"provider": "commandcode", "model": "deepseek/deepseek-v4.1-flash",
-         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6,
+         "peak_cache_hit": 0.006, "peak_cache_miss": 0.30, "peak_output": 1.20},
         {"provider": "commandcode", "model": "deepseek/deepseek-v4-flash",
-         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+         "cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6,
+         "peak_cache_hit": 0.006, "peak_cache_miss": 0.30, "peak_output": 1.20},
         # Command Code lists this as a DISTINCT model ("DeepSeek V4.1 Flash
         # Fast"), not another spelling of Flash, with its own rates (catalogue
         # JSON in commandcode.ai/docs/resources/pricing-limits, 2026-10-05).
         # It is live as `l2` chain step 4; without this row a real call records
         # $0 and silently under-counts spend.
         {"provider": "commandcode", "model": "deepseek/deepseek-v4.1-flash-fast",
-         "cache_hit": 0.016, "cache_miss": 0.16, "output": 0.58},
+         "cache_hit": 0.016, "cache_miss": 0.16, "output": 0.58,
+         "peak_cache_hit": 0.032, "peak_cache_miss": 0.32, "peak_output": 1.16},
         # Self-hosted DGX Spark (local-zgx) — $0 marginal cost. Without an entry
         # here, a *successful* upstream response was discarded with
         # ConfigError("No pricing found") -> HTTP 500 LCP-4001 whenever the

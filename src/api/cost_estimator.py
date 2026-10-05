@@ -18,7 +18,7 @@ logger = get_logger("lcp.cost_estimator")
 # Approximate token pricing per 1M tokens (fallback if config unavailable)
 # Keys match the gateway config pricing convention: cache_miss = input, output = output
 _DEFAULT_PRICING = {
-    "deepseek-v4-pro": {"cache_miss": 0.435, "output": 0.87},
+    "deepseek-v4-pro": {"cache_miss": 0.66, "output": 1.98},
     "deepseek-v4-flash": {"cache_miss": 0.14, "output": 0.28},
 }
 
@@ -84,10 +84,10 @@ def estimate_cost(
          "estimated_total_cost": float, "currency": "USD"}
     """
     if pricing is None:
-        pricing = _DEFAULT_PRICING.get(model, {"cache_miss": 0.435, "output": 0.87})
+        pricing = _DEFAULT_PRICING.get(model, {"cache_miss": 0.66, "output": 1.98})
 
-    input_cost = (input_tokens / 1_000_000) * pricing.get("cache_miss", pricing.get("input", 0.435))
-    output_cost = (max_tokens / 1_000_000) * pricing.get("output", 0.87)
+    input_cost = (input_tokens / 1_000_000) * pricing.get("cache_miss", pricing.get("input", 0.66))
+    output_cost = (max_tokens / 1_000_000) * pricing.get("output", 1.98)
 
     return {
         "input_tokens": input_tokens,

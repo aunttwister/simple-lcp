@@ -15,6 +15,7 @@ from typing import Callable, TypeVar
 
 from .circuit_breaker import get_circuit_breaker
 from .cost_plugins import get_registry
+from .cost_plugins.base import select_rates
 from .runtime import resolve_service
 from .exceptions import (
     AllProvidersFailedError,
@@ -516,11 +517,18 @@ def calculate_cost(provider: str, model: str, body: dict, response_body: dict | 
     cache_miss = usage.get("prompt_cache_miss_tokens",
                            prompt_tokens - cache_hit if prompt_tokens > cache_hit else 0)
 
+    # Billing timestamp. DeepSeek bills peak vs off-peak by REQUEST time, so the
+    # rate triple is chosen from this moment. Cost is computed on the response
+    # path — seconds after the request — so "now" is the request window barring
+    # a request that straddles a boundary.
+    request_ts = datetime.now(timezone.utc)
+
     usage_for_plugin = {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "prompt_cache_hit_tokens": cache_hit,
         "prompt_cache_miss_tokens": cache_miss,
+        "__ts": request_ts,
     }
 
     # Try plugin registry first
@@ -549,9 +557,10 @@ def calculate_cost(provider: str, model: str, body: dict, response_body: dict | 
             "priced": False,
         }
 
-    cache_hit_cost = (cache_hit / 1_000_000) * pricing["cache_hit"]
-    cache_miss_cost = (cache_miss / 1_000_000) * pricing["cache_miss"]
-    output_cost = (completion_tokens / 1_000_000) * pricing["output"]
+    rates = select_rates(pricing, request_ts)
+    cache_hit_cost = (cache_hit / 1_000_000) * rates["cache_hit"]
+    cache_miss_cost = (cache_miss / 1_000_000) * rates["cache_miss"]
+    output_cost = (completion_tokens / 1_000_000) * rates["output"]
 
     return {
         "prompt_tokens": prompt_tokens,
