@@ -14,6 +14,7 @@ def budget_ep(temp_db):
     """BudgetEndpoints instance with a temp DB engine."""
     db_path, engine = temp_db
     ep = BudgetEndpoints()
+    ep._audit = MagicMock()  # standalone mixin: no AuditEndpoints in its MRO
     ep.engine = engine
     ep.path = "/api/budgets"
     ep._read_body = lambda: {}

@@ -464,6 +464,7 @@ class HealthEndpoints:
             return
         cb = resolve_service("circuit_breaker", fallback=get_circuit_breaker)
         cb.reset(provider, base_url, profile)
+        self._audit("circuit_breaker.reset", provider=provider, profile=profile)
         self._send_json({"ok": True, "provider": provider, "profile": profile})
 
     # ── Provider health / failover / failure endpoints ────────────────────
@@ -681,6 +682,8 @@ class HealthEndpoints:
         cb = resolve_service("circuit_breaker", fallback=get_circuit_breaker)
         if base_url:
             status = cb.force_status(name, base_url, profile, action)
+            self._audit("provider.toggle", provider=name, profile=profile,
+                        toggle=action, status=status)
             self._send_json({"ok": True, "provider": name, "profile": profile,
                              "action": action, "status": status})
         else:
@@ -937,6 +940,7 @@ class ProviderEndpoints:
         refresher = resolve_service("refresher", fallback=get_refresher)
         if refresher is not None:
             refresher.request_refresh(provider=name)
+        self._audit("provider.create", provider=name)
         self._send_json({"ok": True, "provider": name})
 
     def _serve_provider_update(self, name: str):
@@ -969,6 +973,8 @@ class ProviderEndpoints:
         refresher = resolve_service("refresher", fallback=get_refresher)
         if refresher is not None:
             refresher.request_refresh(provider=name)
+        self._audit("provider.update", provider=name,
+                    fields=sorted(k for k in body if k != "api_key"))
         self._send_json({"ok": True, "provider": name})
 
     def _serve_provider_delete(self, name: str):
@@ -995,6 +1001,8 @@ class ProviderEndpoints:
         except Exception as exc:  # noqa: BLE001 — never fail a delete on health bookkeeping
             logger.warning("provider_delete_health_cascade_failed",
                            provider=name, error=str(exc))
+        self._audit("provider.delete", provider=name,
+                    health_rows_removed=health_rows_removed)
         self._send_json({"ok": True, "deleted": name,
                          "health_rows_removed": health_rows_removed})
 
@@ -1061,6 +1069,8 @@ class ProviderEndpoints:
             refresher.request_refresh(provider=new_name)
 
         logger.info("provider_renamed", provider=name, new_name=new_name,
+                    chain_steps_updated=steps_updated)
+        self._audit("provider.rename", provider=name, new_name=new_name,
                     chain_steps_updated=steps_updated)
         self._send_json({"ok": True, "provider": new_name, "renamed": True,
                          "chain_steps_updated": steps_updated})
@@ -1397,6 +1407,7 @@ class ProviderEndpoints:
             merged.append(entry)
         cfg.raw["profiles"][profile]["chain"] = merged
         cfg.save()
+        self._audit("chain.reorder", profile=profile, steps=len(merged))
         self._send_json({"ok": True, "profile": profile, "chain": merged})
 
 
@@ -1495,6 +1506,7 @@ class ProfileEndpoints:
                 cfg.raw["profiles"].setdefault(lane, {})["agent_profile"] = proposal
         if apply_changes and applied:
             cfg.save()
+            self._audit("profile.mapping_seed", applied=sorted(applied))
         self._send_json({
             "ok": True,
             "applied": applied,
@@ -1550,6 +1562,7 @@ class ProfileEndpoints:
             return
         cfg.raw["profiles"][name] = dict(fields)
         cfg.save()
+        self._audit("profile.create", profile=name)
         self._send_json({"ok": True, "profile": name})
 
     def _serve_profile_update(self, name: str):
@@ -1598,6 +1611,11 @@ class ProfileEndpoints:
             for key in _FIELDS:
                 pcfg[key] = fields[key]
         cfg.save()
+        self._audit("profile.update", profile=name,
+                    fields=sorted(k for k in body
+                                  if k in ("chain", "forbidden_tools",
+                                           "auth_required", "description")
+                                  or k in _FIELDS))
         self._send_json({"ok": True, "profile": name})
 
     def _serve_profile_delete(self, name: str):
@@ -1607,6 +1625,7 @@ class ProfileEndpoints:
             return
         del cfg.raw["profiles"][name]
         cfg.save()
+        self._audit("profile.delete", profile=name)
         self._send_json({"ok": True, "deleted": name})
 
     def _serve_profile_budget(self, name: str):
@@ -1665,6 +1684,8 @@ class ProfileEndpoints:
                     if "name" in body:
                         budget.name = body["name"]
                     session.commit()
+                    self._audit("profile.budget_update", profile=name,
+                                budget_id=budget.id, updated=True)
                     self._send_json({"ok": True, "updated": budget.id})
                 else:
                     # Create new
@@ -1679,6 +1700,8 @@ class ProfileEndpoints:
                     )
                     session.add(budget)
                     session.commit()
+                    self._audit("profile.budget_create", profile=name,
+                                budget_id=budget.id)
                     self._send_json({"ok": True, "created": budget.id})
         except Exception as e:
             logger.error("profile_budget_update_failed", error=str(e))
@@ -1731,6 +1754,8 @@ class KeyEndpoints:
             expires_at=body.get("expires_at", ""),
             metadata_tags=body.get("metadata_tags", ""),
         )
+        self._audit("key.create", key_id=result.get("id"),
+                    name=body.get("name", ""))
         self._send_json(result)
 
     def _serve_key_rotate(self, key_id: str):
@@ -1745,6 +1770,7 @@ class KeyEndpoints:
             return
         result = km.rotate_key(kid)
         if result:
+            self._audit("key.rotate", key_id=kid)
             self._send_json(result)
         else:
             self._send_json({"error": "key not found"}, 404)
@@ -1761,6 +1787,7 @@ class KeyEndpoints:
             return
         ok = km.revoke_key(kid)
         if ok:
+            self._audit("key.delete", key_id=kid)
             self._send_json({"ok": True, "deleted": kid})
         else:
             self._send_json({"error": "key not found"}, 404)
@@ -1804,12 +1831,14 @@ class AlertEndpoints:
             return
         am = resolve_service("alert_manager", fallback=get_alert_manager)
         config = am.update_config(body)
+        self._audit("alerts.config_update")
         self._send_json({"ok": True, "config": config})
 
     def _serve_alert_acknowledge(self, alert_id: str):
         am = resolve_service("alert_manager", fallback=get_alert_manager)
         ok = am.acknowledge(alert_id)
         if ok:
+            self._audit("alerts.acknowledge", alert_id=alert_id)
             self._send_json({"ok": True, "acknowledged": alert_id})
         else:
             self._send_json({"error": "alert not found"}, 404)
@@ -1881,6 +1910,8 @@ class BudgetEndpoints:
                 )
                 session.add(budget)
                 session.commit()
+                self._audit("budget.create", budget_id=budget.id,
+                            name=budget.name, profile=body.get("profile") or None)
                 self._send_json({"ok": True, "budget": {"id": budget.id, "name": budget.name}})
         except Exception as e:
             logger.error("budget_create_failed", error=str(e))
@@ -1921,6 +1952,7 @@ class BudgetEndpoints:
                 if "status" in body:
                     budget.status = body["status"]
                 session.commit()
+                self._audit("budget.update", budget_id=bid)
                 self._send_json({"ok": True, "updated": budget_id})
         except Exception as e:
             logger.error("budget_update_failed", error=str(e))
@@ -1941,6 +1973,7 @@ class BudgetEndpoints:
                     return
                 session.delete(budget)
                 session.commit()
+                self._audit("budget.delete", budget_id=bid)
                 self._send_json({"ok": True, "deleted": bid})
         except Exception as e:
             logger.error("budget_delete_failed", error=str(e))
@@ -2048,6 +2081,7 @@ class PluginEndpoints:
         refresher = resolve_service("refresher", fallback=get_refresher)
         if refresher is not None:
             refresher.request_refresh(provider=provider)
+        self._audit("plugin.cookie_set", provider=provider, has_cookie=bool(cookie))
         self._send_json({"ok": True, "provider": provider, "has_cookie": bool(cookie)})
 
     def _serve_plugin_workspace_id_get(self, provider: str):
@@ -2077,6 +2111,8 @@ class PluginEndpoints:
         refresher = resolve_service("refresher", fallback=get_refresher)
         if refresher is not None:
             refresher.request_refresh(provider=provider)
+        self._audit("plugin.workspace_id_set", provider=provider,
+                    has_workspace_id=bool(ws_id))
         self._send_json({"ok": True, "provider": provider, "has_workspace_id": bool(ws_id)})
 
 
@@ -2184,6 +2220,7 @@ class SettingsEndpoints:
             settings.clear_ttl_minutes(provider)
             if refresher is not None:
                 refresher.request_refresh(provider=provider)
+            self._audit("settings.ttl_reset", provider=provider)
             self._send_json({
                 "ok": True, "provider": provider,
                 "ttl_minutes": settings.get_ttl_minutes(provider=provider),
@@ -2200,6 +2237,7 @@ class SettingsEndpoints:
         # TTL changed → affected entries may now be stale; re-scrape in background.
         if refresher is not None:
             refresher.request_refresh(provider=provider)
+        self._audit("settings.ttl_update", provider=provider, ttl_minutes=ttl)
         self._send_json({
             "ok": True, "provider": provider, "ttl_minutes": ttl,
             "per_provider_ttl": settings.ttl_overrides(),
@@ -2211,6 +2249,7 @@ class SettingsEndpoints:
         refresher = resolve_service("refresher", fallback=get_refresher)
         if refresher is not None:
             refresher.request_refresh()
+            self._audit("settings.cache_refresh")
             self._send_json({"ok": True, "refreshing": True})
         else:
             self._send_json({"error": "refresher not initialized"}, 500)
@@ -2224,6 +2263,7 @@ class SettingsEndpoints:
         refresher = resolve_service("refresher", fallback=get_refresher)
         if refresher is not None:
             refresher.request_refresh()
+        self._audit("settings.cache_clear")
         self._send_json({"ok": True})
 
     def _serve_routing_status_api(self):
@@ -2274,6 +2314,7 @@ class SettingsEndpoints:
             settings.clear_routing_policy(profile)
             settings.clear_routing_min_score(profile)
             settings.clear_routing_rules(profile)
+            self._audit("routing.policy_clear", profile=profile)
             from ..api.router import routing_status
             self._send_json(routing_status(self.config))
             return
@@ -2300,6 +2341,9 @@ class SettingsEndpoints:
             # ``config.dynamic_routing`` reflects the current global toggle.
             if not profile:
                 _sync_dynamic_routing_enabled(settings, enabled)
+        self._audit("routing.policy_update", profile=profile,
+                    fields=sorted(k for k in ("policy", "min_score", "enabled")
+                                  if k in body))
         from ..api.router import routing_status
         self._send_json(routing_status(self.config))
     def _serve_routing_rules_api(self):
@@ -2327,6 +2371,7 @@ class SettingsEndpoints:
             return
         profile = (body.get("profile") or "").strip() or None
         settings.set_routing_rules(rules, profile=profile)
+        self._audit("routing.rules_update", profile=profile, rule_count=len(rules))
         from ..api.router import routing_status
         self._send_json(routing_status(self.config))
 
@@ -2839,6 +2884,7 @@ class DashboardEndpoints:
         db_path = _engine_db_path(self.engine)
         try:
             count = seed_capabilities(db_path)
+            self._audit("capability.seed", materialized=count)
             self._send_json({"ok": True, "materialized": count})
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
@@ -2905,6 +2951,8 @@ class DashboardEndpoints:
                         ))
                 session.commit()
             invalidate_registry_cache()
+            self._audit("capability.manual", model=model, release=label,
+                        tasks=sorted(scores))
             self._send_json({"ok": True, "model": model, "release": label})
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
@@ -3014,6 +3062,7 @@ class DashboardEndpoints:
                 invalidate_router_matrix()
             except Exception:  # noqa: BLE001
                 pass
+            self._audit("registry.upsert", logical_name=logical, change=action)
             self._send_json({"ok": True, "action": action, "logical_name": logical})
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
@@ -3034,6 +3083,7 @@ class DashboardEndpoints:
                 session.delete(entry)
                 session.commit()
             invalidate_registry_cache()
+            self._audit("registry.delete", logical_name=logical)
             self._send_json({"ok": True, "deleted": logical})
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
@@ -3261,13 +3311,16 @@ class DashboardEndpoints:
         except ValueError as e:
             self._send_json({"ok": False, "error": str(e)}, 400)
             return
+        self._audit("profile.avatar_set", profile=name)
         self._send_json(result)
 
     def _serve_profile_avatar_delete(self, name: str):
         """DELETE /api/profiles/{name}/avatar — forget the picture."""
         from ..api import profile_data
         try:
-            self._send_json(profile_data.delete_avatar(name))
+            result = profile_data.delete_avatar(name)
+            self._audit("profile.avatar_delete", profile=name)
+            self._send_json(result)
         except profile_data.BadProfileName:
             self._send_json({"ok": False, "error": "invalid profile name"}, 400)
 
@@ -3487,6 +3540,8 @@ class WorkEndpoints:
         except Exception as e:
             self._send_json({"error": "internal: %s" % e}, 500)
             return
+        self._audit("work.cron_op_submitted", op_id=op.get("id"),
+                    op=op.get("op"))
         self._send_json(op, 201)
 
     def _serve_work_sources_get(self):
@@ -3515,6 +3570,7 @@ class WorkEndpoints:
         except Exception as e:
             self._send_json({"error": "internal: %s" % e}, 500)
             return
+        self._audit("work.sources_saved")
         self._send_json({"saved": True, "sources": saved})
 
     def _serve_work_requests_api(self):

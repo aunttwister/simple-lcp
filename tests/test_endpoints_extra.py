@@ -38,6 +38,7 @@ def ep(temp_db):
 def budget_ep(temp_db):
     e = BudgetEndpoints()
     e.engine = temp_db[1]
+    e._audit = MagicMock()  # standalone mixin: no AuditEndpoints in its MRO
     e._send_json = MagicMock()
     e._read_body = MagicMock(return_value={})
     return e
@@ -48,6 +49,7 @@ def alert_ep(temp_db):
     e = AlertEndpoints()
     e.engine = temp_db[1]
     e.path = "/api/alerts"
+    e._audit = MagicMock()  # standalone mixin: no AuditEndpoints in its MRO
     e._send_json = MagicMock()
     e._read_body = MagicMock(return_value={})
     return e
@@ -58,6 +60,7 @@ def plugin_ep(temp_db):
     e = PluginEndpoints()
     e.engine = temp_db[1]
     e.path = "/api/cost-plugins/cookie/deepseek"
+    e._audit = MagicMock()  # standalone mixin: no AuditEndpoints in its MRO
     e._send_json = MagicMock()
     e._read_body = MagicMock(return_value={})
     return e
@@ -208,6 +211,7 @@ class TestProviderToggle:
 class TestChainReorder:
     def test_reorder_preserves_base_url(self):
         e = ProviderEndpoints()
+        e._audit = MagicMock()  # standalone mixin: no AuditEndpoints in its MRO
         e.config = MagicMock()
         e.config.profiles = {"l2": {}}
         e.config.raw = {

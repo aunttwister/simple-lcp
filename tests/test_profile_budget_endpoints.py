@@ -17,6 +17,7 @@ def profile_ep(temp_db):
     """ProfileEndpoints instance with a temp DB engine."""
     db_path, engine = temp_db
     ep = ProfileEndpoints()
+    ep._audit = MagicMock()  # standalone mixin: no AuditEndpoints in its MRO
     ep.engine = engine
     ep._read_body = lambda: {}
     ep._send_json = MagicMock()
