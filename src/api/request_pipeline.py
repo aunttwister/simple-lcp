@@ -47,6 +47,14 @@ T = TypeVar("T")
 _UPSTREAM_READ_TIMEOUT_DEFAULT = 900.0
 _UPSTREAM_READ_TIMEOUT_ENV = "LCP_UPSTREAM_READ_TIMEOUT"
 
+# Providers that hard-require a stored API key. Everything else (llama.cpp and
+# any user-added endpoint) runs keyless.
+_KEYED_PROVIDERS = ("deepseek", "opencode", "commandcode")
+
+
+def _provider_needs_key(name: str) -> bool:
+    return name in _KEYED_PROVIDERS
+
 
 def _upstream_read_timeout() -> float:
     """Return the upstream relay read timeout (seconds).
@@ -600,7 +608,6 @@ def forward_request(provider_cfg: dict, body: dict, config, session_id: str | No
     # the known API-keyed providers hard-require a stored key; a genuinely
     # keyed upstream without one then surfaces as a real ProviderAuthError
     # (a 401 from the upstream) instead of a synthetic ConfigError.
-    from .setup import _provider_needs_key
     if not api_key and _provider_needs_key(provider_name):
         raise ConfigError(
             f"No API key found for provider '{provider_name}'. "

@@ -46,10 +46,9 @@ SECTION_TAB = {
     "sec_keys": "keys",
     "sec_cron": "cron",
     "sec_config": "config",
-    # M2c: these three only ever render on /profiles/<name>, never on a level-2 page.
+    # M2c: these only ever render on /profiles/<name>, never on a level-2 page.
     "sec_skills": "skills",
     "sec_memory": "memory",
-    "sec_ptasks": "tasks",
     # M2d: likewise level-3 only — the routing controls and the model pool act on one
     # profile, which is what the level-3 page is.
     "sec_prouting": "routing",
@@ -60,8 +59,7 @@ SECTION_TAB = {
 # request the `requests` table has not recorded yet, because that table is
 # written on completion. It sits with the operational views, before the
 # "what happened" log realm.
-NAV = ["/profiles", "/models", "/conversations", "/activity", "/usage", "/alerts",
-       "/setup", "/work/tasks", "/work/fleet"]
+NAV = ["/profiles", "/models", "/conversations", "/activity", "/usage", "/alerts"]
 
 
 @pytest.fixture
@@ -118,7 +116,7 @@ def _nav(html):
 # ── the nav ──────────────────────────────────────────────────────────────────
 
 def test_nav_is_flat_and_ordered_with_profiles_first(cfg):
-    """Nine entries, no group labels: the label only made the reader classify."""
+    """Six entries, no group labels: the label only made the reader classify."""
     from src.ui.render import render_page
     html = render_page("pages/models.html", cfg)
     nav = _nav(html)
@@ -272,50 +270,6 @@ def _pages_module():
 
 # ── the Tasks page must survive having nothing to show ───────────────────────
 
-def test_an_empty_task_tree_renders_the_page_instead_of_500ing(tmp_path, monkeypatch, cfg, engine):
-    """A present-but-empty tree is a normal state, and the page must render it.
-
-    ``tasks_view`` returned a shape without ``filter`` on this path, while
-    ``sec_ptasks.html`` reads ``view.filter.states_options`` — an attribute lookup on
-    an undefined value, which is the one thing Jinja raises on. So the Tasks page
-    500'd on an empty tree, and the "never blank the page on a data error" guard
-    could not catch it, because nothing had raised where the guard was looking.
-    Found 2026-09-25 while reproducing a red CI run.
-    """
-    from src.api import work_tasks
-    from src.ui.pages import render_work_tasks_page
-    monkeypatch.setenv("LCP_WORK_TASKS_DIR", str(tmp_path))
-    view = work_tasks.tasks_view({})
-    assert view["total"] == 0
-    assert view["filter"]["states_options"]     # exactly what the template dereferences
-    html = render_work_tasks_page(cfg, engine, {})
-    # The tree exists but holds nothing, so `available` is true and the page renders
-    # its normal chrome with zero rows. The point of the assertion is that the filter
-    # was iterated at all: `view.filter.states_options` is the lookup that used to
-    # raise, and it only exists on this branch.
-    assert 'data-state="new"' in html
-    assert 'id="task-count-line"' in html
-
-
-def test_the_failed_read_fallback_renders_the_same_shape(cfg, engine, monkeypatch):
-    """The other half: when the read *raises*, the fallback must still render.
-
-    The guard that catches the read error used to build its own view by hand, with a
-    different shape from the real one — so it turned a handled error into a 500. Both
-    callers now build the view in one place.
-    """
-    from src.api import work_tasks
-    from src.ui.pages import render_work_tasks_page
-
-    def _boom(_params=None):
-        raise OSError("task tree unreadable")
-
-    monkeypatch.setattr(work_tasks, "tasks_view", _boom)
-    html = render_work_tasks_page(cfg, engine, {})
-    assert "could not read the task tree" in html
-    assert "OSError" in html
-
-
 # ── titles follow the tab ────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("params,title", [
@@ -421,15 +375,26 @@ def test_the_retired_templates_are_really_gone():
         assert not os.path.exists(os.path.join(TEMPLATES, "pages", gone)), gone
 
 
-def test_the_legacy_work_routes_render_the_profiles_page(cfg, engine):
-    """render_work_cron_page/config_page are aliases onto the Profiles page.
+def test_the_legacy_work_routes_redirect_to_the_profiles_page(cfg, engine):
+    """`/work/cron` and `/work/config` 302 into the Profiles tabs that own them.
 
-    M2c: cron is a per-profile tab, so the cron alias lands on the profile
-    directory (the HTTP route 302s there). Config is still a level-2 tab.
+    M2c: cron and config are per-profile tabs. Before the slim the handlers
+    redirected while two unused render aliases sat behind them; the aliases are
+    gone, so this pins the behaviour that actually ships.
     """
-    from src.ui.pages import render_work_config_page, render_work_cron_page
-    for render, marker, title in ((render_work_cron_page, "profileEditModal", "Profiles — LCP"),
-                                  (render_work_config_page, "sources-form", "Config — LCP")):
-        html = render(cfg, engine, {})
-        assert "<title>%s</title>" % title in html
-        assert 'id="%s"' % marker in html
+    from src.server.handler import LCPHandler
+    for path, want in (("/work/cron", "tab=cron"), ("/work/config", "tab=config")):
+        h = LCPHandler.__new__(LCPHandler)
+        h.path = path
+        h.config = cfg
+        h.engine = engine
+        sent = []
+        h._redirect = lambda location, code=302, sent=sent: sent.append((location, code))
+        if path == "/work/cron":
+            h._serve_work_cron_page()
+        else:
+            h._serve_work_config_page()
+        assert sent, path
+        location, code = sent[0]
+        assert code == 302, (path, code)
+        assert want in location, (path, location)

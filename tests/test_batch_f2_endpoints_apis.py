@@ -389,54 +389,6 @@ class TestRegistryUpsert:
 
 # ── Setup install / remove branches ─────────────────────────────────────────
 
-class TestSetupApiBranches:
-    def test_install_memory_module(self, temp_db):
-        h = TestHandler(path="/api/setup/install/module/memory", method="POST",
-                        engine=temp_db, body={})
-        with patch("src.api.setup.start_memory_install",
-                   return_value={"status": "queued"}):
-            h._serve_setup_install_api("module", "memory")    # 3056
-        assert _json_body(h)["status"] == "queued"
-
-    def test_install_generic_crash_500(self, temp_db):
-        h = TestHandler(path="/api/setup/install/provider/x", method="POST",
-                        engine=temp_db, body={})
-        with patch("src.api.setup.install_provider",
-                   side_effect=RuntimeError("boom")):
-            h._serve_setup_install_api("provider", "x")       # 3063-3065
-        assert _status(h) == 500
-
-    def test_remove_router_module(self, temp_db):
-        h = TestHandler(path="/api/setup/module/router", method="DELETE", engine=temp_db)
-        with patch("src.api.setup.remove_router", return_value={"ok": True}):
-            h._serve_setup_remove_api("module", "router")     # 3123-3124
-        assert _status(h) == 200
-
-    def test_remove_memory_module(self, temp_db):
-        h = TestHandler(path="/api/setup/module/memory", method="DELETE", engine=temp_db)
-        with patch("src.api.setup.remove_memory", return_value={"ok": True}):
-            h._serve_setup_remove_api("module", "memory")     # 3125-3126
-        assert _status(h) == 200
-
-    def test_remove_unknown_target_404(self, temp_db):
-        h = TestHandler(path="/api/setup/module/nope", method="DELETE", engine=temp_db)
-        h._serve_setup_remove_api("module", "nope")           # 3128-3129
-        assert _status(h) == 404
-
-    def test_remove_setup_error_400(self, temp_db):
-        from src.api import setup as setup_mod
-        h = TestHandler(path="/api/setup/module/router", method="DELETE", engine=temp_db)
-        with patch("src.api.setup.remove_router", side_effect=setup_mod.SetupError("boom")):
-            h._serve_setup_remove_api("module", "router")     # 3131-3132
-        assert _status(h) == 400
-
-    def test_remove_generic_crash_500(self, temp_db):
-        h = TestHandler(path="/api/setup/module/router", method="DELETE", engine=temp_db)
-        with patch("src.api.setup.remove_router", side_effect=RuntimeError("boom")):
-            h._serve_setup_remove_api("module", "router")     # 3133-3135
-        assert _status(h) == 500
-
-
 # ── Memory API auth + branches ───────────────────────────────────────────────
 
 class TestMemoryApiGaps:

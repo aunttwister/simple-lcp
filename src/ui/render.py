@@ -123,7 +123,7 @@ def _compute_monthly(engine) -> dict:
 _LEGACY_PAGE_TABS = {
     "pages/dashboard.html": ("pages/activity.html", "overview", {}),
     "pages/logs.html": ("pages/activity.html", "logs",
-                        {"view": {"tab": "conversations"}, "params": {}}),
+                        {"view": {"tab": "requests"}, "params": {}}),
     "pages/providers.html": ("pages/models.html", "providers", {}),
     # M2c: keys are per profile, so the profile directory is what stands in for
     # the old global keys page — not a "keys" tab, which no longer exists at this

@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import src.api.setup as setup_mod
 from src.server import LCPHandler
 
 

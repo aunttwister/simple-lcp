@@ -1,6 +1,5 @@
 """Tests for additional endpoint coverage: budgets CRUD, alerts config/ack,
-plugin cookie/workspace endpoints, provider toggle, chain reorder, and the
-setup wizard endpoints."""
+plugin cookie/workspace endpoints, provider toggle, and chain reorder."""
 
 from unittest.mock import MagicMock, patch
 
@@ -11,7 +10,6 @@ from src.server.endpoints import (
     AlertEndpoints,
     PluginEndpoints,
     ProviderEndpoints,
-    SetupEndpoints,
     HealthEndpoints,
 )
 
@@ -62,23 +60,6 @@ def plugin_ep(temp_db):
     e.path = "/api/cost-plugins/cookie/deepseek"
     e._send_json = MagicMock()
     e._read_body = MagicMock(return_value={})
-    return e
-
-
-@pytest.fixture
-def setup_ep(temp_db):
-    e = SetupEndpoints()
-    e.engine = temp_db[1]
-    e._send_json = MagicMock()
-    e._read_body = MagicMock(return_value={})
-    e.send_response = MagicMock()
-    e.send_header = MagicMock()
-    e.end_headers = MagicMock()
-    e.wfile = MagicMock()
-    e.config = MagicMock()
-    e.config.providers = {}
-    e.config.raw = {"providers": {}}
-    e.config.save = MagicMock()
     return e
 
 
@@ -247,42 +228,3 @@ class TestChainReorder:
 
 # ── Setup endpoints ──────────────────────────────────────────────────────────
 
-class TestSetupEndpoints:
-    def test_setup_skip(self, setup_ep):
-        with patch("src.api.setup.mark_skipped", return_value=True):
-            setup_ep._serve_setup_skip_api()
-            assert setup_ep._send_json.call_args[0][0]["ok"] is True
-
-    def test_setup_install_unknown_target(self, setup_ep):
-        setup_ep._serve_setup_install_api("bogus", "nope")
-        assert setup_ep._send_json.call_args[0][1] == 404
-
-    def test_setup_install_router_blocked_without_capability_data(self, setup_ep):
-        """Router install refused server-side when there is no capability data."""
-        with patch("src.api.setup.router_install_blocked_reason",
-                   return_value="No capability data to route by"), \
-             patch("src.api.setup.start_router_install") as mock_start:
-            setup_ep._serve_setup_install_api("module", "router")
-        body = setup_ep._send_json.call_args[0][0]
-        assert setup_ep._send_json.call_args[0][1] == 400
-        assert "capability data" in body["error"]
-        mock_start.assert_not_called()
-
-    def test_setup_install_router_allowed_with_capability_data(self, setup_ep):
-        """Router install proceeds once capability data exists."""
-        with patch("src.api.setup.router_install_blocked_reason", return_value=None), \
-             patch("src.api.setup.start_router_install",
-                   return_value={"status": "queued"}) as mock_start:
-            setup_ep._serve_setup_install_api("module", "router")
-        body = setup_ep._send_json.call_args[0][0]
-        # Single positional arg, no status code → 200; ok is True.
-        assert len(setup_ep._send_json.call_args[0]) == 1
-        assert body.get("ok") is True
-        mock_start.assert_called_once_with(setup_ep.engine)
-
-    def test_setup_remove_provider(self, setup_ep):
-        with patch("src.api.setup.remove_provider", return_value={"removed": True, "provider": "deepseek"}):
-            setup_ep._serve_setup_remove_api("provider", "deepseek")
-            body = setup_ep._send_json.call_args[0][0]
-            assert body["ok"] is True
-            assert body["removed"] is True

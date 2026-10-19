@@ -95,7 +95,6 @@
 
 {% include "sections/sec_skills.html" %}
 {% include "sections/sec_memory.html" %}
-{% include "sections/sec_ptasks.html" %}
 {% include "sections/sec_cron.html" %}
 {% include "sections/sec_keys.html" %}
 {% include "sections/sec_prouting.html" %}
@@ -108,7 +107,6 @@
     from the declared values, and anything else on the page that needs to know how
     this profile behaves has it without a round trip. -#}
 <script id="profile-config" type="application/json">{{ profile_config | tojson }}</script>
-{% include "sections/sec_ptasks_script.html" %}
 {% include "sections/sec_cron_script.html" %}
 {% include "sections/sec_keys_script.html" %}
 {% include "sections/sec_prouting_script.html" %}

@@ -18,8 +18,8 @@
 
 {% if tab == 'logs' %}
 <p class="subtitle">
-  One tab over every log realm: raw <strong>requests</strong>, provider <strong>routing
-  decisions</strong>, and the <strong>board decisions</strong> ledger. Every tab paginates
+  One tab over every log realm: raw <strong>requests</strong> and provider
+  <strong>routing decisions</strong>. Every tab paginates
   and sorts server-side, newest first.
   <span class="muted">Conversations moved to
   <a href="/conversations">their own page</a>, which shows both the live calls and the
@@ -29,25 +29,12 @@
 <div class="logs-tabs">
   {{ tab_link('requests', 'Requests') }}
   {{ tab_link('providers', 'Provider decisions') }}
-  {{ tab_link('decisions', 'Board decisions') }}
 </div>
 
 {% if view.error %}
   <div class="empty"><strong>Logs unavailable</strong><br><span class="muted">{{ view.error }}</span></div>
 {% elif view.tab_error %}
   <div class="empty"><span class="muted">{{ view.tab_error }}</span></div>
-{% endif %}
-
-{% if view.tab == 'conversations' %}
-  <div class="task-toolbar" id="lg-controls"></div>
-  <div class="work-scroll">
-    <table class="work-table">
-      <thead id="lg-head"></thead>
-      <tbody id="lg-rows"><tr><td colspan="10" class="muted">Loading…</td></tr></tbody>
-    </table>
-  </div>
-  <div class="task-pager" id="lg-pager"></div>
-  <p class="muted work-rule" id="lg-count"></p>
 {% endif %}
 
 {% if view.tab == 'requests' %}
@@ -74,29 +61,5 @@
   <p class="muted work-rule" id="lg-count"></p>
 {% endif %}
 
-{% if view.tab == 'decisions' %}
-  {% set d = view.decisions %}
-  {% if not d.available %}
-    <div class="empty"><strong>{{ d.empty.reason }}</strong><br><span class="muted">{{ d.empty.hint }}</span></div>
-  {% else %}
-    {% if d.funnel %}
-    <h2 class="work-h2">Funnel <span class="muted work-h2-note">whole ledger, never one page</span></h2>
-    <div class="work-cards">
-      <div class="work-card"><div class="work-card-label">Considered</div><div class="work-card-value">{{ d.funnel.considered }}</div></div>
-      {% for lbl, n in d.funnel.by_label.items() %}
-        <div class="work-card work-card-muted"><div class="work-card-label">{{ lbl }}</div><div class="work-card-value">{{ n }}</div></div>
-      {% endfor %}
-    </div>
-    {% endif %}
-    <h2 class="work-h2">Ledger <span class="muted work-h2-note">{{ d.ledger.total }} rows · latest verdict per subject and actor</span></h2>
-    <div class="work-scroll">
-      <table class="work-table">
-        <thead id="lg-head"></thead>
-        <tbody id="lg-rows"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
-      </table>
-    </div>
-    <div class="task-pager" id="lg-pager"></div>
-    <p class="muted work-rule" id="lg-count"></p>
-  {% endif %}
-{% endif %}
+
 {% endif %}

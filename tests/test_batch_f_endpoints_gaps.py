@@ -223,11 +223,6 @@ class TestInvalidJsonBody:
         assert _status(h) == 400
         assert _json_body(h)["error"] == "invalid JSON body"
 
-    def test_setup_install_invalid_json(self, temp_db):
-        h = self._h(temp_db)
-        h._serve_setup_install_api("provider", "x")
-        assert _status(h) == 400
-
     def test_memory_retain_invalid_json(self, temp_db, monkeypatch):
         backend = MagicMock()
         monkeypatch.setattr("src.api.memory.get_memory", lambda: backend)

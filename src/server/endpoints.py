@@ -14,7 +14,6 @@ inherits from all of them via multiple inheritance.
     UsageEndpoints       (~258)        daily costs, recent requests, logs, usage stats
     DashboardEndpoints   (~702)        dashboard page + its aggregated views
     MemoryEndpoints      (~137)        per-profile memory count/retain/recall/forget
-    SetupEndpoints       (~137)        first-run setup wizard + install progress
 
 Routing lives in ``src/server/router.py`` — this module only implements the
 handlers. Module-level ``_helpers`` below are shared by several classes.
@@ -2832,7 +2831,7 @@ class DashboardEndpoints:
 
         Writes the shipped ``data/declared_capabilities.json`` into
         ``model_capabilities`` — the instant "give the router capability data to
-        route by" action surfaced by the Setup page when no scores exist yet.
+        route by" action for when no scores exist yet.
         Idempotent; never touches hand-set (``source="manual"``) rows.
         """
         from ..api.seed_capabilities import seed_capabilities
@@ -3346,7 +3345,7 @@ class MemoryEndpoints:
                 "error": {
                     "code": "LCP-5010",
                     "message": "Memory plugin is not installed or disabled — "
-                               "install the Memory (LanceDB) module from the Setup page.",
+                               "rebuild with WITH_MEMORY=1 to enable the Memory (LanceDB) module.",
                 }
             }, 501)
             return None
@@ -3416,139 +3415,6 @@ class MemoryEndpoints:
 
 # ── First-run Setup Wizard Endpoints ─────────────────────────────────────────
 
-class SetupEndpoints:
-    """First-run setup wizard: manifest, install, progress, skip."""
-
-    config: Any
-    engine: Any
-    _send_json: Any
-    _read_body: Any
-    send_response: Any
-    send_header: Any
-    end_headers: Any
-    wfile: Any
-
-    def _serve_setup_page(self):
-        """Server-rendered setup wizard page."""
-        from ..ui.pages import render_setup_page
-        html = render_setup_page(self.config, self.engine)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
-
-    def _serve_setup_api(self):
-        """GET /api/setup — full manifest (steps + modules) and completion state."""
-        from ..api import setup as setup_mod
-
-        try:
-            self._send_json({
-                "manifest": setup_mod.manifest(self.config, self.engine),
-                "state": setup_mod.load_state(self.engine),
-                "complete": setup_mod.is_complete(self.engine, self.config),
-            })
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_setup_install_api(self, kind: str, name: str):
-        """POST /api/setup/install/{kind}/{name} — install one plugin/module."""
-        from ..api import setup as setup_mod
-
-        try:
-            body = self._read_body()
-        except Exception:
-            self._send_json({"error": "invalid JSON body"}, 400)
-            return
-
-        try:
-            if kind == "provider":
-                result = setup_mod.install_provider(self.engine, self.config, name, body)
-            elif kind == "module" and name == "router":
-                # Semantic routing depends on capability data the router can
-                # rank by (the declared matrix). Enforce server-side too.
-                reason = setup_mod.router_install_blocked_reason(_engine_db_path(self.engine))
-                if reason:
-                    raise setup_mod.SetupError(reason)
-                result = setup_mod.start_router_install(self.engine)
-            elif kind == "module" and name == "memory":
-                result = setup_mod.start_memory_install(self.engine)
-            else:
-                self._send_json({"error": f"unknown install target: {kind}/{name}"}, 404)
-                return
-            self._send_json({"ok": True, **result})
-        except setup_mod.SetupError as e:
-            self._send_json({"error": str(e)}, 400)
-        except Exception as e:
-            logger.error("setup_install_failed", kind=kind, name=name, error=str(e))
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_setup_progress_api(self):
-        """GET /api/setup/progress — live progress of module installs.
-
-        Returns per-module progress (``modules``) plus a back-compat top-level
-        ``progress``/``installed`` that reflect any single in-flight module
-        (router first, then memory) so older UIs keep working.
-        """
-        from ..api import setup as setup_mod
-
-        entries = {}
-        for name, prog, last, step in (
-            ("router", setup_mod.router_progress(), setup_mod.router_last(),
-             setup_mod.router_step),
-            ("memory", setup_mod.mem_progress(), setup_mod.mem_last(),
-             setup_mod.memory_step),
-        ):
-            entries[name] = prog or last or {"status": "idle", "progress": 0.0}
-            entries[name]["installed"] = bool(step()["installed"])
-
-        # Back-compat: the single in-flight/last module (router preferred).
-        active = None
-        for name in ("router", "memory"):
-            state = entries[name]
-            if state.get("status") not in (None, "idle"):
-                active = state
-                break
-        if active is None:
-            active = entries.get("router") or {"status": "idle", "progress": 0.0}
-
-        self._send_json({
-            "progress": active,
-            "installed": bool(active.get("installed")),
-            "modules": entries,
-        })
-
-    def _serve_setup_skip_api(self):
-        """POST /api/setup/skip — mark the wizard as skipped."""
-        from ..api import setup as setup_mod
-
-        try:
-            newly_skipped = setup_mod.mark_skipped(self.engine)
-            self._send_json({"ok": True, "skipped": newly_skipped})
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_setup_remove_api(self, kind: str, name: str):
-        """DELETE /api/setup/{kind}/{name} — uninstall one plugin/module."""
-        from ..api import setup as setup_mod
-
-        try:
-            if kind == "provider":
-                result = setup_mod.remove_provider(self.engine, self.config, name)
-            elif kind == "module" and name == "router":
-                result = setup_mod.remove_router(self.engine)
-            elif kind == "module" and name == "memory":
-                result = setup_mod.remove_memory(self.engine)
-            else:
-                self._send_json({"error": f"unknown remove target: {kind}/{name}"}, 404)
-                return
-            self._send_json({"ok": True, **result})
-        except setup_mod.SetupError as e:
-            self._send_json({"error": str(e)}, 400)
-        except Exception as e:
-            logger.error("setup_remove_failed", kind=kind, name=name, error=str(e))
-            self._send_json({"error": str(e)}, 500)
-
-
 class WorkEndpoints:
     """Work layer: the moments LCP records about sessions, tasks, providers.
 
@@ -3566,41 +3432,6 @@ class WorkEndpoints:
     end_headers: Any
     wfile: Any
 
-    def _serve_work_decisions_page(self):
-        """Server-rendered Work > Decisions page."""
-        from ..ui.pages import render_work_decisions_page
-        html = render_work_decisions_page(self.config, self.engine)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
-
-    def _serve_work_decisions_api(self):
-        """GET /api/work/decisions — the Decisions view as JSON.
-
-        ``?per=``/``?page=``/``?sort=`` page the ledger (shared table module);
-        without them the whole ledger is returned, as before.
-        """
-        from ..api import work as work_api
-        from urllib.parse import parse_qs, urlsplit
-
-        try:
-            qs = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
-            self._send_json(work_api.decisions_view(params=qs))
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_work_tasks_page(self):
-        """Server-rendered Work > Tasks page (supports ?states/q/tag/per/page)."""
-        from ..ui.pages import render_work_tasks_page
-        from urllib.parse import parse_qs, urlsplit
-        qs = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
-        html = render_work_tasks_page(self.config, self.engine, qs)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
-
     def _tasks_root_for(self, profile: Any) -> str:
         """Resolved task tree for ?profile=, or "" to mean "use the default"."""
         from ..api import work_sources
@@ -3608,70 +3439,6 @@ class WorkEndpoints:
             return work_sources.tasks_root_for(str(profile or "").strip().lower())
         except Exception:  # noqa: BLE001
             return ""
-
-    def _serve_work_tasks_api(self):
-        """GET /api/work/tasks — the Tasks view as JSON (filters supported,
-        faint lite=1 strips the heavy per-row PLAN/RESULTS payloads)."""
-        from ..api import work_tasks
-        from urllib.parse import parse_qs, urlsplit
-
-        try:
-            qs = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
-            # ?profile= scopes the tree (M2c). Without it the per-profile Tasks tab
-            # would render its own heading over the default profile's rows.
-            root = self._tasks_root_for(qs.get("profile"))
-            if root:
-                with work_tasks.use_root(root):
-                    self._send_json(work_tasks.tasks_view(qs))
-            else:
-                self._send_json(work_tasks.tasks_view(qs))
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_work_tasks_detail_api(self):
-        """GET /api/work/tasks/detail?task=<state>/<slug> — one task's heavy
-        payload (PLAN.md, RESULTS.md, STATE-SUMMARY, SESSION-FACTS, artifacts)
-        fetched lazily when its row is expanded."""
-        from ..api import work_tasks
-        from urllib.parse import parse_qs, urlsplit
-
-        try:
-            qs = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
-            key = qs.get("task") or ""
-            if not key:
-                self._send_json({"error": "task key required"}, 400)
-                return
-            # A task's detail must be read from the same tree its row came from.
-            root = self._tasks_root_for(qs.get("profile"))
-            if root:
-                with work_tasks.use_root(root):
-                    self._send_json(work_tasks.task_detail(key))
-            else:
-                self._send_json(work_tasks.task_detail(key))
-        except ValueError as e:
-            self._send_json({"error": str(e)}, 400)
-        except FileNotFoundError as e:
-            self._send_json({"error": str(e)}, 404)
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_work_fleet_page(self):
-        """Server-rendered Work > Fleet page."""
-        from ..ui.pages import render_work_fleet_page
-        html = render_work_fleet_page(self.config, self.engine)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
-
-    def _serve_work_fleet_api(self):
-        """GET /api/work/fleet — the Fleet view as JSON."""
-        from ..api import work_fleet
-
-        try:
-            self._send_json(work_fleet.fleet_view())
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
 
     def _serve_work_cron_page(self):
         """Legacy /work/cron — redirects to the Cron tab of Profiles (M2b)."""
@@ -3750,43 +3517,6 @@ class WorkEndpoints:
             return
         self._send_json({"saved": True, "sources": saved})
 
-    def _serve_work_conversations_page(self):
-        """Server-rendered Work > Conversations page."""
-        from ..ui.pages import render_work_conversations_page
-        from urllib.parse import parse_qs, urlsplit
-        qs = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
-        html = render_work_conversations_page(self.config, self.engine, qs)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
-
-    def _serve_work_conversations_api(self):
-        """GET /api/work/conversations — grouped conversation list."""
-        from ..api import work_conversations
-        from urllib.parse import parse_qs, urlsplit
-
-        try:
-            qs = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
-            self._send_json(work_conversations.conversations_view(qs))
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_work_conversations_detail_api(self):
-        """GET /api/work/conversations/detail?cid=… — chronological events."""
-        from ..api import work_conversations
-        from urllib.parse import parse_qs, urlsplit
-
-        try:
-            qs = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
-            cid = qs.get("cid") or ""
-            if not cid:
-                self._send_json({"error": "cid required"}, 400)
-                return
-            self._send_json(work_conversations.conversation_detail(cid))
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
     def _serve_work_requests_api(self):
         """GET /api/work/requests — raw request log (paginated)."""
         from ..api import work_conversations
@@ -3809,17 +3539,3 @@ class WorkEndpoints:
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 
-    def _serve_work_status_api(self):
-        """GET /api/work/status — the work layer's own health.
-
-        Distinct from a view's payload: this reports which read-only sources are
-        reachable and therefore which views can render. It exists so a missing
-        bind mount is diagnosable from the UI instead of looking like an empty
-        table.
-        """
-        from ..api import workspace
-
-        try:
-            self._send_json(workspace.workspace_status())
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)

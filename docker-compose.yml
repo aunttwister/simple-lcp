@@ -17,10 +17,9 @@ services:
       # `compose config` instead of silently mounting an empty directory.
       - ${LCP_HOST_DATA_DIR:?set LCP_HOST_DATA_DIR in host-paths.env}:/app/data
       - ${LCP_HOST_MODULES_DIR:?set LCP_HOST_MODULES_DIR in host-paths.env}:/opt/lcp-modules
-      # Work layer: board ledger, task tree, session transcripts. READ-ONLY —
-      # a dashboard must never change what the board published, move a task, or
-      # rewrite what the agents did; read-only is enforced at the mount level.
-      - ${LCP_HOST_DECISIONS_DB:?set LCP_HOST_DECISIONS_DB in host-paths.env}:/app/work/decisions.db:ro
+      # The task tree. The Cron tab reads <tasks_root>/.work-layers/cron-jobs.json
+      # from it (the host-side collector is the source of truth for what is
+      # scheduled). READ-ONLY: a dashboard must not move a task.
       - ${LCP_HOST_WORK_TREE:?set LCP_HOST_WORK_TREE in host-paths.env}:/app/work-tree:ro
       - ${LCP_HOST_PROFILES_DIR:?set LCP_HOST_PROFILES_DIR in host-paths.env}:/app/profiles:ro
       # M2c: the L2 profile's skills/ is a symlink to this shared directory, so
@@ -43,9 +42,7 @@ services:
       # interpolation of it (${LCP_SECRET_KEY}) becomes an EMPTY value as soon as
       # compose runs with --env-file, which would make every stored credential
       # undecryptable. env_file is the single source for secrets.
-      - LCP_WORK_DECISIONS_DB=/app/work/decisions.db
       - LCP_WORK_TASKS_DIR=/app/work-tree/tasks
-      - LCP_WORK_TODO=/app/work-tree/todo.md
       - LCP_CRON_OPS_DIR=/app/cron-ops
       - LCP_SELF_BASE=http://127.0.0.1:8734
       # Runtime-installed modules (semantic routing, memory, LiveBench) persist

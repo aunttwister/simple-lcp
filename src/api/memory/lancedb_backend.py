@@ -3,8 +3,7 @@
 Each profile gets its own LanceDB table (table name = profile) inside a shared
 database directory. The backend is **embedder-injectable**: it accepts an
 ``embed(text) -> list[list[float]]`` callable, so tests and the HTTP layer can
-run without the real ``sentence-transformers`` model installed (the module is
-installed via the Setup page).
+run without a real embedding model installed.
 
 Storage is a columnar Lance table with a fixed schema::
 
@@ -63,8 +62,8 @@ class LanceDBMemoryBackend(MemoryBackend):
                 raise ImportError("no lancedb")
         except (ImportError, AttributeError) as exc:
             raise MemoryError(
-                "lancedb is not installed — install the memory module from "
-                "the Setup page"
+                "lancedb is not installed — rebuild the image with "
+                "WITH_MEMORY=1 (the runtime module installer is gone)"
             ) from exc
         self._db_path = db_path
         self._embed = embed

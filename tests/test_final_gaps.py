@@ -245,9 +245,3 @@ class TestUsageTotalsEdges:
         assert h.send_response.call_args[0][0] == 500
 
 
-class TestSetupPageRoute:
-    def test_setup_page(self, temp_db):
-        from tests.test_server import TestHandler
-        h = TestHandler(path="/setup", engine=temp_db)
-        h.do_GET()
-        assert h.send_response.call_args[0][0] == 200

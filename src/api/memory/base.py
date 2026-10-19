@@ -5,7 +5,7 @@ client that talks to the gateway. The backend is pluggable: the protocol below
 is the only contract the HTTP layer depends on, which keeps tests independent
 of the embedding model and the vector store.
 
-The real backend (``LanceDBMemoryBackend``) is installed via the Setup page as
+The real backend (``LanceDBMemoryBackend``) is baked in at build time as
 a module, exactly like LiveBench — it is NOT part of the core dependencies, so
 the gateway stays lean when memory is not used.
 """

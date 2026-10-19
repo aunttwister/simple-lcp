@@ -100,7 +100,7 @@ class TestForwardRequestStatusGaps:
         err = urllib.error.HTTPError(
             "https://x/v1/chat/completions", code, "redirected", {}, io.BytesIO(b"body"))
         with patch("src.api.credential_store.get_credential_store", return_value=None), \
-             patch("src.api.setup._provider_needs_key", return_value=False), \
+             patch("src.api.request_pipeline._provider_needs_key", return_value=False), \
              patch("urllib.request.urlopen", side_effect=err):
             forward_request(cfg, {"messages": []}, MagicMock())
 

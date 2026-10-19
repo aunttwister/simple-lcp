@@ -200,9 +200,3 @@ class TestEndpointRemaining:
         body = _json_body(h)
         assert body["summary"]["total"] >= 1
 
-    def test_setup_api_error(self, temp_db):
-        from tests.test_server import TestHandler
-        with patch("src.api.setup.manifest", side_effect=RuntimeError("boom")):
-            h = TestHandler(path="/api/setup", engine=temp_db)
-            h.do_GET()
-        assert h.send_response.call_args[0][0] == 500

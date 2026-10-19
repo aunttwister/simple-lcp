@@ -48,17 +48,19 @@ services:
       # "a Work view cannot change what was published" property is enforced at
       # the container boundary, not merely by the code choosing to open SQLite
       # read-only.
-      - ${LCP_HOST_DECISIONS_DB:?set LCP_HOST_DECISIONS_DB in .env}:/app/work/decisions.db:ro
       # The task tree. READ-ONLY for the same reason as the ledger: a view of
       # pending work must not be able to move a task, and mounting read-only
       # makes that structural. The state of a task IS its directory, so a
       # writable mount would let a dashboard silently complete your work.
-      - ${LCP_HOST_WORK_TREE:?set LCP_HOST_WORK_TREE in .env}:/app/work-tree:ro
       # Session transcripts, for the Categories view. READ-ONLY for the same
       # reason as everything else here: a view of what the agents did must not
       # be able to change what was recorded. Host paths are NOT visible inside a
       # container -- the path has to be mounted or the read fails as if the file
       # were absent, which is a failure mode that looks like "no data".
+      # The task tree. The Cron tab reads <tasks_root>/.work-layers/cron-jobs.json
+      # from it (the host-side collector is the source of truth for what is
+      # scheduled). READ-ONLY: a dashboard must not move a task.
+      - ${LCP_HOST_WORK_TREE:?set LCP_HOST_WORK_TREE in .env}:/app/work-tree:ro
       - ${LCP_HOST_PROFILES_DIR:?set LCP_HOST_PROFILES_DIR in .env}:/app/profiles:ro
       # The L2 profile's skills/ is a symlink to this shared directory, so the
       # target has to be mounted at its own absolute path or the link dangles
@@ -84,9 +86,7 @@ services:
       # moment compose is run with --env-file, which would make every stored
       # credential undecryptable. env_file is the single source for secrets.
       - LCP_MODULES_DIR=/opt/lcp-modules
-      - LCP_WORK_DECISIONS_DB=/app/work/decisions.db
       - LCP_WORK_TASKS_DIR=/app/work-tree/tasks
-      - LCP_WORK_TODO=/app/work-tree/todo.md
       - LCP_CRON_OPS_DIR=/app/cron-ops
       # Where this container sees the Hermes profiles (the read-only mount above)
       # and where uploaded profile pictures are written (the data mount). The

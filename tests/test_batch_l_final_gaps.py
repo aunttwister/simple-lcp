@@ -191,18 +191,6 @@ class TestEndpointErrorBranches:
         assert h._status() == 500
         assert "registry unreadable" in _json(h)["error"]
 
-    def test_setup_skip_500(self):
-        # endpoints.py 3111-3112
-        from src.server.endpoints import SetupEndpoints
-        ep = SetupEndpoints()
-        ep._send_json = MagicMock()
-        ep.engine = MagicMock()
-        with patch("src.api.setup.mark_skipped",
-                   side_effect=RuntimeError("db locked")):
-            ep._serve_setup_skip_api()
-        assert ep._send_json.call_args[0][1] == 500
-
-
 # ── handler.py: static traversal via do_GET + branch routes ──────────────────
 
 class TestHandlerRoutes:

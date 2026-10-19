@@ -204,25 +204,19 @@ def _profile_groups(config, budgets, routing_on=None) -> dict:
 
 
 def _logs_view(params) -> dict:
-    """The logs tab's view dict: which realm, plus its server-side funnel data.
+    """The logs tab's view dict: which realm.
 
-    Only the decisions realm reads data here — its funnel describes the whole
-    ledger, not one page of it; every other realm is a mount of the shared table
-    module (static/js/logtable.js), which fetches its own rows.
+    Every realm is a mount of the shared table module (static/js/logtable.js),
+    which fetches its own rows.
     """
-    from ..api import work as work_api
     params = params or {}
-    # Default moved to 'requests': the conversations realm is retired (it became
-    # the /conversations page), and leaving the default pointed at a realm that no
-    # longer renders would have opened the Logs tab on an error.
+    # Default is 'requests': the conversations realm is retired (it became the
+    # /conversations page), and the board-decisions realm was cut with the work
+    # surface — leaving the default pointed at a realm that no longer renders
+    # would have opened the Logs tab on an error.
     tab = str(params.get("view") or "requests")
     view = {"tab": tab}
-    if tab == "decisions":
-        try:
-            view.update({"decisions": work_api.decisions_view(params=params)})
-        except Exception as e:  # never blank the page on a data error
-            view["error"] = "%s: %s" % (type(e).__name__, e)
-    elif tab == "conversations":
+    if tab == "conversations":
         # Retired: the Conversations page now owns both the live set and the
         # history, so this realm has no data of its own to mount.
         view["tab_error"] = ("Conversations moved to the Conversations page.")
@@ -354,95 +348,6 @@ def render_models_page(config, engine=None, params=None) -> str:
                        params=dict(params or {}))
 
 
-def render_setup_page(config, engine=None) -> str:
-    """Render the first-run setup wizard page (Jinja2)."""
-    from .render import render_page
-    return render_page("pages/setup.html", config, engine, active_page="setup",
-                       crumbs=_crumbs(("Setup", None)))
-
-
-def render_work_decisions_page(config, engine=None) -> str:
-    """Render the Work > Decisions page (Jinja2).
-
-    The Work section is the work layer merged into LCP as a module: the moments
-    the board recorded, attributed to the actor that decided each one.
-    """
-    from .render import render_page
-    from ..api import work as work_api
-    try:
-        view = work_api.decisions_view()
-    except Exception as e:  # never blank the page on a data error
-        view = {
-            "available": False,
-            "empty": {"reason": "could not read the decisions ledger",
-                      "hint": "%s: %s" % (type(e).__name__, e)},
-            "funnel": None,
-            "ledger": None,
-        }
-    return render_page("pages/work_decisions.html", config, engine,
-                       active_page="work_decisions", view=view)
-
-
-def render_work_tasks_page(config, engine=None, params=None) -> str:
-    """Render the Work > Tasks page (Jinja2).
-
-    A task's state is its directory, so this view reads the tree rather than a
-    status field -- the state cannot drift from where the item actually lives.
-    ``params`` carries the server-side filter/pagination query string.
-
-    Two tabs, one page: ``?view=tasks`` (default) is the task tree itself;
-    ``?view=assessments`` is the session-assessment ledger the 4h L1 round
-    writes. They share a sidebar entry because they describe the same objects —
-    a task's directory state, and what the round decided about it.
-    """
-    from .render import render_page
-    from ..api import work_tasks
-
-    params = params or {}
-    tab = str(params.get("view") or "tasks").strip().lower()
-    if tab not in ("tasks", "assessments"):
-        tab = "tasks"
-    try:
-        if tab == "assessments":
-            view = work_tasks.assessments_view()
-        else:
-            view = work_tasks.tasks_view(params)
-    except Exception as e:  # never blank the page on a data error
-        # The fallback must satisfy the same shape the template reads, or the guard
-        # converts a handled read error into a 500 — which it did, whenever the task
-        # tree was present but empty. One shape, defined in one place.
-        view = work_tasks.empty_tasks_view(
-            "could not read the task tree", "%s: %s" % (type(e).__name__, e))
-    view["tab"] = tab
-    return render_page("pages/work_tasks.html", config, engine,
-                       active_page="work_tasks", view=view,
-                       crumbs=_crumbs(("Tasks", "/work/tasks"),
-                                      ("Assessments", None) if tab == "assessments" else ("All tasks", None)))
-
-
-def render_work_fleet_page(config, engine=None) -> str:
-    """Render the Work > Fleet page (Jinja2).
-
-    Reads LCP's own provider/profile APIs, so the chain shown is the chain LCP
-    will actually use -- not a second copy that can drift from it.
-    """
-    from .render import render_page
-    from ..api import work_fleet
-    try:
-        view = work_fleet.fleet_view()
-    except Exception as e:  # never blank the page on a data error
-        view = {
-            "available": False,
-            "empty": {"reason": "could not read the fleet",
-                      "hint": "%s: %s" % (type(e).__name__, e)},
-            "summary": None, "flaky": [], "profiles": [],
-            "failover_moments": [], "failover_stats": None, "routing": None,
-        }
-    return render_page("pages/work_fleet.html", config, engine,
-                       active_page="work_fleet", view=view,
-                       crumbs=_crumbs(("Fleet", None)))
-
-
 def _work_cron_view(params=None) -> dict:
     """The Cron tab's data: the host snapshot, recent ops, and the resolved sources.
 
@@ -496,48 +401,6 @@ def _work_config_view() -> dict:
         return {"sources": work_sources.resolved_view()}
     except Exception:
         return {"sources": None}
-
-
-def render_work_cron_page(config, engine=None, params=None) -> str:
-    """Legacy /work/cron — now the Cron tab of Profiles (M2b)."""
-    p = dict(params or {})
-    p["tab"] = "cron"
-    return render_profiles_page(config, engine, p)
-
-
-def render_work_config_page(config, engine=None, params=None) -> str:
-    """Legacy /work/config — now the Config tab of Profiles (M2b)."""
-    p = dict(params or {})
-    p["tab"] = "config"
-    return render_profiles_page(config, engine, p)
-
-
-def render_work_conversations_page(config, engine=None, params=None) -> str:
-    """Render the Work > Conversations page (Jinja2).
-
-    The unified conversation log: every conversation groups its request rows
-    and the router's provider-decision rows by conversation_id, newest first,
-    with a deterministic summary (first user turn + counts). Expanding a
-    conversation shows the chronological sequence of events.
-    """
-    from .render import render_page
-    from ..api import work_conversations
-    try:
-        view = work_conversations.conversations_view(params or {})
-        for c in view.get("conversations", []):
-            det = work_conversations.conversation_detail(c["id"], limit=50)
-            c["detail"] = det.get("events", [])
-            c["detail_truncated"] = det.get("truncated", False)
-    except Exception as e:
-        view = {
-            "available": False,
-            "error": "%s: %s" % (type(e).__name__, e),
-            "conversations": [], "total": 0,
-            "filter": {"per": "20", "page": 1, "pages": 1,
-                       "profile": "", "profiles": []},
-        }
-    return render_page("pages/work_conversations.html", config, engine,
-                       active_page="work_conversations", view=view)
 
 
 def _profile_config_payload(config, name, pcfg) -> dict:
@@ -761,7 +624,7 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     from ..api import profile_data
 
     params = dict(params or {})
-    tab = _tab(params, ("skills", "memory", "tasks", "cron", "keys",
+    tab = _tab(params, ("skills", "memory", "cron", "keys",
                         "routing", "models"), "skills")
     wanted = (name or "").strip()
     profiles = config.profiles if (config is not None and hasattr(config, "profiles")) else {}
@@ -830,7 +693,7 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
         # profile it is. An agent-only directory is the one that is not.
         profile["configured"] = kind in ("profile", "lcp_only")
 
-    labels = (("skills", "Skills"), ("memory", "Memory"), ("tasks", "Tasks"),
+    labels = (("skills", "Skills"), ("memory", "Memory"),
               ("cron", "Cron"), ("keys", "API Keys"),
               # M2d: how this profile routes (the toggle, policy, min-score and the
               # rules that act on its chain) and what it may choose from (the chain,
@@ -869,8 +732,6 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
         except Exception as e:
             ctx["memory"] = {"available": False, "files": [], "total_chars": 0,
                              "reason": "%s: %s" % (type(e).__name__, e)}
-    elif tab == "tasks":
-        ctx["view"] = _profile_tasks_view(artefacts, params)
     elif tab == "cron":
         ctx["view"] = _work_cron_view({"profile": artefacts or wanted})
     elif tab == "routing":
@@ -890,41 +751,6 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     # used, so create/show/revoke keep working per profile.
     return render_page("pages/profile_detail.html", config, engine, **ctx)
 
-
-def _profile_tasks_view(name, params) -> dict:
-    """One profile's task tree, rendered through the same view the Tasks page uses.
-
-    The tree is whatever ``work-sources.json`` resolves for that profile, so the
-    per-profile view cannot drift from the tree the host actually writes. A
-    ContextVar rather than a parameter because the task helpers call ``tasks_dir()``
-    from a dozen places, and because the server is threaded — one profile's root
-    must not leak into another request.
-    """
-    from ..api import work_tasks, work_sources
-    params = dict(params or {})
-    root = work_sources.tasks_root_for(name)
-    try:
-        if root:
-            with work_tasks.use_root(root):
-                view = work_tasks.tasks_view(params)
-        else:
-            view = work_tasks.tasks_view(params)
-    except Exception as e:  # never blank the tab on a data error
-        view = {"available": False,
-                "empty": {"reason": "could not read this profile's task tree",
-                          "hint": "%s: %s" % (type(e).__name__, e)},
-                "counts": {}, "total": 0, "tasks": [], "todos": None, "conflicts": [],
-                "filter": {"states": [], "tag": "", "per": 20, "q": ""}}
-    view["tab"] = "tasks"
-    view["profile"] = name
-    view["tasks_root"] = root or ""
-    return view
-
-
-# ── In progress — the one question the requests table cannot answer ───────────
-# `record_cost()` writes the `requests` row (and its latency) only after the
-# reply has left, so a call that is still running has no row anywhere. The live
-# set therefore has to come from the in-process registry in `api/inflight.py`.
 
 def _inflight_conversation_names(ids) -> dict:
     """``conversation_id -> name`` — the conversation's own task label.

@@ -70,10 +70,3 @@ class TestMatrixSourcePriority:
 
 # ── setup: remaining branches ────────────────────────────────────────────────
 
-class TestSetupRemaining:
-    def test_is_complete_no_required_steps(self, temp_db):
-        from src.api import setup as setup_mod
-        cfg = MagicMock()
-        cfg.providers = {}
-        with patch.object(setup_mod, "provider_steps", return_value=[]):
-            assert setup_mod.is_complete(temp_db, cfg) is True

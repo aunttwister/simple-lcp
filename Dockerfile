@@ -43,26 +43,37 @@ RUN if [ "$WITH_BENCH" = "1" ]; then \
         && pip install --no-cache-dir -r code_runner/requirements_eval.txt ; \
     fi
 
-# ── Semantic routing + memory (OPTIONAL — runtime-installed modules) ────────
+# ── Semantic routing + memory (OPTIONAL — baked modules) ───────────────────
 # These two modules run IN-PROCESS (the embedding task classifier and the
-# memory backend). The DEFAULT image is LEAN: their deps are NOT baked in —
-# the Setup page installs each into its own --target dir under the
-# bind-mounted /opt/lcp-modules (router/ and memory/), where they survive
-# container recreation. Set WITH_ROUTER=1 / WITH_MEMORY=1 to bake a module
-# into the image site-packages instead (instant availability, larger image).
+# memory backend). Their deps are baked at build time: WITH_ROUTER=1 installs
+# the fastembed ONNX backend (no torch), WITH_MEMORY=1 adds lancedb. The
+# runtime installer that used to write these into /opt/lcp-modules is gone.
 #
-# The --target installs APPEND to sys.path (never prepend) and are verified
-# with a fresh-subprocess import probe, so a broken/partial copy can't shadow
-# a good install. tokenizers is pinned to 0.22.2 (transformers requires
-# tokenizers in [0.22.0, 0.23.0]; 0.23.1 is out of range).
+# fastembed replaces sentence-transformers as the default embedder. It runs the
+# SAME bge-small-en-v1.5 graph through ONNX: 999/1000 identical router outcome
+# on real traffic, RSS 997 -> 306 MB, and it drops ~1.2 GB of torch + ~2.7 GB
+# of CUDA wheels that a container with no /dev/nvidia* could never use.
+# sentence-transformers is NOT installed any more. The code keeps a torch
+# branch for model names fastembed does not ship, but it only works where
+# torch is present (the bind-mounted /opt/lcp-modules/router legacy tree, or a
+# custom image). In this image an unsupported model name fails with a clear
+# MemoryError naming the backend rather than silently degrading.
+
+# tokenizers is pinned to 0.22.2 explicitly: fastembed pulls it in
+# transitively, and pinning keeps the tokenizer behaviour identical to the
+# version the 999/1000 agreement measurement was made against.
 #
-# sentence-transformers + tokenizers are shared by BOTH modules; lancedb is
-# memory-only. When baked, the SAME embedding model (bge-small) weights are
-# cached ONCE under /app/models/embedding (not bind-mounted).
+# These install into the image's site-packages. The embedder probes its own
+# backend lazily at first use, so a missing module surfaces as a clear
+# MemoryError naming the backend rather than a crash during startup.
+#
+# fastembed + tokenizers are shared by BOTH modules; lancedb is memory-only.
+# When baked, the embedding weights are cached under /app/models/embedding
+# (not bind-mounted).
 ARG WITH_ROUTER=0
 ARG WITH_MEMORY=0
 RUN if [ "$WITH_ROUTER" = "1" ] || [ "$WITH_MEMORY" = "1" ]; then \
-        pip install --no-cache-dir sentence-transformers "tokenizers==0.22.2" ; \
+        pip install --no-cache-dir fastembed "tokenizers==0.22.2" ; \
     fi \
     && if [ "$WITH_MEMORY" = "1" ]; then \
         pip install --no-cache-dir lancedb ; \
@@ -70,7 +81,7 @@ RUN if [ "$WITH_ROUTER" = "1" ] || [ "$WITH_MEMORY" = "1" ]; then \
     && if [ "$WITH_ROUTER" = "1" ]; then \
         mkdir -p /app/models/embedding \
         && python3 -c \
-            "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5', cache_folder='/app/models/embedding')" ; \
+            "from fastembed import TextEmbedding; list(TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/app/models/embedding/fastembed').embed(['warm']))" ; \
     fi
 
 # ── Application code ──

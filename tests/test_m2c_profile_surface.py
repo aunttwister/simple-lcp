@@ -305,9 +305,6 @@ def test_every_level_two_page_has_a_breadcrumb(cfg, engine):
         ("/activity", pages.render_activity_page(cfg, engine, {}, {"Host": "t:8734"})),
         ("/usage", pages.render_usage_page(cfg, engine, {})),
         ("/alerts", pages.render_alerts_page(cfg, engine)),
-        ("/setup", pages.render_setup_page(cfg, engine)),
-        ("/work/tasks", pages.render_work_tasks_page(cfg, engine, {})),
-        ("/work/fleet", pages.render_work_fleet_page(cfg, engine)),
     ):
         assert '<nav class="breadcrumbs"' in html, label
         assert 'class="crumb-current"' in html, label
@@ -328,20 +325,18 @@ def test_the_directory_crumb_has_no_link(cfg, engine):
     assert '<span class="crumb-current" aria-current="page">Profiles</span>' in html
 
 
-@pytest.mark.parametrize("tab", ["skills", "memory", "tasks", "cron", "keys"])
+@pytest.mark.parametrize("tab", ["skills", "memory", "cron", "keys"])
 def test_each_profile_tab_renders_only_its_own_section(cfg, engine, tab, cron_snapshot):
     """Section isolation across the five new tabs."""
     from src.ui import pages
     html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": tab})
     markers = {}
-    for name in ("sec_skills", "sec_memory", "sec_ptasks", "sec_cron", "sec_keys"):
+    for name in ("sec_skills", "sec_memory", "sec_cron", "sec_keys"):
         txt = open(os.path.join(SEC, name + ".html")).read()
         if name == "sec_skills":
             markers["skills"] = "profileSkills"
         elif name == "sec_memory":
             markers["memory"] = "profileMemory"
-        elif name == "sec_ptasks":
-            markers["tasks"] = "task-count-line"
         elif name == "sec_cron":
             markers["cron"] = "cron-modal"
         else:
@@ -353,12 +348,19 @@ def test_each_profile_tab_renders_only_its_own_section(cfg, engine, tab, cron_sn
             assert marker not in html, "%s leaked into the %s tab" % (name, tab)
 
 
-def test_the_profile_page_offers_all_five_tabs(cfg, engine):
+def test_the_profile_page_offers_all_its_tabs(cfg, engine):
+    """Six tabs: skills, memory, cron, keys, routing, models.
+
+    The tasks tab is gone with the work surface — the task tree is not part of
+    a router's job, and it was the only tab reading another process's tree.
+    """
     from src.ui import pages
     html = pages.render_profile_detail_page(cfg, engine, "l2", {})
-    for href in ("/profiles/l2?tab=skills", "/profiles/l2?tab=memory", "/profiles/l2?tab=tasks",
-                 "/profiles/l2?tab=cron", "/profiles/l2?tab=keys"):
+    for href in ("/profiles/l2?tab=skills", "/profiles/l2?tab=memory",
+                 "/profiles/l2?tab=cron", "/profiles/l2?tab=keys",
+                 "/profiles/l2?tab=routing", "/profiles/l2?tab=models"):
         assert 'href="%s"' % href in html, href
+    assert 'href="/profiles/l2?tab=tasks"' not in html
     assert 'class="tab-btn active"' in html
 
 
@@ -412,26 +414,6 @@ def test_a_profile_name_is_escaped_in_the_page(cfg, engine):
 
 
 # ── the per-profile task tree ────────────────────────────────────────────────
-
-def test_use_root_scopes_and_restores(profiles_root):
-    """The Tasks tab runs the same readers against another tree; the override
-    must not survive the block, or the next request inherits the wrong tree."""
-    from src.api import work_tasks
-    before = work_tasks.tasks_dir()
-    with work_tasks.use_root("/tmp/somewhere-else"):
-        assert work_tasks.tasks_dir() == "/tmp/somewhere-else"
-    assert work_tasks.tasks_dir() == before
-
-
-def test_use_root_nests(profiles_root):
-    from src.api import work_tasks
-    outer = work_tasks.tasks_dir()
-    with work_tasks.use_root("/a"):
-        with work_tasks.use_root("/b"):
-            assert work_tasks.tasks_dir() == "/b"
-        assert work_tasks.tasks_dir() == "/a"
-    assert work_tasks.tasks_dir() == outer
-
 
 def test_tasks_root_for_returns_empty_for_no_profile(monkeypatch):
     from src.api import work_sources
@@ -500,52 +482,6 @@ def test_tasks_root_for_survives_a_broken_sources_file(monkeypatch):
         raise ValueError("bad sources")
     monkeypatch.setattr(work_sources, "resolved_view", boom)
     assert work_sources.tasks_root_for("l2") == ""
-
-
-def test_the_profile_tasks_tab_uses_the_profiles_tree(cfg, engine, monkeypatch, tmp_path):
-    """The tab must read the profile's tree, not the default one.
-
-    Built on a real fixture tree rather than a stubbed view: the point is that the
-    readers produce a normal view under the override, which a stub could not show.
-    """
-    from src.api import work_sources
-    from src.api import work_tasks as wt
-    from src.ui import pages
-
-    tree = tmp_path / "tasks"
-    (tree / "new" / "alpha-task").mkdir(parents=True)
-    (tree / "new" / "alpha-task" / "PLAN.md").write_text("# Alpha task\n\nDo the alpha thing.\n")
-    (tree / "in_progress" / "beta-task").mkdir(parents=True)
-    (tree / "in_progress" / "beta-task" / "PLAN.md").write_text("# Beta task\n\nDo the beta thing.\n")
-
-    monkeypatch.setattr(work_sources, "resolved_view",
-                        lambda: {"profiles": {"l2": {"tasks_root": str(tree)}}})
-    seen = {}
-    real = wt.tasks_view
-
-    def spy(params):
-        seen["root"] = wt.tasks_dir()
-        return real(params)
-
-    monkeypatch.setattr(wt, "tasks_view", spy)
-    html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": "tasks"})
-    assert seen["root"] == str(tree)
-    # The rows are fetched by the table's own script, so the proof that the right
-    # tree was read is the payload the server hands that script.
-    assert '"total": 2' in html
-    assert 'tasks-init' in html
-
-
-def test_the_profile_tasks_tab_survives_an_unreadable_tree(cfg, engine, monkeypatch):
-    """A viewer that 500s on a bad path is worse than one that says why it is empty."""
-    from src.api import work_sources
-    from src.ui import pages
-    monkeypatch.setattr(work_sources, "resolved_view",
-                        lambda: {"profiles": {"l2": {"tasks_root": "/definitely/not/here"}}})
-    html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": "tasks"})
-    assert "no task directories found at /definitely/not/here" in html
-    # and the init payload is still well formed, so the script does not throw
-    assert '"total": 0' in html
 
 
 # ── the lane / agent-profile split ───────────────────────────────────────────
@@ -695,31 +631,3 @@ def test_an_agent_with_no_soul_has_no_summary(agent_root):
     assert profile_data.agent_summary("bare") == ""
 
 
-def test_a_per_profile_tasks_tab_reads_that_profiles_ledger(monkeypatch, tmp_path):
-    """The todo panel must caption the same profile as the rows above it."""
-    from src.api import work_tasks
-    mine = tmp_path / "p" / "work"
-    (mine / "tasks").mkdir(parents=True)
-    (mine / "todo.md").write_text("mine\n")
-    monkeypatch.setenv("LCP_WORK_TODO", "/somewhere/else/todo.md")
-    # with no per-profile root in force the override still wins
-    assert work_tasks.todos_path() == "/somewhere/else/todo.md"
-    with work_tasks.use_root(str(mine / "tasks")):
-        assert work_tasks.todos_path() == str(mine / "todo.md")
-    assert work_tasks.todos_path() == "/somewhere/else/todo.md"
-
-
-def test_the_lane_and_the_agent_can_differ_without_breaking_the_ledger(agent_root, monkeypatch):
-    """End to end: the lane page shows the agent profile's own ledger path."""
-    from src.api import work_sources, work_tasks
-    tree = agent_root / "homelab-expert-l2" / "work" / "tasks"
-    tree.mkdir(parents=True)
-    (agent_root / "homelab-expert-l2" / "work" / "todo.md").write_text("l2 ledger\n")
-    monkeypatch.setattr(work_sources, "resolved_view", lambda: {
-        "hermes_profiles_dir": str(agent_root),
-        "profiles": {"homelab-expert-l2": {"tasks_root": str(tree)}}})
-    monkeypatch.setenv("LCP_WORK_TODO", "/app/work-tree/todo.md")
-    root = work_sources.tasks_root_for("homelab-expert-l2")
-    assert root == str(tree)
-    with work_tasks.use_root(root):
-        assert work_tasks.todos_path() == str(agent_root / "homelab-expert-l2" / "work" / "todo.md")

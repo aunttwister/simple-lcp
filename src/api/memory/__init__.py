@@ -5,9 +5,9 @@ module is installed (lancedb importable) AND ``plugins.memory.enabled`` is not
 False. It never fails boot: a missing module / disabled config degrades to
 ``get_memory() -> None`` and the HTTP layer returns 501 with a Setup hint.
 
-The embedder is resolved lazily: the real ``sentence-transformers`` model is
-only loaded on first use, and only when the module has been installed via the
-Setup page.
+The embedder is resolved lazily on first use: fastembed (ONNX) by default,
+with sentence-transformers as a fallback for model names fastembed does not
+ship. The backend for this image is chosen at build time.
 """
 
 from __future__ import annotations

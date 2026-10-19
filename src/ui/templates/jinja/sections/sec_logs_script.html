@@ -17,80 +17,6 @@
   }
   function cost(v) { return '$' + Number(v || 0).toFixed(4); }
 
-  if (tab === 'conversations') {
-    LCPTable.mount({
-      ids: {head: 'lg-head', body: 'lg-rows', pager: 'lg-pager', count: 'lg-count', controls: 'lg-controls'},
-      endpoint: '/api/work/conversations',
-      rowsKey: 'conversations',
-      noun: 'grouped conversations',
-      params: {{ {'view': 'conversations', 'qid': params.qid or ''} | tojson }},
-      filters: [{param: 'profile', label: 'All profiles', optionsKey: 'profiles',
-                 value: {{ (params.profile or '') | tojson }}}],
-      empty: 'No conversations match.',
-      columns: [
-        {key: 'name', label: 'Conversation', cell: function (c) {
-          return '<div class="work-job-name">' + esc(c.name) + '</div>' +
-            '<span class="mono muted convo-id">' + esc(c.id) + '</span>' +
-            (c.summary ? '<div class="muted convo-summary">' + esc(c.summary) + '</div>' : '');
-        }},
-        {key: 'profile', label: 'Profile', cell: function (c) {
-          return '<span class="work-actor">' + esc(c.profile) + '</span>';
-        }},
-        {key: 'model', label: 'Model', cell: function (c) {
-          return '<span class="mono">' + esc(c.model) + '</span>';
-        }},
-        {key: 'task', label: 'Task', cell: function (c) {
-          return c.task ? '<span class="task-chip">' + esc(c.task) + '</span>' : '—';
-        }},
-        {key: 'calls', label: 'Calls', num: true, cell: function (c) { return num(c.calls); }},
-        {key: 'tokens', label: 'Tokens', num: true, cell: function (c) { return num(c.tokens); }},
-        {key: 'cost', label: 'Cost', num: true, cell: function (c) { return cost(c.cost); }},
-        {key: 'errors', label: 'Errors', num: true, cell: function (c) {
-          return c.errors ? '<span class="work-warn">' + num(c.errors) + '</span>'
-                          : '<span class="muted">0</span>';
-        }},
-        {key: 'last_at', label: 'Last activity', cell: function (c) {
-          return '<span class="mono muted">' + esc(ts(c.last_at)) + '</span>';
-        }}
-      ],
-      expand: {param: 'cid', key: 'id', endpoint: '/api/work/conversations/detail',
-               render: function (d, row) {
-        // calls/cost/errors come from the persisted conversation row; the detail
-        // payload carries the event window (the last N calls) and `truncated`.
-        var out = ['<div class="task-detail-inner">',
-          '<p class="muted work-rule">Started ' + esc(ts(row.started_at)) + ' · ' +
-          num(d.calls != null ? d.calls : row.calls) + ' call(s) · ' +
-          cost(d.cost != null ? d.cost : row.cost) + '</p>',
-          '<ul class="convo-timeline">'];
-        (d.events || []).forEach(function (e) {
-          out.push('<li class="convo-event"><span class="convo-ts mono">' + esc(ts(e.ts)) + '</span>');
-          if (e.kind === 'routing') {
-            out.push(chip('active', 'route'));
-            out.push('<span class="mono">' + esc(e.task || '?') + '</span> · ' + esc(e.action));
-            if (e.provider) out.push('→ <span class="work-actor">' + esc(e.provider) + '</span>');
-            if (e.model) out.push(' <span class="mono muted">' + esc(e.model) + '</span>');
-            if (e.score != null) out.push(' <span class="muted">score ' + Number(e.score).toFixed(3) + '</span>');
-            if (e.note) out.push('<span class="muted">· ' + esc(e.note) + '</span>');
-          } else {
-            out.push(chip(e.success ? 'ok' : 'error', e.success ? 'req' : 'req ERR'));
-            out.push('<span class="work-actor">' + esc(e.provider) + '</span> → ' +
-              '<span class="mono">' + esc(e.model) + '</span>');
-            out.push('<span class="muted">· ' + num(e.prompt_tokens) + ' + ' +
-              num(e.completion_tokens) + ' tok · ' + num(e.latency_ms) + ' ms · ' +
-              cost(e.cost) + '</span>');
-            if (!e.success && e.error_type) out.push('<span class="work-warn">' + esc(e.error_type) + '</span>');
-          }
-          out.push('</li>');
-        });
-        out.push('</ul>');
-        if (d.truncated) out.push('<p class="muted task-note">… first ' +
-          num((d.events || []).length) + ' events shown.</p>');
-        out.push('</div>');
-        return out.join('');
-      }}
-    });
-  }
-
   if (tab === 'requests') {
     LCPTable.mount({
       ids: {head: 'lg-head', body: 'lg-rows', pager: 'lg-pager', count: 'lg-count', controls: 'lg-controls'},
@@ -172,42 +98,6 @@
     });
   }
 
-  if (tab === 'decisions') {
-    var mount = document.getElementById('lg-rows');
-    if (mount) {
-      LCPTable.mount({
-        ids: {head: 'lg-head', body: 'lg-rows', pager: 'lg-pager', count: 'lg-count'},
-        endpoint: '/api/work/decisions',
-        rowsKey: 'ledger.rows',
-        noun: 'decision rows',
-        params: {{ {'view': 'decisions'} | tojson }},
-        empty: 'No decisions recorded.',
-        columns: [
-          {key: 't', label: 'Event time', cell: function (m) {
-            return '<span class="mono">' + esc(ts(m.t)) + '</span>';
-          }},
-          {key: 'computed_at', label: 'Asked at', cell: function (m) {
-            return '<span class="mono muted">' + esc(ts(m.computed_at)) + '</span>';
-          }},
-          {key: 'subject', label: 'Subject', cell: function (m) { return esc(m.subject); }},
-          {key: 'actor', label: 'Actor', cell: function (m) {
-            return '<span class="work-actor">' + esc(m.actor) + '</span>';
-          }},
-          {key: 'kind', label: 'Kind', cell: function (m) {
-            return '<span class="mono">' + esc((m.payload || {}).event_kind || '—') + '</span>';
-          }},
-          {key: 'label', label: 'Label', cell: function (m) {
-            var l = (m.payload || {}).label;
-            return '<span class="work-label work-label-' + esc(l) + '">' + esc(l) + '</span>';
-          }},
-          {key: 'confidence', label: 'Conf', num: true, cell: function (m) {
-            var c = (m.payload || {}).confidence;
-            return c != null ? Number(c).toFixed(3) : '—';
-          }}
-        ]
-      });
-    }
-  }
 })();
 </script>
 {% endif %}

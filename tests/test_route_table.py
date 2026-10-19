@@ -168,7 +168,7 @@ class TestLiveRouteTable:
         names = {r.name for r in live_table.rules}
         for expected in ("health", "api.settings", "static", "memory.count",
                          "memory.write", "api.providers.toggle",
-                         "api.settings.cache.refresh", "api.setup.install"):
+                         "api.settings.cache.refresh"):
             assert expected in names, "missing route: %s" % expected
 
     def test_settings_cache_before_settings(self, live_table):

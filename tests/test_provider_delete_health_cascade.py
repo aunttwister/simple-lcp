@@ -25,9 +25,6 @@ from src.server import LCPHandler
 from src.api.runtime import resolve_service
 from src.api.models import Base, ProviderHealth, get_engine, get_session
 from src.api import circuit_breaker as cb_module
-# NOTE: do not alias this as `setup_module` — pytest treats a module-level
-# name `setup_module` as its xunit setup hook and crashes trying to call it.
-from src.api import setup as setup_api
 from src.api.circuit_breaker import CircuitBreaker, get_circuit_breaker
 
 
@@ -273,19 +270,3 @@ class TestProviderDeleteCascade:
 
 # ── the setup-module delete path ────────────────────────────────────────────
 
-class TestSetupRemoveProviderCascade:
-    def test_remove_provider_also_drops_health(self, temp_db, monkeypatch):
-        cfg = _cfg()
-        cb = get_circuit_breaker(cfg)
-        cb.attach_engine(temp_db)
-        _seed(cb, "llamacpp", "https://llamacpp/v1", profiles=("l2", "coder"))
-        _seed(cb, "deepseek", "https://deepseek/v1", profiles=("l2",))
-
-        store = MagicMock()
-        monkeypatch.setattr("src.api.credential_store.get_credential_store",
-                            lambda *a, **k: store)
-
-        result = setup_api.remove_provider(temp_db, cfg, "llamacpp")
-
-        assert result == {"removed": True, "provider": "llamacpp"}
-        assert _rows(temp_db) == [("deepseek", "l2")]

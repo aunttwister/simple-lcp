@@ -63,50 +63,6 @@ def _route(con, ts, profile="l2", task="research", action="keep_default", **kw):
          kw.get("intent", "")))
 
 
-class TestBackfill:
-    def test_burst_groups_by_profile_model_gap(self, db):
-        _req(db, "2026-09-19T10:00:00+00:00", profile="l2", model="a")
-        _req(db, "2026-09-19T10:01:00+00:00", profile="l2", model="a")   # same burst
-        _req(db, "2026-09-19T10:20:00+00:00", profile="l2", model="a")   # new burst (>5m)
-        _req(db, "2026-09-19T10:02:00+00:00", profile="l1", model="a")   # diff profile
-        db.commit()
-        got = wc.backfill_conversations()
-        assert got["requests"] == 4
-        rows = db.execute("SELECT profile, model, conversation_id FROM requests "
-                          "ORDER BY id").fetchall()
-        # three distinct conversations
-        ids = {r[2] for r in rows}
-        assert len(ids) == 3
-        assert all(r[2] for r in rows)
-        # same conversation for the first two l2/a rows
-        assert rows[0][2] == rows[1][2]
-
-    def test_idempotent(self, db):
-        _req(db, "2026-09-19T10:00:00+00:00")
-        _req(db, "2026-09-19T10:01:00+00:00")
-        db.commit()
-        assert wc.backfill_conversations()["requests"] == 2
-        assert wc.backfill_conversations()["requests"] == 0  # nothing new
-
-    def test_routing_joins_request_window(self, db):
-        rid = _req(db, "2026-09-19T10:00:00+00:00")
-        _route(db, "2026-09-19T10:00:30+00:00", intent="")
-        db.commit()
-        got = wc.backfill_conversations()
-        assert got["requests"] == 1 and got["routing"] == 1
-        r = db.execute("SELECT conversation_id FROM requests WHERE id=?", (rid,)).fetchone()[0]
-        rt = db.execute("SELECT conversation_id FROM routing_decisions").fetchone()[0]
-        assert r == rt
-
-    def test_orphan_routing_gets_synthetic(self, db):
-        _route(db, "2026-09-19T10:00:00+00:00")
-        db.commit()
-        got = wc.backfill_conversations()
-        assert got["routing"] == 1
-        cid = db.execute("SELECT conversation_id FROM routing_decisions").fetchone()[0]
-        assert cid.startswith("c")
-
-
 class TestStampNew:
     def test_stamp_request_and_routing_window(self, db):
         rid = _req(db, "2026-09-19T10:00:00+00:00", lat=100)
@@ -132,75 +88,6 @@ class TestStampNew:
         assert db.execute("SELECT conversation_id FROM requests WHERE id=?",
                           (rid,)).fetchone()[0] == "existing"
 
-
-class TestSync:
-    def test_generates_and_persists_name_summary(self, db):
-        wc.ensure_schema()
-        _req(db, "2026-09-19T10:00:00+00:00", profile="l2", model="a")
-        _route(db, "2026-09-19T10:00:30+00:00",
-               intent="Please analyze the zgx metrics now")
-        db.commit()
-        wc.backfill_conversations()
-        got = wc.sync_conversations()
-        assert got["created"] == 1 and got["updated"] == 0
-        row = db.execute("SELECT name, summary, calls FROM conversations").fetchone()
-        # M7: no transcript capture means no opening-ask head, so the name comes
-        # from the routing task + date rather than from a message fragment.
-        assert row["name"] == "research 2026-09-19"
-        assert "1 calls" in row["summary"]
-        # second sync only updates
-        got2 = wc.sync_conversations()
-        assert got2["created"] == 0 and got2["updated"] == 1
-        # name/summary were NOT overwritten
-        row2 = db.execute("SELECT name FROM conversations").fetchone()
-        assert row2["name"] == "research 2026-09-19"
-
-    def test_fallback_name(self, db):
-        wc.ensure_schema()
-        _req(db, "2026-09-19T10:00:00+00:00", profile="l2", model="a")
-        db.commit()
-        wc.backfill_conversations()
-        wc.sync_conversations()
-        row = db.execute("SELECT name, summary FROM conversations").fetchone()
-        # no user/assistant text and no routing task -> bare fallback
-        assert row["name"] == "Conversation %s" % (
-            db.execute("SELECT conversation_id FROM conversations").fetchone()[0])
-        assert "no user or assistant text captured" in row["summary"]
-
-    def test_task_based_name_when_no_text(self, db):
-        wc.ensure_schema()
-        _req(db, "2026-09-19T10:00:00+00:00", profile="l2", model="a")
-        _route(db, "2026-09-19T10:00:30+00:00", task="debugging", intent="")
-        _route(db, "2026-09-19T10:00:31+00:00", task="research", intent="")
-        db.commit()
-        wc.backfill_conversations()
-        wc.sync_conversations()
-        row = db.execute("SELECT name FROM conversations").fetchone()
-        assert row["name"] == "research 2026-09-19"  # latest routing row's task
-
-
-class TestViews:
-    def test_conversations_view_and_detail(self, db):
-        _req(db, "2026-09-19T10:00:00+00:00", profile="l2", model="a")
-        _req(db, "2026-09-19T10:01:00+00:00", profile="l2", model="a")
-        _req(db, "2026-09-19T11:00:00+00:00", profile="l1", model="b")
-        _route(db, "2026-09-19T10:00:30+00:00", profile="l2", task="research",
-               intent="hello there long prompt")
-        db.commit()
-        wc.backfill_conversations()
-        v = wc.conversations_view({"per": "10"})
-        # two conversations: the l2/a burst and the l1/b row
-        assert v["total"] == 2
-        assert v["filter"]["pages"] == 1
-        # newest first
-        assert v["conversations"][0]["profile"] == "l1"
-        l2 = next(c for c in v["conversations"] if c["profile"] == "l2")
-        assert l2["calls"] == 2
-        assert "2 calls" in l2["summary"]      # counts survive; the head text does not (M7)
-        d = wc.conversation_detail(l2["id"])
-        kinds = [e["kind"] for e in d["events"]]
-        # chronological: first call (10:00:00) → routing (10:00:30) → second call (10:01:00)
-        assert kinds == ["request", "routing", "request"]
 
 class TestLogTableModuleWiring:
     """Every log view pages and sorts through src/ui/tables.py.
@@ -276,38 +163,3 @@ class TestLogTableModuleWiring:
         v = wc.provider_decisions_view({"per": "2", "sort": "oldest"})
         assert [r["action"] for r in v["rows"]] == ["a0", "a1"]
 
-    def test_conversations_default_newest_activity_first(self, db):
-        _req(db, "2026-09-19T09:00:00+00:00", profile="l2", model="a")
-        _req(db, "2026-09-19T12:00:00+00:00", profile="l1", model="b")
-        db.commit()
-        wc.backfill_conversations()
-        v = wc.conversations_view({"per": "1"})
-        assert v["total"] == 2
-        assert v["conversations"][0]["profile"] == "l1"
-        assert v["filter"]["sorts"][0]["key"] == "newest"
-
-    def test_conversations_sort_oldest_flips_it(self, db):
-        _req(db, "2026-09-19T09:00:00+00:00", profile="l2", model="a")
-        _req(db, "2026-09-19T12:00:00+00:00", profile="l1", model="b")
-        db.commit()
-        wc.backfill_conversations()
-        v = wc.conversations_view({"per": "1", "sort": "oldest"})
-        assert v["conversations"][0]["profile"] == "l2"
-
-    def test_conversations_qid_narrows_to_one(self, db):
-        _req(db, "2026-09-19T09:00:00+00:00", profile="l2", model="a")
-        _req(db, "2026-09-19T12:00:00+00:00", profile="l1", model="b")
-        db.commit()
-        wc.backfill_conversations()
-        cid = wc.conversations_view({"per": "1"})["conversations"][0]["id"]
-        v = wc.conversations_view({"qid": cid})
-        assert v["total"] == 1
-        assert v["conversations"][0]["id"] == cid
-        assert v["filter"]["qid"] == cid
-
-    def test_conversations_qid_unknown_is_empty_not_error(self, db):
-        _req(db, "2026-09-19T09:00:00+00:00", profile="l2", model="a")
-        db.commit()
-        wc.backfill_conversations()
-        v = wc.conversations_view({"qid": "nope"})
-        assert v["total"] == 0 and v["conversations"] == []

@@ -49,12 +49,6 @@ class TestPageRenderers:
         html = render_models_page(None)
         assert isinstance(html, str) and html
 
-    def test_render_setup_page(self):
-        from src.ui.pages import render_setup_page
-        html = render_setup_page(None)
-        assert isinstance(html, str) and html
-
-
 # ── ui.render: credential-store branch (render.py:118-119) ───────────────────
 
 class TestRenderPageCredentialLookup:
@@ -171,7 +165,7 @@ class TestEmbeddingsLoadPaths:
         sys.modules["sentence_transformers"] = None  # import halted -> ImportError
         try:
             with pytest.raises(StMemoryError, match="import failed"):
-                EmbeddingModel()._load()
+                EmbeddingModel(backend="sentence-transformers")._load()
         finally:
             if real is not None:
                 sys.modules["sentence_transformers"] = real
@@ -191,7 +185,7 @@ class TestEmbeddingsLoadPaths:
 
         mod = types.ModuleType("sentence_transformers")
         mod.SentenceTransformer = FakeST
-        m = EmbeddingModel(cache_dir=str(tmp_path))
+        m = EmbeddingModel(cache_dir=str(tmp_path), backend="sentence-transformers")
         with patch.dict(sys.modules, {"sentence_transformers": mod}):
             model = m._load()
         assert model is not None
@@ -206,14 +200,14 @@ class TestEmbeddingsLoadPaths:
 
         mod = types.ModuleType("sentence_transformers")
         mod.SentenceTransformer = FakeST
-        m = EmbeddingModel()
+        m = EmbeddingModel(backend="sentence-transformers")
         with patch.dict(sys.modules, {"sentence_transformers": mod}):
             with pytest.raises(OSError):
                 m._load()
 
     def test_dim_falls_back_on_load_failure(self):
         from src.api.memory import embeddings as emb
-        m = emb.EmbeddingModel()
+        m = emb.EmbeddingModel(backend="sentence-transformers")
         with patch.object(m, "_load", side_effect=RuntimeError("nope")):
             assert m.dim == emb.DEFAULT_DIM
 
