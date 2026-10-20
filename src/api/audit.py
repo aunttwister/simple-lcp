@@ -87,7 +87,18 @@ def record(action: str, actor: str = "anonymous", detail: Any = None,
         return False
 
 
-def recent(limit: int = 200, data_dir: str = "data") -> list[dict[str, Any]]:
+def count(data_dir: str = "data") -> int:
+    """Total rows in audit_logs — drives the change-history pager."""
+    conn = sqlite3.connect(f"file:{data_dir}/costs.db?mode=ro", uri=True,
+                           timeout=5)
+    try:
+        return int(conn.execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0])
+    finally:
+        conn.close()
+
+
+def recent(limit: int = 200, data_dir: str = "data",
+           offset: int = 0) -> list[dict[str, Any]]:
     """Newest-first audit trail for GET /api/audit (guarded)."""
     try:
         conn = sqlite3.connect(f"file:{data_dir}/costs.db?mode=ro", uri=True,
@@ -96,7 +107,8 @@ def recent(limit: int = 200, data_dir: str = "data") -> list[dict[str, Any]]:
         try:
             rows = conn.execute(
                 "SELECT id, timestamp, action, detail, ip_address"
-                " FROM audit_logs ORDER BY id DESC LIMIT ?", (limit,)
+                " FROM audit_logs ORDER BY id DESC LIMIT ? OFFSET ?",
+                (limit, max(0, int(offset))),
             ).fetchall()
         finally:
             conn.close()

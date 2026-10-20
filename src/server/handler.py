@@ -275,16 +275,22 @@ class LCPHandler(
     # ── admin authentication ────────────────────────────────────────────
     # ── Phase 5: change-history trail (guarded by the admin guard) ──────────
     def _serve_audit_trail(self) -> None:
-        """GET /api/audit — newest-first change history (last 200)."""
-        limit = 200
+        """GET /api/audit — newest-first change history (paged)."""
+        limit, offset, total = 200, 0, None
         try:
             from urllib.parse import parse_qs
             qs = parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
             limit = max(1, min(1000, int((qs.get("limit") or ["200"])[0])))
+            offset = max(0, int((qs.get("offset") or ["0"])[0]))
         except (ValueError, IndexError):
             pass
-        rows = audit_log.recent(limit=limit)
-        self._send_json({"ok": True, "count": len(rows), "entries": rows})
+        rows = audit_log.recent(limit=limit, offset=offset)
+        try:
+            total = audit_log.count()
+        except Exception:  # noqa: BLE001 — total is a nicety, never fail the page
+            total = None
+        self._send_json({"ok": True, "count": len(rows), "total": total,
+                         "entries": rows})
 
 
     def _admin_guard(self) -> bool:
