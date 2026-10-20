@@ -29,10 +29,12 @@
 <div class="page-tabs">
   <a class="tab-btn{% if tab == 'overview' %} active{% endif %}" href="/activity">Overview</a>
   <a class="tab-btn{% if tab == 'logs' %} active{% endif %}" href="/activity?tab=logs">Logs</a>
+  <a class="tab-btn{% if tab == 'evidence' %} active{% endif %}" href="/activity?tab=evidence">Evidence</a>
 </div>
 
 {% include "sections/sec_dashboard.html" %}
 {% include "sections/sec_logs.html" %}
+{% include "sections/sec_evidence.html" %}
 {% endblock %}
 
 {% block scripts %}

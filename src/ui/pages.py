@@ -236,10 +236,10 @@ def render_activity_page(config, engine=None, params=None, headers=None) -> str:
     """
     from .render import render_page
     params = dict(params or {})
-    tab = _tab(params, ("overview", "logs"), "overview")
+    tab = _tab(params, ("overview", "logs", "evidence"), "overview")
     ctx = {"active_page": "activity", "tab": tab, "params": params,
            "crumbs": _crumbs(("Activity", "/activity"),
-                             ("Logs" if tab == "logs" else "Overview", None))}
+                             ({"logs": "Logs", "evidence": "Evidence"}.get(tab, "Overview"), None))}
     if tab == "logs":
         ctx["view"] = _logs_view(params)
     elif tab == "overview":

@@ -3641,8 +3641,43 @@ class EvidenceEndpoints:
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 
+    def _serve_evidence_download(self):
+        """Stream the newest evidence pack as a tar.gz (guarded route)."""
+        import io
+        import tarfile
+        from pathlib import Path
+        try:
+            packs_root = (Path(os.environ.get("LCP_DATA_DIR", "data"))
+                          / "evidence-packs")
+            packs = sorted(packs for packs in packs_root.iterdir()
+                           if packs.is_dir()
+                           and (packs / "MANIFEST.json").is_file())
+            if not packs:
+                self._send_json({"error": "no evidence pack exported yet"}, 404)
+                return
+            latest = packs[-1]
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+                for fh in sorted(latest.rglob("*")):
+                    if fh.is_file():
+                        tf.add(fh, arcname=str(fh.relative_to(packs_root)))
+            data = buf.getvalue()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Content-Disposition",
+                             'attachment; filename="%s.tar.gz"' % latest.name)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:  # noqa: BLE001
+            self._send_json({"error": str(e)}, 500)
+
     def _serve_evidence_public_key(self):
-        """The Ed25519 public key PEM (the pack carries only its fingerprint)."""
+        """The Ed25519 public key PEM (the pack carries only its fingerprint).
+
+        ``?format=pem`` streams the raw PEM (for ``--public-key`` in
+        tools/verify_evidence_pack.py); default is a JSON envelope.
+        """
         try:
             from ..api.evidence_export import (
                 _resolve_signing_key, _public_key_pem, _public_key_fingerprint,
@@ -3650,6 +3685,19 @@ class EvidenceEndpoints:
             import os as _os
             key = _resolve_signing_key(
                 None, _os.environ.get("LCP_DATA_DIR", "data"))
+            from urllib.parse import parse_qs as _pqs
+            _qs = _pqs(self.path.split("?", 1)[1]) if "?" in (self.path or "") else {}
+            if _qs.get("format") == ["pem"]:
+                pem = _public_key_pem(key)
+                self.send_response(200)
+                self.send_header("Content-Type",
+                                 "application/x-pem-file")
+                self.send_header("Content-Disposition",
+                                 'attachment; filename="evidence_signing_pub.pem"')
+                self.send_header("Content-Length", str(len(pem)))
+                self.end_headers()
+                self.wfile.write(pem)
+                return
             self._send_json({
                 "algorithm": "Ed25519",
                 "public_key_pem": _public_key_pem(key).decode("utf-8"),

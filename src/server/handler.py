@@ -1072,6 +1072,8 @@ def _build_routes() -> RouteTable:
            lambda h, p: h._serve_evidence_export())
     t.get("api.evidence.public_key", exact("/api/evidence/public-key"),
           lambda h, p: h._serve_evidence_public_key())
+    t.get("api.evidence.download", exact("/api/evidence/download"),
+          lambda h, p: h._serve_evidence_download())
 
     # ── settings / routing ──
     t.get("api.settings", exact("/api/settings"),

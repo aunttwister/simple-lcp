@@ -40,6 +40,7 @@ SECTION_TAB = {
     "sec_dashboard": "overview",
     "sec_usage": "usage",
     "sec_logs": "logs",
+    "sec_evidence": "evidence",
     "sec_models": "matrix",
     "sec_providers": "providers",
     "sec_profiles": "profiles",
@@ -211,12 +212,13 @@ def test_every_tab_serves_a_tab_strip(cfg, engine):
         assert 'class="tab-btn active"' in html
 
 
-def test_activity_has_exactly_overview_and_logs(cfg, engine):
+def test_activity_has_exactly_overview_logs_and_evidence(cfg, engine):
     """Usage left Activity in M2b — a dead tab must not linger in the strip."""
     from src.ui.pages import render_activity_page
     html = render_activity_page(cfg, engine, {}, {"Host": "test:8734"})
     strip = html.split('<div class="page-tabs">')[1].split("</div>")[0]
-    assert re.findall(r'href="([^"]+)"', strip) == ["/activity", "/activity?tab=logs"]
+    assert re.findall(r'href="([^"]+)"', strip) == [
+        "/activity", "/activity?tab=logs", "/activity?tab=evidence"]
 
 
 def test_usage_is_a_page_of_its_own(cfg, engine):
