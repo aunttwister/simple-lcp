@@ -3647,7 +3647,9 @@ class EvidenceEndpoints:
             from ..api.evidence_export import (
                 _resolve_signing_key, _public_key_pem, _public_key_fingerprint,
             )
-            key = _resolve_signing_key(None, "data")
+            import os as _os
+            key = _resolve_signing_key(
+                None, _os.environ.get("LCP_DATA_DIR", "data"))
             self._send_json({
                 "algorithm": "Ed25519",
                 "public_key_pem": _public_key_pem(key).decode("utf-8"),

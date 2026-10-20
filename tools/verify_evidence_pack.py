@@ -63,8 +63,10 @@ def count_rows(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pack_dir")
-    ap.add_argument("--public-key", default=None,
-                    help="Out-of-band copy of the signing public key (PEM).")
+    ap.add_argument("--public-key", required=True,
+                    help="Out-of-band copy of the signing public key (PEM). The pack "
+                         "deliberately does not contain it — obtain it from the deployer "
+                         "(GET /api/evidence/public-key at deploy time).")
     args = ap.parse_args()
 
     pack = args.pack_dir.rstrip("/")
@@ -119,19 +121,20 @@ def main():
 
     # 4 ── Ed25519 signature over the manifest bytes
     sig_path = os.path.join(pack, "MANIFEST.sig")
-    pub_in_manifest = manifest.get("signing_public_key")
     if not os.path.isfile(sig_path):
         fail("MANIFEST.sig missing — pack is not signed")
-    elif not pub_in_manifest:
-        fail("MANIFEST.json carries no signing_public_key — cannot attribute signature")
-    else:
-        pub_pem = pub_in_manifest if "BEGIN" in pub_in_manifest else None
-        pem_bytes = pub_pem.encode() if pub_pem else None
-        if args.public_key:
-            pem_bytes = open(args.public_key, "rb").read()
-            if pub_pem and pub_pem.encode() != pem_bytes:
-                fail("out-of-band public key does NOT match the key in the manifest "
-                     "— pack may be signed by an impostor key")
+        return 1
+    pem_bytes = open(args.public_key, "rb").read()
+    # cross-check against the fingerprint the exporter recorded in the manifest
+    fp = (manifest.get("signing") or {}).get("public_key_fingerprint", "")
+    if fp.startswith("sha256:"):
+        actual = "sha256:" + hashlib.sha256(pem_bytes).hexdigest()
+        if actual != fp:
+            fail("out-of-band public key does NOT match the manifest fingerprint "
+                 "(%s… vs %s…) — pack may be signed by an impostor key"
+                 % (actual[:23], fp[:23]))
+            return 1
+        ok("public key fingerprint matches the manifest")
         try:
             from cryptography.hazmat.primitives.serialization import load_pem_public_key
             from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -145,8 +148,7 @@ def main():
             else:
                 key.verify(bytes.fromhex(open(sig_path).read().strip()),
                            open(manifest_path, "rb").read())
-                ok("signature verifies (Ed25519, key fingerprint %s)"
-                   % hashlib.sha256(pem_bytes or b"").hexdigest()[:16])
+                ok("signature verifies over the manifest bytes (Ed25519)")
         except ImportError:
             print("  note  `cryptography` not installed — run by hand:")
             print('        openssl pkeyutl -verify -pubin -inkey key.pem '
