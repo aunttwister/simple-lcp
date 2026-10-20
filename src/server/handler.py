@@ -57,6 +57,7 @@ from .endpoints import (
     SettingsEndpoints,
     MemoryEndpoints,
     WorkEndpoints,
+    EvidenceEndpoints,
 )
 
 from .router import (
@@ -134,6 +135,7 @@ class LCPHandler(
     SettingsEndpoints,
     MemoryEndpoints,
     WorkEndpoints,
+    EvidenceEndpoints,
     AdminLoginEndpoints,
     AdminOIDCEndpoints,
     audit_log.AuditEndpoints,
@@ -1062,6 +1064,14 @@ def _build_routes() -> RouteTable:
     t.get("cache.stats", exact("/cache/stats"), lambda h, p: h._serve_cache_stats())
     t.get("metrics", exact("/metrics"), lambda h, p: h._serve_metrics())
     t.get("export", exact("/export"), lambda h, p: h._serve_export())
+
+    # ── evidence export (Phase 4 — admin-guarded via the global guard) ──
+    t.get("api.evidence.export", exact("/api/evidence/export"),
+          lambda h, p: h._serve_evidence_export())
+    t.post("api.evidence.export", exact("/api/evidence/export"),
+           lambda h, p: h._serve_evidence_export())
+    t.get("api.evidence.public_key", exact("/api/evidence/public-key"),
+          lambda h, p: h._serve_evidence_public_key())
 
     # ── settings / routing ──
     t.get("api.settings", exact("/api/settings"),

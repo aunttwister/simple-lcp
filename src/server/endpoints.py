@@ -3595,3 +3595,66 @@ class WorkEndpoints:
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 
+
+# ── Evidence Export Endpoints ────────────────────────────────────────────────
+
+class EvidenceEndpoints:
+    """Evidence-pack export (Phase 4, EVIDENCE-EXPORT-SPEC.md).
+
+    GET/POST /api/evidence/export — build and sign the pack, return the
+    manifest. GET /api/evidence/public-key — the Ed25519 public key for
+    offline verification. The admin guard is applied globally in do_GET /
+    do_POST before dispatch, so no per-route guard is needed here.
+    """
+
+    config: Any
+    _send_json: Any
+
+    def _db_path(self) -> Optional[str]:
+        """The raw SQLite path the pack is exported from.
+
+        Prefers the bound SQLAlchemy engine's file (same DB the rest of the
+        gateway writes to); falls back to the DB-backed config.
+        """
+        engine = getattr(self, "engine", None)
+        url = getattr(getattr(engine, "url", None), "database", None)
+        if url:
+            return url
+        try:
+            return self.config.database["path"]
+        except Exception:  # noqa: BLE001 — degraded config is a 500 below
+            return None
+
+    def _serve_evidence_export(self):
+        try:
+            from ..api.evidence_export import generate_evidence_pack
+            db_path = self._db_path()
+            if not db_path:
+                self._send_json({"error": "no database configured"}, 500)
+                return
+            manifest = generate_evidence_pack(
+                db_path=db_path,
+                config=self.config,
+                data_dir=os.environ.get("LCP_DATA_DIR", "data"),
+            )
+            self._send_json({"status": "ok", "manifest": manifest})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
+
+    def _serve_evidence_public_key(self):
+        """The Ed25519 public key PEM (the pack carries only its fingerprint)."""
+        try:
+            from ..api.evidence_export import (
+                _resolve_signing_key, _public_key_pem, _public_key_fingerprint,
+            )
+            key = _resolve_signing_key(None, "data")
+            self._send_json({
+                "algorithm": "Ed25519",
+                "public_key_pem": _public_key_pem(key).decode("utf-8"),
+                "fingerprint": _public_key_fingerprint(key),
+            })
+        except FileNotFoundError as e:
+            self._send_json({"error": f"signing key not found: {e}"}, 404)
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
+
