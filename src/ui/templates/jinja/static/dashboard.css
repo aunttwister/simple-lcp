@@ -12,6 +12,14 @@
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 210 40% 98%;
   --border: 217.2 32.6% 17.5%;
+  /* --ring is consumed by two :hover rules (.budget-card at :926 and
+     .ack-btn in pages/alerts.html:29) but was never declared, so
+     hsl(var(--ring)) resolved to an invalid colour and both borders
+     rendered as nothing. shadcn's default, and the value the existing
+     .toggle focus rule already carried as its fallback. Contrast on the
+     dark surfaces: 5.44:1 on canvas, 3.97:1 on --secondary, 5.15:1 on the
+     sidebar — all above the 3:1 floor WCAG 1.4.11 asks of a boundary. */
+  --ring: 217.2 91.2% 59.8%;
   --radius: 0.5rem;
   --green-bg: 142.1 76.2% 6%;
   --green-fg: 142.1 70.6% 45.3%;
@@ -2044,6 +2052,97 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 }
 
 .conv-row .conv-toggle { min-width: 3.5rem; }
+
+/* ── Sparklines (text) ─────────────────────────────────────────────────────
+   A <pre>, so the trend is one DOM node, selectable, copyable and readable by
+   a screen reader — and its monospace alignment comes from the element rather
+   than from a font-family coincidence. Defined globally because both the
+   Usage stat cards (ASCII) and the Profiles cards (braille) use it. */
+.spark {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.72rem;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  margin: 0.35rem 0 0;
+  color: hsl(var(--cyan-fg));
+  white-space: pre;
+  overflow: hidden;
+}
+.spark-braille { color: hsl(var(--green-fg)); }
+.spark-empty { color: hsl(var(--muted-foreground)); font-style: italic; font-size: 0.68rem; }
+.pc-spark { margin: 0.3rem 0 0; font-size: 0.7rem; }
+.pc-spark-sum {
+  font-size: 0.6rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Terminal chrome for the Logs tab ──────────────────────────────────────
+   Scoped to `.logs-term`, which ONLY the Activity → Logs tab puts on its
+   table wrapper. This is chrome, not a palette: every colour is an existing
+   token, so the tab cannot drift into a second design language the way a
+   copied-in theme would. The double frame is the classic terminal panel
+   (outer border + inset hairline), and the header strip is one line of
+   uppercase mono. */
+.logs-term {
+  position: relative;
+  border: 1px solid hsl(var(--card-border));
+  border-radius: var(--radius);
+  background: hsl(var(--card));
+}
+.logs-term::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 1px solid hsl(var(--card-border) / 0.5);
+  border-radius: calc(var(--radius) - 2px);
+  pointer-events: none;
+}
+.term-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid hsl(var(--card-border));
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: hsl(var(--muted-foreground));
+}
+.term-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--green-fg));
+  flex: 0 0 auto;
+}
+.logs-term .work-table thead th {
+  background: hsl(var(--secondary) / 0.35);
+  font-size: 0.62rem;
+  letter-spacing: 0.07em;
+}
+.logs-term .work-table th,
+.logs-term .work-table td {
+  border-bottom: 1px solid hsl(var(--card-border) / 0.45);
+}
+
+/* ── Motion guard ──────────────────────────────────────────────────────────
+   The app shipped four @keyframes and a dozen transitions with no
+   prefers-reduced-motion handler at all. This is the global guard: it is
+   deliberately last in the file so it wins over the component transitions
+   above, and it keeps state changes visible while removing the movement. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 @media (max-width: 768px) {
   #convModal .dialog-content { height: 94vh; max-height: 94vh; }

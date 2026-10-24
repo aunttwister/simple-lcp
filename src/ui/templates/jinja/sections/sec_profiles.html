@@ -47,6 +47,12 @@
     <div class="pc-agent pc-agent-none">No agent behind it &mdash; this profile routes for other things.</div>
     {% endif %}
     {% if c.routed_by %}<div class="pc-routed">Also routed here by {{ c.routed_by|join(', ') }}</div>{% endif %}
+    {# 30-day cost trend as a braille sparkline. Filled by sec_profiles_script
+       from /api/usage/profile-series; empty until that lands, and explicitly
+       labelled as "no data" rather than left blank. #}
+    <pre class="spark spark-braille pc-spark" id="pc-spark-{{ c.name }}"
+         aria-label="30-day cost trend for {{ c.name }}"></pre>
+    <div class="pc-spark-sum" id="pc-spark-sum-{{ c.name }}"></div>
     <div class="pc-foot">
       <span class="pc-url mono" title="Gateway URL">/{{ c.name }}/chat/completions</span>
       <span class="pc-actions">

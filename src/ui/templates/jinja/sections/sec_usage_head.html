@@ -24,6 +24,15 @@
 .progress-blue { background: hsl(var(--blue-fg, 217 91% 60%)); }
 .usage-bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
 .usage-bar-item { background: hsl(var(--card)); border: 1px solid hsl(var(--card-border)); border-radius: var(--radius); padding: 0.85rem 1rem; }
+/* Radial gauge replaces the flat percentage bar. The numeric percentage stays
+   as DOM text (.bar-pct), so the canvas is decoration (aria-hidden) and the
+   value survives with JS off, a canvas failure, or a screen reader. */
+.usage-gauge-item .gauge-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.25rem; }
+.usage-gauge-item .gauge-body { display: flex; align-items: center; gap: 0.75rem; }
+.usage-gauge-item .gauge-body canvas { flex: 0 0 auto; }
+.usage-gauge-item .gauge-legend { font-size: 0.65rem; color: hsl(var(--muted-foreground)); line-height: 1.5; }
+.usage-gauge-item .gauge-legend b { color: hsl(var(--foreground)); font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-card .spark-sum { font-size: 0.62rem; color: hsl(var(--muted-foreground)); margin-top: 0.2rem; font-variant-numeric: tabular-nums; }
 .usage-bar-item .bar-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.4rem; }
 .usage-bar-item .bar-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: hsl(var(--muted-foreground)); }
 .usage-bar-item .bar-pct { font-size: 1.1rem; font-weight: 700; }

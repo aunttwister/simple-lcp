@@ -1112,6 +1112,8 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_usage_stats_api())
     t.get("api.usage.totals", exact("/api/usage/totals"),
           lambda h, p: h._serve_usage_totals_api())
+    t.get("api.usage.profile-series", exact("/api/usage/profile-series"),
+          lambda h, p: h._serve_usage_profile_series_api())
 
     # ── providers (presets before the bare list) ──
     t.get("api.providers.presets", exact("/api/providers/presets"),

@@ -2628,6 +2628,68 @@ class UsageEndpoints:
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 
+    def _serve_usage_profile_series_api(self):
+        """Per-profile daily series, for the braille sparklines on /profiles.
+
+        One query for every profile at once (`GROUP BY profile, date`) so the
+        page can render N cards from a single request instead of N. Days with
+        no successful calls are filled with 0 so a gap in the sparkline means
+        "no traffic", not "no data" — the two must not look alike.
+        """
+        from sqlalchemy import func
+        from datetime import date, timedelta
+
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            days = max(1, min(365, int(qs.get("days", ["30"])[0])))
+        except (TypeError, ValueError):
+            days = 30
+
+        end_day = date.today()
+        start_day = end_day - timedelta(days=days - 1)
+        dates = [(start_day + timedelta(days=i)).isoformat() for i in range(days)]
+
+        try:
+            with get_session(self.engine) as session:
+                rows = (
+                    session.query(
+                        RequestModel.profile,
+                        func.substr(RequestModel.timestamp, 1, 10).label("date"),
+                        func.coalesce(func.sum(RequestModel.cost), 0).label("cost"),
+                        func.count(RequestModel.id).label("requests"),
+                    )
+                    .filter(RequestModel.success == 1)
+                    .filter(RequestModel.timestamp >= start_day.isoformat())
+                    .group_by(RequestModel.profile, func.substr(RequestModel.timestamp, 1, 10))
+                    .all()
+                )
+        except Exception as e:  # noqa: BLE001 — a sparkline must never 500 a page
+            logger.warning("usage_profile_series_failed", error=str(e))
+            self._send_json({"days": days, "dates": dates, "profiles": {}})
+            return
+
+        by_profile: dict = {}
+        for r in rows:
+            name = r.profile or "—"
+            slot = by_profile.setdefault(name, {"cost": [0.0] * days, "requests": [0] * days})
+            if r.date in dates:
+                idx = dates.index(r.date)
+                slot["cost"][idx] = float(r.cost)
+                slot["requests"][idx] = int(r.requests)
+
+        out = {}
+        for name, slot in by_profile.items():
+            out[name] = {
+                "cost": [round(v, 6) for v in slot["cost"]],
+                "requests": slot["requests"],
+                "total_cost": round(sum(slot["cost"]), 6),
+                "total_requests": sum(slot["requests"]),
+            }
+
+        self._send_json({"days": days, "start": start_day.isoformat(),
+                         "end": end_day.isoformat(), "dates": dates,
+                         "profiles": out})
+
     def _serve_usage_page(self):
         """Server-rendered Usage page (M2b) — spend and balances, outside Activity."""
         from ..ui.pages import render_usage_page

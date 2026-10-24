@@ -39,7 +39,8 @@
 
 {% if view.tab == 'requests' %}
   <div class="task-toolbar" id="lg-controls"></div>
-  <div class="work-scroll">
+  <div class="work-scroll logs-term">
+    <div class="term-bar"><span class="term-dot" aria-hidden="true"></span><span>requests · newest first</span></div>
     <table class="work-table">
       <thead id="lg-head"></thead>
       <tbody id="lg-rows"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody>
@@ -51,7 +52,8 @@
 
 {% if view.tab == 'providers' %}
   <div class="task-toolbar" id="lg-controls"></div>
-  <div class="work-scroll">
+  <div class="work-scroll logs-term">
+    <div class="term-bar"><span class="term-dot" aria-hidden="true"></span><span>provider decisions · newest first</span></div>
     <table class="work-table">
       <thead id="lg-head"></thead>
       <tbody id="lg-rows"><tr><td colspan="10" class="muted">Loading…</td></tr></tbody>
