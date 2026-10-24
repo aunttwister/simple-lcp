@@ -2302,3 +2302,136 @@ main:focus-visible { outline: none; }
   #convModal .conv-scroll { padding: 0.375rem; }
   .conv-msgs-head { gap: 0.4rem; }
 }
+
+/* ── Log table: sortable headers, filters, empty and error states ────────────
+   Everything below serves the shared table module (static/js/logtable.js).
+   It is additive: the dense console look is unchanged, and every new element
+   borrows an existing token. */
+
+/* A sortable header is a button, but it must not look like one: it inherits
+   the th typography exactly, and only the arrow and a colour shift reveal it. */
+.work-table th .th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.work-table th .th-sort:hover,
+.work-table th .th-sort.active { color: hsl(var(--foreground)); }
+.th-sort-arrow {
+  font-size: 0.8em;
+  line-height: 1;
+  /* 0.5 alpha on a muted 11px glyph was invisible in a screenshot at 1x —
+     the arrow is the only thing that says "this column sorts", so it has to
+     be legible on its own. */
+  opacity: 0.85;
+  /* The arrow must not shift the label when it changes glyph. */
+  display: inline-block;
+  min-width: 0.8em;
+  text-align: center;
+}
+.th-sort.active .th-sort-arrow { opacity: 1; color: hsl(var(--ring)); font-size: 0.9em; }
+/* Numeric headers are right-aligned; keep the button on the same edge. */
+.work-table th.num .th-sort { flex-direction: row-reverse; }
+
+/* An applied filter is a fact about the table, so it gets a chip rather than
+   living only inside a <select> that may be scrolled out of view. */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.4rem 0.15rem 0.5rem;
+  border: 1px solid hsl(var(--ring) / 0.45);
+  background: hsl(var(--ring) / 0.12);
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  color: hsl(var(--foreground));
+  white-space: nowrap;
+}
+.filter-chip b { font-weight: 700; }
+.filter-chip-x {
+  background: none;
+  border: 0;
+  padding: 0 0.1rem;
+  color: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.filter-chip-x:hover { opacity: 1; }
+
+/* Empty and error states replace a single muted word with a title, a reason
+   and — where there is one — the action that fixes it. */
+.work-table td.table-empty,
+.work-table td.table-error {
+  text-align: center;
+  padding: 1.4rem 0.75rem;
+  border-bottom: 1px solid hsl(var(--card-border) / 0.35);
+}
+.table-empty .te-title,
+.table-error .te-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.table-error .te-title { color: hsl(var(--red-fg)); }
+.table-empty .te-msg,
+.table-error .te-msg {
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+.table-empty .btn-sm,
+.table-error .btn-sm { margin-top: 0.65rem; }
+
+/* Row expansion: the chevron is a real button now, so it can be reached by
+   keyboard, and an open row keeps a visible anchor to its detail panel. */
+.task-chev-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.task-chev-btn:hover {
+  border-color: hsl(var(--card-border));
+  color: hsl(var(--foreground));
+}
+.work-table tr.log-row.is-open td { background: hsl(var(--secondary) / 0.55); }
+.work-table tr.log-row.is-open td:first-child {
+  box-shadow: inset 2px 0 0 hsl(var(--ring));
+}
+
+/* While a fetch is in flight the pager cannot start another one. */
+.task-pager.is-busy { opacity: 0.55; }
+.task-pager button:disabled { cursor: progress; }
+
+/* The tab strip on a profile detail page is that page's only navigation, and
+   the Skills and Memory tabs are long enough to scroll it out of reach. */
+.pd-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: hsl(var(--background));
+  padding-top: 0.5rem;
+  margin-top: -0.5rem;
+  box-shadow: 0 8px 14px -10px rgba(0, 0, 0, 0.75);
+}

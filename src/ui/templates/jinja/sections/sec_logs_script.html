@@ -19,12 +19,19 @@
 
   if (tab === 'requests') {
     LCPTable.mount({
-      ids: {head: 'lg-head', body: 'lg-rows', pager: 'lg-pager', count: 'lg-count', controls: 'lg-controls'},
+      ids: {head: 'lg-head', body: 'lg-rows', pager: 'lg-pager', count: 'lg-count',
+            controls: 'lg-controls', term: 'lg-term'},
       endpoint: '/api/work/requests',
       rowsKey: 'rows',
       noun: 'requests',
+      termPrefix: 'requests',
       params: {{ {'view': 'requests'} | tojson }},
       empty: 'No requests match.',
+      emptyHint: 'Requests appear here as calls complete. Clear the profile filter, or widen the sort.',
+      // The requests view can enumerate the profiles that actually appear in
+      // the log (filter.profiles), so the filter offers only real values.
+      filters: [{param: 'profile', label: 'All profiles', chipLabel: 'Profile',
+                 optionsKey: 'profiles'}],
       columns: [
         {key: 'timestamp', label: 'When', cell: function (r) {
           return '<span class="mono muted">' + esc(ts(r.timestamp)) + '</span>';
@@ -36,11 +43,11 @@
           return '<span class="mono">' + esc(r.model) + '</span>';
         }},
         {key: 'provider', label: 'Provider', cell: function (r) { return esc(r.provider); }},
-        {key: 'tokens', label: 'Tokens', num: true, cell: function (r) {
+        {key: 'tokens', label: 'Tokens', num: true, sort: 'tokens', cell: function (r) {
           return num((r.prompt_tokens || 0) + (r.completion_tokens || 0));
         }},
-        {key: 'cost', label: 'Cost', num: true, cell: function (r) { return cost(r.cost); }},
-        {key: 'latency_ms', label: 'Latency', num: true, cell: function (r) {
+        {key: 'cost', label: 'Cost', num: true, sort: 'cost', cell: function (r) { return cost(r.cost); }},
+        {key: 'latency_ms', label: 'Latency', num: true, sort: 'latency', cell: function (r) {
           return num(r.latency_ms) + ' ms';
         }},
         {key: 'success', label: 'Status', cell: function (r) {
@@ -58,12 +65,15 @@
 
   if (tab === 'providers') {
     LCPTable.mount({
-      ids: {head: 'lg-head', body: 'lg-rows', pager: 'lg-pager', count: 'lg-count', controls: 'lg-controls'},
+      ids: {head: 'lg-head', body: 'lg-rows', pager: 'lg-pager', count: 'lg-count',
+            controls: 'lg-controls', term: 'lg-term'},
       endpoint: '/api/work/provider-decisions',
       rowsKey: 'rows',
       noun: 'provider routing decisions',
+      termPrefix: 'provider decisions',
       params: {{ {'view': 'providers'} | tojson }},
       empty: 'No provider decisions match.',
+      emptyHint: 'A decision is recorded every time the router picks a provider for a task.',
       columns: [
         {key: 'ts', label: 'When', cell: function (r) {
           return '<span class="mono muted">' + esc(ts(r.ts)) + '</span>';

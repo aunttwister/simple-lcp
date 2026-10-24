@@ -111,7 +111,11 @@ MARKERS = _markers()
 
 
 def _nav(html):
-    return html.split('<nav class="sidebar-nav">')[1].split("</nav>")[0]
+    # Split on the opening tag's class only: the element also carries
+    # aria-label now, and pinning the exact attribute string would make an
+    # accessibility attribute look like a navigation regression.
+    after = html.split('<nav class="sidebar-nav"', 1)[1]
+    return after.split('>', 1)[1].split("</nav>")[0]
 
 
 # ── the nav ──────────────────────────────────────────────────────────────────

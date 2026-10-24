@@ -42,8 +42,11 @@
 {% if view.tab == 'requests' %}
   <div class="task-toolbar" id="lg-controls"></div>
   <div class="work-scroll logs-term">
-    <div class="term-bar"><span class="term-dot" aria-hidden="true"></span><span>requests · newest first</span></div>
+    <div class="term-bar"><span class="term-dot" aria-hidden="true"></span><span id="lg-term">requests · newest first</span></div>
     <table class="work-table">
+      {# A table with no accessible name is announced as just "table" — the
+         caption is the name, and sr-only keeps it out of the visual design. #}
+      <caption class="sr-only">Request log: one row per gateway call, with tokens, cost and latency.</caption>
       <thead id="lg-head">
         {# Static header so the skeleton has labels: logtable.js replaces this
            with the same spec on render, but until the fetch lands the column
@@ -75,8 +78,9 @@
 {% if view.tab == 'providers' %}
   <div class="task-toolbar" id="lg-controls"></div>
   <div class="work-scroll logs-term">
-    <div class="term-bar"><span class="term-dot" aria-hidden="true"></span><span>provider decisions · newest first</span></div>
+    <div class="term-bar"><span class="term-dot" aria-hidden="true"></span><span id="lg-term">provider decisions · newest first</span></div>
     <table class="work-table">
+      <caption class="sr-only">Provider routing decisions: one row per routing decision, with the policy, action and score.</caption>
       <thead id="lg-head">
         <tr>
           <th scope="col">When</th><th scope="col">Profile</th><th scope="col">Task</th>
