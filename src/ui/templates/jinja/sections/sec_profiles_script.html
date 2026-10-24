@@ -456,6 +456,8 @@ if (document.readyState === 'loading') {
     document.querySelectorAll('.copy-btn[data-copy-path]').forEach(function (btn) {
       var path = btn.getAttribute('data-copy-path');
       LCPUI.copyButton(btn, window.location.origin + path, {
+        glyph: 'Copy',
+        copiedGlyph: 'Copied',
         copiedMsg: 'Gateway URL copied',
         failMsg: 'Copy failed — select the URL manually'
       });
