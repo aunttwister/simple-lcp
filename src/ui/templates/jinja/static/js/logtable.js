@@ -141,6 +141,9 @@
 
     function loading(label) {
       var cols = o.columns.length + (o.expand ? 1 : 0);
+      // aria-busy, not just a word: a screen reader skips a busy region and
+      // announces it on the transition, which is the real semantics here.
+      if (window.LCPUI) LCPUI.busy(body, true); else body.setAttribute('aria-busy', 'true');
       body.innerHTML = '<tr><td colspan="' + cols + '" class="muted">' +
         esc(label) + '</td></tr>';
     }
@@ -151,9 +154,11 @@
       var head = o.ids.head ? document.getElementById(o.ids.head) : null;
       if (!head) return;
       var cells = [];
-      if (o.expand) cells.push('<th class="task-chev-col"></th>');
+      // scope="col" — without it a screen reader reads the cell, not the
+      // column it belongs to.
+      if (o.expand) cells.push('<th scope="col" class="task-chev-col"></th>');
       o.columns.forEach(function (c) {
-        cells.push('<th' + (c.num ? ' class="num"' : '') + '>' + esc(c.label) + '</th>');
+        cells.push('<th scope="col"' + (c.num ? ' class="num"' : '') + '>' + esc(c.label) + '</th>');
       });
       head.innerHTML = '<tr>' + cells.join('') + '</tr>';
     }
@@ -164,6 +169,7 @@
         var cols = o.columns.length + (o.expand ? 1 : 0);
         body.innerHTML = '<tr><td colspan="' + cols + '" class="muted">' +
           esc(o.empty) + '</td></tr>';
+        if (window.LCPUI) { LCPUI.busy(body, false); LCPUI.announce(o.empty); }
         return;
       }
       rows.forEach(function (row, i) {
@@ -182,6 +188,13 @@
         }
       });
       body.innerHTML = out.join('');
+      // The transition out of busy is the announcement: "20 rows loaded" is
+      // the thing a screen-reader user needs and cannot get from a silent DOM
+      // swap.
+      if (window.LCPUI) {
+        LCPUI.busy(body, false);
+        LCPUI.announce(rows.length + ' rows loaded');
+      }
     }
 
     function renderCount() {

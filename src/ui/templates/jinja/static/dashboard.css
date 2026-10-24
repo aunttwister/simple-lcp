@@ -534,7 +534,7 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 }
 /* ring offset for focus-visible (shadcn pattern) */
 .dialog-close:focus-visible, .modal-close:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
   opacity: 1;
 }
@@ -2099,6 +2099,15 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   border-radius: calc(var(--radius) - 2px);
   pointer-events: none;
 }
+/* The panel now scrolls internally, and an absolutely-positioned ::after
+   scrolls with the content — the hairline would slide out of frame. An inset
+   outline is painted on the element's own box, so it stays put, and at
+   -3px offset it reproduces the same double frame. */
+.logs-term::after { display: none; }
+.logs-term {
+  outline: 1px solid hsl(var(--card-border) / 0.5);
+  outline-offset: -3px;
+}
 .term-bar {
   display: flex;
   align-items: center;
@@ -2127,6 +2136,145 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 .logs-term .work-table td {
   border-bottom: 1px solid hsl(var(--card-border) / 0.45);
 }
+
+/* ── Keyboard focus ────────────────────────────────────────────────────────
+   The app had three :focus-visible rules for ~390 class selectors, and a live
+   audit of /profiles found 4 of 10 interactive element types painted no
+   indicator at all when focused (nav links, .btn-sm, .modal-close). Keyboard
+   navigation was effectively blind. One global ring fixes all of them; the
+   two rules below restore a ring where an `outline: none` had been paired
+   with only a border tint or a 15%-alpha halo, neither of which is visible
+   on a dark surface where the border is already the same hue. */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.form-input:focus-visible,
+.form-textarea:focus-visible,
+.form-select:focus-visible,
+.capability-filter:focus-visible,
+.task-search:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+/* The skip-link target is focused programmatically, not by the user tabbing to
+   it, so it must not paint a ring. */
+main:focus,
+main:focus-visible { outline: none; }
+
+/* ── Skip link ─────────────────────────────────────────────────────────────
+   Seven nav entries precede the content on every page. The link is the first
+   focusable element in the document and stays off-screen until focused. */
+.skip-link {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 300;
+  transform: translateY(-120%);
+  padding: 0.55rem 0.9rem;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--ring));
+  border-radius: 0 0 var(--radius) 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.12s ease-out;
+}
+.skip-link:focus,
+.skip-link:focus-visible { transform: translateY(0); }
+
+/* Screen-reader-only text. Used by the live region in ui.js, which is the only
+   way an async table load is announced at all. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Sticky headers in the log panel ───────────────────────────────────────
+   The Logs tab is a 20-row window you scroll inside, so the column labels were
+   scrolling away from the data they label. Giving the panel a bounded height
+   turns it into a real scroll container, which is what makes `position:
+   sticky` on the header work at all — a sticky element inside a container that
+   never scrolls vertically does nothing. The header needs an OPAQUE
+   background: a translucent wash lets rows show through as they pass under. */
+.logs-term {
+  max-height: min(72vh, 820px);
+  overflow-y: auto;
+  overflow-x: auto;
+}
+.term-bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: hsl(var(--card));
+}
+.logs-term .work-table thead th {
+  position: sticky;
+  top: var(--term-bar-h, 1.95rem);
+  z-index: 2;
+  /* Opaque: card colour underneath, the secondary wash on top. */
+  background-color: hsl(var(--card));
+  background-image: linear-gradient(hsl(var(--secondary) / 0.35), hsl(var(--secondary) / 0.35));
+  box-shadow: inset 0 -1px 0 hsl(var(--card-border));
+}
+
+/* ── Skeleton rows ─────────────────────────────────────────────────────────
+   "Loading…" is a word where a table is about to be. A skeleton row keeps the
+   column rhythm and the row height steady, so the table does not jump when the
+   data lands. The sweep is animation, so the reduced-motion guard at the end
+   of this file flattens it to a static bar — the shape still communicates
+   "pending" without movement. */
+.sk-row td { padding: 0.55rem 0.6rem; min-width: 5.5rem; }
+.sk {
+  display: block;
+  height: 0.5rem;
+  border-radius: 3px;
+  background-color: hsl(var(--secondary) / 0.55);
+  background-image: linear-gradient(90deg, transparent, hsl(var(--secondary)), transparent);
+  background-size: 200% 100%;
+  animation: sk-sweep 1.4s ease-in-out infinite;
+}
+.sk-w1 { width: 32%; }
+.sk-w2 { width: 58%; }
+.sk-w3 { width: 44%; }
+.sk-w4 { width: 70%; }
+@keyframes sk-sweep {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ── Copy button ───────────────────────────────────────────────────────────
+   The profile gateway URL is the thing you paste into a client. Selecting a
+   monospace string by hand on a dark surface is a needless chore. */
+.pc-url-wrap { display: flex; align-items: center; gap: 0.3rem; min-width: 0; }
+.pc-url-wrap .pc-url { min-width: 0; }
+.copy-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid hsl(var(--card-border));
+  color: hsl(var(--muted-foreground));
+  font-size: 0.65rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.copy-btn:hover { color: hsl(var(--foreground)); border-color: hsl(var(--ring)); }
+.copy-btn.copied { color: hsl(var(--green-fg)); border-color: hsl(var(--green-fg)); }
 
 /* ── Motion guard ──────────────────────────────────────────────────────────
    The app shipped four @keyframes and a dozen transitions with no

@@ -8,12 +8,14 @@
 {% block head_extra %}{% endblock %}
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to content</a>
 {% block sidebar %}
 {% include "_sidebar.html" %}
 {% endblock %}
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
-<button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle sidebar">☰</button>
-<div class="main-content">
+<button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle sidebar"
+        aria-label="Toggle navigation" aria-expanded="true" aria-controls="sidebar">☰</button>
+<main class="main-content" id="main-content" tabindex="-1">
   <!-- Global top-right widget: latest active provider + usage/credits (all pages) -->
   <div class="header-plugin-badge global" id="pluginHeaderBadge" title="">
     <div class="hp-head-row">
@@ -40,7 +42,7 @@
   {% endif %}
   {% endblock %}
   {% block content %}{% endblock %}
-</div>
+</main>
 
 <script>
 var monthly = {{ monthly_json | safe }};
@@ -54,6 +56,7 @@ function providerDisplayName(key) {
 </script>
 {% block base_scripts %}
 <script src="/static/js/api.js?v={{ cache_buster }}"></script>
+<script src="/static/js/ui.js?v={{ cache_buster }}"></script>
 <script src="/static/js/sidebar.js?v={{ cache_buster }}"></script>
 <script src="/static/js/header-status.js?v={{ cache_buster }}"></script>
 <script src="/static/js/modal.js?v={{ cache_buster }}"></script>

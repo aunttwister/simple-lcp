@@ -37,13 +37,25 @@
   <div class="empty"><span class="muted">{{ view.tab_error }}</span></div>
 {% endif %}
 
+{% set _sk_widths = ['sk-w2','sk-w1','sk-w4','sk-w3','sk-w2','sk-w1','sk-w3','sk-w2','sk-w1','sk-w2'] %}
+
 {% if view.tab == 'requests' %}
   <div class="task-toolbar" id="lg-controls"></div>
   <div class="work-scroll logs-term">
     <div class="term-bar"><span class="term-dot" aria-hidden="true"></span><span>requests · newest first</span></div>
     <table class="work-table">
       <thead id="lg-head"></thead>
-      <tbody id="lg-rows"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody>
+      {# Skeleton rows while the first fetch is in flight: the column rhythm and
+         row height stay put, so the table does not jump when data lands.
+         aria-busy tells assistive tech the region is filling; logtable.js
+         clears it and announces the row count on the transition. #}
+      <tbody id="lg-rows" aria-busy="true">
+        {% for _ in range(4) %}
+        <tr class="sk-row" aria-hidden="true">
+          {% for w in _sk_widths[:9] %}<td><span class="sk {{ w }}"></span></td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
     </table>
   </div>
   <div class="task-pager" id="lg-pager"></div>
@@ -56,7 +68,13 @@
     <div class="term-bar"><span class="term-dot" aria-hidden="true"></span><span>provider decisions · newest first</span></div>
     <table class="work-table">
       <thead id="lg-head"></thead>
-      <tbody id="lg-rows"><tr><td colspan="10" class="muted">Loading…</td></tr></tbody>
+      <tbody id="lg-rows" aria-busy="true">
+        {% for _ in range(4) %}
+        <tr class="sk-row" aria-hidden="true">
+          {% for w in _sk_widths %}<td><span class="sk {{ w }}"></span></td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
     </table>
   </div>
   <div class="task-pager" id="lg-pager"></div>

@@ -444,6 +444,29 @@ if (document.readyState === 'loading') {
 } else {
   loadProfileTrends();
 }
+
+// ── Copy gateway URL ──────────────────────────────────────────────────────
+// The path is what the card shows; the absolute URL is what a client needs,
+// so the origin is composed here rather than baked into the template (the
+// renderer has no request context, and the gateway is reached by IP as often
+// as by hostname).
+(function () {
+  function wire() {
+    if (!window.LCPUI) return;
+    document.querySelectorAll('.copy-btn[data-copy-path]').forEach(function (btn) {
+      var path = btn.getAttribute('data-copy-path');
+      LCPUI.copyButton(btn, window.location.origin + path, {
+        copiedMsg: 'Gateway URL copied',
+        failMsg: 'Copy failed — select the URL manually'
+      });
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wire);
+  } else {
+    wire();
+  }
+})();
 {% endraw %}
 </script>
 {% endif %}
