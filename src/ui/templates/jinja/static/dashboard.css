@@ -576,7 +576,10 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   padding: 0.625rem 0.875rem; cursor: pointer; transition: all 0.15s;
   white-space: nowrap;
 }
-.tab-btn:hover, .dialog-tab:hover { color: hsl(var(--foreground)); }
+.tab-btn:hover, .dialog-tab:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary) / 0.45);
+}
 .tab-btn.active, .dialog-tab.active {
   color: hsl(var(--foreground)); border-bottom-color: hsl(var(--primary));
 }
@@ -2587,3 +2590,19 @@ input:disabled {
    text: everything below it (toolbar, term bar, table) jumped down by ~18px on
    every page load. Reserving the height removes that shift. */
 #lg-count, .task-count { min-height: 1.15rem; }
+
+/* A tab count was plain text glued to the label with a space, so it read as part
+   of the word ("Routing 3"). As a pill it reads as a quantity. */
+.tab-count {
+  display: inline-block;
+  margin-left: 0.3rem;
+  padding: 0 0.35rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: hsl(var(--secondary) / 0.8);
+  color: hsl(var(--muted-foreground));
+  vertical-align: 1px;
+}
+.tab-btn.active .tab-count { background: hsl(var(--ring) / 0.22); color: hsl(var(--foreground)); }
