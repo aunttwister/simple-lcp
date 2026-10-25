@@ -3564,8 +3564,13 @@ class WorkEndpoints:
         self._redirect(target)
 
     def _serve_work_config_page(self):
-        """Legacy /work/config — redirects to the Config tab of Profiles (M2b)."""
-        self._redirect("/profiles?tab=config")
+        """Legacy /work/config — the Config tab is gone, so land on the directory.
+
+        Redirecting at all is better than a 404: this URL was in bookmarks and in
+        the host-side collector's notes. It points at /profiles rather than at a
+        tab, because /profiles no longer has one.
+        """
+        self._redirect("/profiles")
 
     def _serve_work_cron_api(self):
         """GET /api/work/cron — the Cron view as JSON."""
