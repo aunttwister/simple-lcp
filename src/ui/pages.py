@@ -349,47 +349,6 @@ def render_models_page(config, engine=None, params=None) -> str:
                        params=dict(params or {}))
 
 
-def _work_cron_view(params=None) -> dict:
-    """The Cron tab's data: the host snapshot, recent ops, and the resolved sources.
-
-    The LCP container cannot read ``/root/.hermes/profiles``, so everything here
-    comes from the snapshot and op spool the host-side timer writes. ``?profile=``
-    narrows the profile list to one — the jobs already belong to a profile, so the
-    tab is a cross-profile view by default and a single profile's jobs when asked.
-    """
-    from ..api import work_cron
-    try:
-        view = work_cron.cron_view()
-    except Exception as e:  # never blank the tab on a data error
-        view = {
-            "available": False,
-            "hint": "cron view failed: %s: %s" % (type(e).__name__, e),
-            "error": str(e), "generated_at": None, "generated_rel": None,
-            "counts": {"total": 0, "active": 0, "paused": 0, "disabled": 0, "error": 0},
-            "profiles": [],
-        }
-    try:
-        view["ops"] = work_cron.cron_ops_view(limit=10).get("pending", []) + \
-            work_cron.cron_ops_view(limit=10).get("done", [])[:10]
-        # newest first
-        view["ops"].sort(key=lambda o: (o.get("result") or {}).get("executed_at")
-                         or o.get("created_at") or "", reverse=True)
-    except Exception:
-        view["ops"] = []
-    try:
-        from ..api import work_sources
-        view["sources"] = work_sources.resolved_view()
-    except Exception:
-        view["sources"] = None
-    wanted = str((params or {}).get("profile") or "").strip().lower()
-    if wanted and isinstance(view.get("profiles"), list):
-        kept = [p for p in view["profiles"]
-                if str(p.get("profile", "")).lower() == wanted]
-        view["profiles"] = kept
-        view["profile_filter"] = wanted
-    return view
-
-
 def _profile_config_payload(config, name, pcfg) -> dict:
     """The profile's declared configuration, as the page init payload carries it.
 
