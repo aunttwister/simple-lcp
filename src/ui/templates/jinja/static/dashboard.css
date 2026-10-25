@@ -62,8 +62,15 @@
 }
 .sidebar-nav a:hover { background: hsl(var(--secondary)); color: hsl(var(--foreground)); }
 .sidebar-nav a.active {
-  background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
+  /* A near-white pill was the loudest thing on the page and made the current
+     page look like a selected checkbox. The accent bar plus a tinted wash says
+     "you are here" without competing with the content. */
+  background: hsl(var(--ring) / 0.16);
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 hsl(var(--ring));
 }
+.sidebar-nav a.active:hover { background: hsl(var(--ring) / 0.22); }
 .sidebar-nav .nav-label {
   font-size: 0.625rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: 0.08em; color: hsl(var(--muted-foreground) / 0.6);
