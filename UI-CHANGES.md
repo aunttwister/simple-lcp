@@ -160,8 +160,9 @@ went on 2026-10-25.
 | `25e0f7b` | Deletes `_work_cron_view` — dead since the Cron tab went, still building a cron snapshot, op list and per-profile filter that nothing rendered | `pages.py` |
 | `0cce42a` | Comments cleared: the sidebar no longer promises cron jobs and work-layer paths on Profiles, or lists Setup/Tasks/Fleet as nav entries; the Agent Profile field says "the Hermes profile this route serves" rather than "whose skills, memory and tasks" | `_sidebar.html`, `sec_profiles.html` |
 | `d43c7b1` | `/work/cron` redirects to `/profiles` directly — it was pointing at `?tab=cron`, a tab that no longer exists, which fell back to the directory anyway (two hops, and a docstring claiming a Cron tab was there) | `endpoints.py`, `test_m2_page_merge.py` |
+| `f2f2d9d` | Three tests that pinned the old redirect targets and the Profiles tab strip now assert what ships: both legacy routes land on `/profiles`, `?profile=` is dropped rather than carried to a page that cannot honour it, and the Profiles page carries no `?tab=` links | `test_server.py`, `test_jinja_renderer.py` |
 
-**Revert:** `git revert --no-edit d43c7b1 0cce42a 25e0f7b c68fcfe 134af86 30fd6c2`
+**Revert:** `git revert --no-edit f2f2d9d d43c7b1 0cce42a 25e0f7b c68fcfe 134af86 30fd6c2`
 (newest first). Restoring the Config tab means restoring two deleted templates and
 the `_work_config_view` builder, so revert the whole unit — `30fd6c2` alone leaves
 `profiles.html` including files that do not exist.
