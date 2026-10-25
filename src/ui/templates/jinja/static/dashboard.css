@@ -2443,3 +2443,38 @@ main:focus-visible { outline: none; }
   margin-top: -0.5rem;
   box-shadow: 0 8px 14px -10px rgba(0, 0, 0, 0.75);
 }
+
+/* ── Sidebar footer + sign out ───────────────────────────────────────────────
+   The footer used to be three inline style attributes, one of which fell back to
+   a colour token (--border, #2a2f3a) that no longer exists. Sign out is the one
+   irreversible control in the sidebar, so it is the one control that is coloured:
+   a link dressed like every other nav row invites a mis-click. Red text on a
+   dark-red wash reads as "this ends the session" without shouting, and keeps
+   7.4:1 contrast on the sidebar's own surface. */
+.sidebar-footer {
+  margin-top: auto;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid hsl(var(--border));
+}
+.sb-signout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: var(--radius);
+  color: hsl(0 84% 72%);
+  background: hsl(var(--destructive) / 0.22);
+  border: 1px solid hsl(var(--destructive) / 0.6);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.sb-signout:hover {
+  color: hsl(0 92% 84%);
+  background: hsl(var(--destructive) / 0.38);
+  border-color: hsl(0 84% 62%);
+}
+.sb-signout:active { transform: translateY(1px); }
+.sb-signout svg { flex: 0 0 auto; }
