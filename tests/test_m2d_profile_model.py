@@ -277,7 +277,7 @@ def visible_text(html: str) -> str:
 def test_no_surface_calls_an_lcp_only_profile_deficient(cfg, profiles_root, engine, bad):
     from src.ui import pages
     blob = visible_text(pages.render_profiles_page(cfg, engine, {}))
-    for tab in ("skills", "memory", "tasks", "routing", "models"):
+    for tab in ("routing", "models", "keys"):
         blob += visible_text(pages.render_profile_detail_page(cfg, engine, "coder", {"tab": tab}))
     # The message carries the context, so a failure says where the word was read
     # rather than only that it was.
@@ -285,11 +285,22 @@ def test_no_surface_calls_an_lcp_only_profile_deficient(cfg, profiles_root, engi
     assert where < 0, "%r read on the page: ...%s..." % (bad, blob[max(0, where - 140):where + 80])
 
 
-def test_an_lcp_only_profiles_empty_tabs_say_why(cfg, profiles_root, engine):
+def test_an_lcp_only_profile_still_gets_a_working_routing_surface(cfg, profiles_root, engine):
+    """An lcp_only profile has no agent behind it, but it is still a route.
+
+    The old test checked that the skills/memory/tasks tabs explained their own
+    emptiness ("no agent behind it"). Those tabs are gone — agent infrastructure
+    is a Hermes dashboard concern — so the thing worth asserting is the opposite:
+    the tabs this app still ships must render their real controls for a profile
+    with no agent, not an empty panel.
+    """
     from src.ui import pages
-    for tab in ("skills", "memory", "tasks"):
+    for tab, marker in (("routing", "profileRouting"), ("models", "ppChain"), ("keys", "keyStacks")):
         html = pages.render_profile_detail_page(cfg, engine, "coder", {"tab": tab})
-        assert "no agent behind it" in html, tab
+        assert marker in html, tab
+        # and the empty-tab copy that described agent artefacts is not resurrected
+        for gone in ("no agent behind it", "no skills directory", "no task tree of its own yet"):
+            assert gone not in html, (tab, gone)
 
 
 # ── 6. the two new level-3 tabs ──────────────────────────────────────────────
