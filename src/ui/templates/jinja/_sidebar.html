@@ -7,13 +7,16 @@
                paths they read. First, because the profile is the unit every
                other page is scoped to.
   Models     — the capability matrix + where those models come from
+  Activity   — what happened: the cost/token overview and every log realm. Before
+               Conversations, because the log is the surface you open to answer
+               "what did the router do", and conversations are the drill-down from
+               a row in it.
   Conversations — what is happening NOW and everything that has happened. The live
                half is the in-process registry: the Requests log gains a row only
                when a call completes, so a running call appears nowhere else. The
                history half is LCP's own conversation store. One page, because
                "the call I am waiting on" and "the calls that preceded it" are the
                same question asked at two times.
-  Activity   — what happened: the cost/token overview and every log realm
   Usage      — spend per provider, balances, and the scrape cache (its own page:
                it is a billing view, not a log)
   Alerts     — things to act on (R10: alerts and budgets are per subject)
@@ -34,8 +37,8 @@
        navigation state a screen reader can otherwise only infer from position. #}
     <a href="/profiles"{% if active_page == 'profiles' %} class="active" aria-current="page"{% endif %}>Profiles</a>
     <a href="/models"{% if active_page == 'models' %} class="active" aria-current="page"{% endif %}>Models</a>
-    <a href="/conversations"{% if active_page == 'conversations' %} class="active" aria-current="page"{% endif %}>Conversations</a>
     <a href="/activity"{% if active_page == 'activity' %} class="active" aria-current="page"{% endif %}>Activity</a>
+    <a href="/conversations"{% if active_page == 'conversations' %} class="active" aria-current="page"{% endif %}>Conversations</a>
     <a href="/usage"{% if active_page == 'usage' %} class="active" aria-current="page"{% endif %}>Usage</a>
     <a href="/alerts"{% if active_page == 'alerts' %} class="active" aria-current="page"{% endif %}>Alerts <span id="sidebarAlertBadge" class="sb-alert-badge" style="display:none">0</span></a>
   </nav>

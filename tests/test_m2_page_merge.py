@@ -56,7 +56,9 @@ SECTION_TAB = {
 # request the `requests` table has not recorded yet, because that table is
 # written on completion. It sits with the operational views, before the
 # "what happened" log realm.
-NAV = ["/profiles", "/models", "/conversations", "/activity", "/usage", "/alerts"]
+# Activity before Conversations: the log is the surface you open to answer "what
+# did the router do", and a conversation is the drill-down from one of its rows.
+NAV = ["/profiles", "/models", "/activity", "/conversations", "/usage", "/alerts"]
 
 
 @pytest.fixture
