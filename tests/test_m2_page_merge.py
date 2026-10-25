@@ -365,12 +365,12 @@ def test_the_retired_templates_are_really_gone():
 def test_the_legacy_work_routes_still_redirect(cfg, engine):
     """`/work/cron` and `/work/config` 302 rather than 404.
 
-    Cron is a per-profile tab and config is gone entirely, so the two land in
-    different places — but both URLs were in bookmarks and in the host-side
-    collector's notes, so neither may 404.
+    Both surfaces are gone — cron with the agent-infrastructure tabs, config with
+    them — so both land on the profile directory. The URLs were in bookmarks and
+    in the host-side collector's notes, so neither may 404.
     """
     from src.server.handler import LCPHandler
-    for path, want in (("/work/cron", "tab=cron"), ("/work/config", "/profiles")):
+    for path, want in (("/work/cron", "/profiles"), ("/work/config", "/profiles")):
         h = LCPHandler.__new__(LCPHandler)
         h.path = path
         h.config = cfg

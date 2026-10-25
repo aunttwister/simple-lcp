@@ -3556,12 +3556,14 @@ class WorkEndpoints:
             return ""
 
     def _serve_work_cron_page(self):
-        """Legacy /work/cron — redirects to the Cron tab of Profiles (M2b)."""
-        target = "/profiles?tab=cron"
-        profile = (self._qs() or {}).get("profile")
-        if profile:
-            target += "&profile=" + str(profile)
-        self._redirect(target)
+        """Legacy /work/cron — the Cron tab is gone, so land on the directory.
+
+        Same reasoning as /work/config: the URL was in bookmarks, so it redirects
+        rather than 404s, but there is no cron surface left to land on. A profile
+        in the query string is dropped, because the directory has no per-profile
+        view to carry it to.
+        """
+        self._redirect("/profiles")
 
     def _serve_work_config_page(self):
         """Legacy /work/config — the Config tab is gone, so land on the directory.
