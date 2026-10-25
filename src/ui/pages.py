@@ -59,7 +59,7 @@ def _profile_card(config, name, pcfg, budgets, agent="", kind="profile",
     is* rather than by which side of the lane/agent link a name comes from:
 
     * a **profile** declares the agent profile behind it (`agent_profile`) — the
-      gateway lanes that have an agent, whose skills, memory and task tree the card
+      gateway lanes that have an agent, whose name the card carries
       leads to;
     * an **lcp_only** profile is a gateway profile with no agent behind it. That is
       a kind of profile, not an incomplete one: it routes, it holds API keys, it has
@@ -610,11 +610,15 @@ def _profile_pool_view(config, name, routing_on=None) -> dict:
 def render_profile_detail_page(config, engine=None, name=None, params=None) -> str:
     """Render one profile — level 3 of the profile surface (M2c).
 
-    Five tabs, each a different artefact the profile owns: the skills it can load,
-    the memory it carries, the tasks in its tree, the cron jobs it runs and the API
-    keys that call it. All five are *read* — from the profile's own directory, or
-    from the host snapshot the cron tab already depends on. Nothing here writes to
-    a profile.
+    Three tabs, each a *routing* artefact the profile owns: how it routes (the
+    toggle, policy, min-score and the rules that act on its chain), the models it
+    may choose from, and the API keys that call it.
+
+    Skills, memory and cron are deliberately absent. They describe a Hermes agent,
+    not a route: an agent's skills tree, its MEMORY.md and its cron jobs are
+    managed in the Hermes dashboard, which owns them. A read-only copy here made
+    this page look like an agent console and was the only part of the UI that read
+    another process's filesystem.
 
     The name arrives from the URL, so it is validated before use: an unknown name
     renders a "no such profile" page rather than a traceback, and a name carrying a
@@ -624,8 +628,7 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     from ..api import profile_data
 
     params = dict(params or {})
-    tab = _tab(params, ("skills", "memory", "cron", "keys",
-                        "routing", "models"), "skills")
+    tab = _tab(params, ("routing", "models", "keys"), "routing")
     wanted = (name or "").strip()
     profiles = config.profiles if (config is not None and hasattr(config, "profiles")) else {}
     try:
@@ -650,10 +653,6 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     routing_status_data = _routing_status_safe(config)
     routing_on = _effective_routing_on(routing_status_data, wanted)
 
-    # Which directory the skills, memory and task tree are read from: the agent
-    # profile's when the name was a lane, the name itself when it was a profile.
-    artefacts = agent or wanted
-
     budgets = _profile_budgets(engine)
     if not kind:
         card = None
@@ -673,10 +672,9 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
                              routed_by=profile_data.agents_for_lane(wanted, agents),
                              routing_on=routing_on)
     else:
-        # An agent profile directory that is not itself a gateway profile. It owns a
-        # skills tree, memory and tasks — but no chain, so the Routing and Models tabs
-        # describe that rather than offering controls that would write a chain onto a
-        # name that is not a profile.
+        # An agent profile directory that is not itself a gateway profile. It has no
+        # chain, so the Routing and Models tabs describe that rather than offering
+        # controls that would write a chain onto a name that is not a profile.
         card = _profile_card(config, wanted, {}, budgets, agent=wanted, kind="agent",
                              lane=lane)
     exists = card is not None
@@ -693,12 +691,9 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
         # profile it is. An agent-only directory is the one that is not.
         profile["configured"] = kind in ("profile", "lcp_only")
 
-    labels = (("skills", "Skills"), ("memory", "Memory"),
-              ("cron", "Cron"), ("keys", "API Keys"),
-              # M2d: how this profile routes (the toggle, policy, min-score and the
-              # rules that act on its chain) and what it may choose from (the chain,
-              # picked from every registered provider and model).
-              ("routing", "Routing"), ("models", "Models"))
+    # Routing first: the router is what this app is, and keys/models are its
+    # inputs, so they follow the decision they feed.
+    labels = (("routing", "Routing"), ("models", "Models"), ("keys", "API Keys"))
     tabs = [{"id": tid, "label": lbl, "count": None, "active": tid == tab,
              "href": "/profiles/%s?tab=%s" % (wanted, tid)} for tid, lbl in labels]
     tab_label = dict(labels).get(tab, "Profile")
@@ -720,21 +715,7 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     if not exists:
         return render_page("pages/profile_detail.html", config, engine, **ctx)
 
-    if tab == "skills":
-        try:
-            ctx["skills"] = profile_data.skills_view(artefacts)
-        except Exception as e:  # a viewer must not 500 on a filesystem surprise
-            ctx["skills"] = {"available": False, "count": 0, "categories": [], "skills": [],
-                             "truncated": False, "reason": "%s: %s" % (type(e).__name__, e)}
-    elif tab == "memory":
-        try:
-            ctx["memory"] = profile_data.memory_view(artefacts)
-        except Exception as e:
-            ctx["memory"] = {"available": False, "files": [], "total_chars": 0,
-                             "reason": "%s: %s" % (type(e).__name__, e)}
-    elif tab == "cron":
-        ctx["view"] = _work_cron_view({"profile": artefacts or wanted})
-    elif tab == "routing":
+    if tab == "routing":
         ctx["routing"] = (_profile_routing_view(config, wanted, status=routing_status_data)
                           if wanted in profiles
                           else {"available": False, "profile": wanted, "rules": [],

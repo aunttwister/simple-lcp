@@ -2424,8 +2424,16 @@ main:focus-visible { outline: none; }
 .task-pager.is-busy { opacity: 0.55; }
 .task-pager button:disabled { cursor: progress; }
 
+/* Says what this page deliberately does not show. Without it, a reader who came
+   looking for a profile's skills finds three tabs and assumes they are broken. */
+.pd-scope-note {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin: -0.2rem 0 1rem;
+}
+
 /* The tab strip on a profile detail page is that page's only navigation, and
-   the Skills and Memory tabs are long enough to scroll it out of reach. */
+   the Routing tab is long enough to scroll it out of reach. */
 .pd-tabs {
   position: sticky;
   top: 0;
