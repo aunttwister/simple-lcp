@@ -694,7 +694,16 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
     # Routing first: the router is what this app is, and keys/models are its
     # inputs, so they follow the decision they feed.
     labels = (("routing", "Routing"), ("models", "Models"), ("keys", "API Keys"))
-    tabs = [{"id": tid, "label": lbl, "count": None, "active": tid == tab,
+    # Counts come from what the page already carries: the intents that route this
+    # profile and the steps in its chain. A pill saying how much is configured
+    # turns the strip into an overview rather than three words. Keys are fetched
+    # by the tab itself, so that one carries no count.
+    _cfg = (_profile_config_payload(config, wanted, profiles.get(wanted))
+            if wanted in profiles else {})
+    _counts = {"routing": len(_cfg.get("intents") or []) or None,
+               "models": _cfg.get("chain_steps") or None,
+               "keys": None}
+    tabs = [{"id": tid, "label": lbl, "count": _counts[tid], "active": tid == tab,
              "href": "/profiles/%s?tab=%s" % (wanted, tid)} for tid, lbl in labels]
     tab_label = dict(labels).get(tab, "Profile")
 
@@ -707,8 +716,7 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
            # Models) starts from the declared values rather than from a guess.
            # Only a gateway profile has this: an agent profile directory is not a
            # routing entry, so its payload is empty by design.
-           "profile_config": _profile_config_payload(config, wanted, profiles.get(wanted))
-           if wanted in profiles else {},
+           "profile_config": _cfg,
            "crumbs": (_crumbs(("Profiles", "/profiles"),
                               (wanted, "/profiles/" + wanted), (tab_label, None))
                       if exists else _crumbs(("Profiles", "/profiles"), ("Not found", None)))}
