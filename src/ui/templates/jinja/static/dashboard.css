@@ -2635,3 +2635,7 @@ input:disabled {
   vertical-align: 1px;
 }
 .tab-btn.active .tab-count { background: hsl(var(--ring) / 0.22); color: hsl(var(--foreground)); }
+
+/* Anything with an id is a scroll target. The profile tab strip is sticky at
+   top 0, so an anchor jump landed with the heading hidden behind it. */
+[id] { scroll-margin-top: 4.5rem; }
