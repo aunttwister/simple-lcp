@@ -6,9 +6,12 @@
 
   One card per profile: its name, a ten-word description, a picture, and what the
   old table showed at a glance (auth, budget, chain, gateway URL). Everything that
-  belongs to a single profile — skills, memory, tasks, cron, API keys — lives one
-  level deeper, under /profiles/<name>, because that is where a reader looks for it
-  and because keys are per-profile by design.
+  belongs to a single profile — how it routes, the models it may choose from, the
+  API keys that call it — lives one level deeper, under /profiles/<name>, because
+  that is where a reader looks for it and because keys are per-profile by design.
+
+  Skills, memory and cron are not here and never will be: those are Hermes agent
+  artefacts, and the Hermes dashboard owns them.
 
   Config stays on this page: it is the one genuinely cross-profile view, the
   work-layer defaults plus every profile's overrides in a single table.
@@ -24,9 +27,12 @@
 {% block content %}
 <h1>Profiles</h1>
 <p class="subtitle">
-  A <strong>profile</strong> owns the models and providers the router may choose from,
-  how it routes over them, the circuit breaker that protects it, and the keys that call
-  it. Open a card for that profile's skills, memory, tasks, cron jobs and API keys.
+  A <strong>profile</strong> is a routing subject: it owns the models and providers
+  the router may choose from, how it routes over them, the circuit breaker that
+  protects it, and the keys that call it. Open a card for its routing rules, its
+  model pool and its keys.
+  <span class="muted">Agent infrastructure — skills, memory, cron — lives in the
+  Hermes dashboard, not here.</span>
 </p>
 
 <div class="page-tabs">
