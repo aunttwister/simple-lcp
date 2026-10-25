@@ -282,9 +282,15 @@ def list_conversations(params: Optional[dict[str, Any]] = None) -> dict[str, Any
             "profile": r["profile"],
             "model": r["model"],
             "source": r["source"],
-            "messages": r["message_count"] or 0,
-            "active_messages": r["active_message_count"] or 0,
-            "tool_calls": r["tool_call_count"] or 0,
+            # These three are NULL, not zero, on a rollup-only conversation — one
+            # imported from the request log with no transcript stored (1,383 of
+            # 5,051 here). `or 0` turned "we never counted" into "there were none",
+            # so the table said 0 messages beside a summary describing 16 tool
+            # calls. Unknown and zero are different facts; only the template may
+            # collapse them, and it renders unknown as an em dash.
+            "messages": r["message_count"],
+            "active_messages": r["active_message_count"],
+            "tool_calls": r["tool_call_count"],
             "started_at": r["first_seen"] or r["started_at"],
             "last_at": r["last_seen"] or r["ended_at"],
             "calls": r["calls"] or 0,
@@ -355,7 +361,8 @@ def conversation_audit(conversation_id: str) -> dict[str, Any]:
             "profile": rollup["profile"] if "profile" in keys else None,
             "model": rollup["model"] if "model" in keys else None,
             "source": rollup["source"] if "source" in keys else None,
-            "messages": rollup["message_count"] if "message_count" in keys else None,
+            "messages": (rollup["message_count"]
+                         if "message_count" in keys else None),
             "active_messages": (rollup["active_message_count"]
                                 if "active_message_count" in keys else None),
             "started_at": (rollup["first_seen"] if "first_seen" in keys else None)
@@ -367,7 +374,11 @@ def conversation_audit(conversation_id: str) -> dict[str, Any]:
             "errors": rollup["errors"] if "errors" in keys else None,
             "user_turns": users,
             "assistant_turns": assistants,
-            "tool_calls": sum(t["count"] for t in tools),
+            # The rollup's tool count is NULL when the conversation was never
+            # recounted; summing an empty tool list would report 0 instead.
+            "tool_calls": (rollup["tool_call_count"]
+                           if "tool_call_count" in keys and rollup["tool_call_count"] is not None
+                           else (sum(t["count"] for t in tools) if tools else None)),
             "tools": tools,
             "first_ask": (first_ask["content"] if first_ask else None),
         }

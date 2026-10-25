@@ -129,14 +129,21 @@
     <tbody>
       {% for c in h.conversations %}
       <tr class="conv-row" data-cid="{{ c.id }}">
-        <td>{{ c.name or c.id }}</td>
+        <td>{% if c.name %}{{ c.name }}{% else %}<span class="muted">Untitled</span>
+          <span class="mono muted">· {{ c.id }}</span>{% endif %}</td>
         <td>{{ c.profile or '—' }}</td>
         <td class="mono">{{ c.model or '—' }}</td>
         <td>{{ c.source or '—' }}</td>
-        <td class="mono">{{ c.messages }}{% if c.active_messages and c.active_messages != c.messages %}
-          <span class="muted">({{ c.active_messages }} live)</span>{% endif %}</td>
-        <td class="mono">{{ c.tool_calls }}</td>
-        <td class="mono">{{ c.last_at or '—' }}</td>
+        {# `messages is none` means the rollup was never recounted — the
+           conversation was imported from the request log with no transcript
+           stored. That is "unknown", not "zero": rendering 0 beside a summary
+           that describes 16 tool calls was the table contradicting itself. #}
+        <td class="mono">{% if c.messages is none %}—{% else %}{{ c.messages }}{% endif %}
+          {% if c.messages is not none and c.active_messages is not none and c.active_messages != c.messages %}
+          <span class="muted" title="Messages still in the agent's context window; the rest were compacted">{{ c.active_messages }} active</span>{% endif %}
+          {% if c.messages is none %}<span class="muted">no transcript</span>{% endif %}</td>
+        <td class="mono">{% if c.tool_calls is none %}—{% else %}{{ c.tool_calls }}{% endif %}</td>
+        <td class="mono">{{ c.last_at | fmt_iso }}</td>
         <td><button type="button" class="btn-sm conv-toggle" data-cid="{{ c.id }}"
                     data-name="{{ c.name or c.id }}">View</button></td>
       </tr>

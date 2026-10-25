@@ -60,9 +60,36 @@ def _fmt_ts(t) -> str:
         return str(t)
 
 
+def _fmt_iso(t) -> str:
+    """Format a stored ISO timestamp as a compact UTC stamp.
+
+    The conversation store keeps microseconds and an explicit offset
+    (``2026-10-06T13:59:24.525878+00:00``). Rendered raw it is 32 characters wide
+    and wraps mid-token in a table cell, which reads as a corrupted value rather
+    than a time. Drop the sub-second part and spell the zone once.
+    """
+    if not t:
+        return "—"
+    text = str(t)
+    text = text.replace("T", " ")
+    if "." in text:
+        head, _, tail = text.partition(".")
+        # Keep the zone: it sits after the fractional seconds.
+        zone = tail[-6:] if tail.endswith("+00:00") or tail.endswith("-00:00") else ""
+        text = head + ("" if zone else tail[6:])
+        if zone:
+            text = head + zone
+    if text.endswith("+00:00"):
+        text = text[:-6] + " UTC"
+    elif text.endswith("Z"):
+        text = text[:-1] + " UTC"
+    return text
+
+
 _env.filters["fmt_num"] = _fmt_num
 _env.filters["fmt_cost"] = _fmt_cost
 _env.filters["fmt_ts"] = _fmt_ts
+_env.filters["fmt_iso"] = _fmt_iso
 
 
 def _compute_monthly(engine) -> dict:
