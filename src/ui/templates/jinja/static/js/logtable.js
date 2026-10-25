@@ -165,7 +165,7 @@
       state.inflight = !!on;
       if (pagerEl) {
         pagerEl.classList.toggle('is-busy', !!on);
-        Array.prototype.forEach.call(pagerEl.querySelectorAll('button'), function (b) {
+        Array.prototype.forEach.call(pagerEl.querySelectorAll('button, input'), function (b) {
           b.disabled = !!on;
         });
       }
@@ -285,6 +285,9 @@
       var label = m.total
         ? 'Showing ' + num(m.first) + '–' + num(m.last) + ' of ' + num(m.total) + ' ' + o.noun
         : 'No ' + o.noun;
+      // 51,861 requests is 2,593 pages. Without a page count and a way to name a
+      // page, everything past the five buttons on screen is unreachable.
+      if (m.pages > 1) label += ' · page ' + num(m.page) + ' of ' + num(m.pages);
       var sorts = (m.sorts || []).filter(function (s) { return s.key === m.sort; });
       var sortLabel = sorts.length ? sorts[0].label : (m.sortLabel || '');
       if (sortLabel) label += ' · ' + sortLabel.toLowerCase();
@@ -307,6 +310,14 @@
       if (page > 1) parts.push(btn('Prev', 'page', page - 1));
       for (var n = from; n <= to; n++) parts.push(btn(String(n), 'page', n, n === page));
       if (page < pages) parts.push(btn('Next', 'page', page + 1));
+      if (pages > o.maxPageButtons) {
+        parts.push('<span class="task-pager-jump">' +
+          '<label class="sr-only" for="' + esc(o.ids.pager || 'lg') + '-jump">Jump to page</label>' +
+          '<input type="number" id="' + esc(o.ids.pager || 'lg') + '-jump" data-jump="1"' +
+          ' min="1" max="' + pages + '" value="' + page + '" inputmode="numeric"' +
+          ' aria-label="Jump to page, 1 to ' + pages + '">' +
+          '<span class="muted">/ ' + num(pages) + '</span></span>');
+      }
       parts.push('<span class="muted task-pager-label">' + esc(o.perLabel) + '</span>');
       perChoices.forEach(function (pp) {
         parts.push(btn(pp, 'per', pp, String(m.per) === String(pp)));
@@ -530,6 +541,24 @@
           state.page = 1;
         } else return;
         fetchRows();
+      });
+      // The jump field commits on Enter or blur rather than on every keystroke:
+      // typing "12" would otherwise fetch page 1 and then page 12.
+      pagerEl.addEventListener('change', function (ev) {
+        var el = ev.target;
+        if (!el.hasAttribute('data-jump') || el.disabled) return;
+        var want = parseInt(el.value, 10);
+        var pages = (state.meta && state.meta.pages) || 1;
+        if (!want || want < 1 || want > pages) { el.value = state.meta.page; return; }
+        if (want === state.meta.page) return;
+        state.page = want;
+        fetchRows();
+      });
+      pagerEl.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && ev.target.hasAttribute('data-jump')) {
+          ev.preventDefault();
+          ev.target.blur();
+        }
       });
     }
 

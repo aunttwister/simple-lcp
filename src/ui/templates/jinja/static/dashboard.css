@@ -2646,3 +2646,24 @@ input:disabled {
 @media (prefers-reduced-motion: no-preference) {
   html { scroll-behavior: smooth; }
 }
+
+/* ── Pager jump ──────────────────────────────────────────────────────────────
+   The pager shows at most five page buttons. At 50 rows a page the request log
+   is 2,593 pages, so most of it could not be reached at all. The jump field
+   names a page directly and is only rendered when the button window cannot
+   cover every page. */
+.task-pager-jump { display: inline-flex; align-items: center; gap: 0.25rem; }
+.task-pager-jump input {
+  width: 4.5rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.75rem;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary) / 0.5);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+.task-pager-jump input:focus-visible { border-color: hsl(var(--ring)); }
+.task-pager-jump .muted { font-size: 0.7rem; }
