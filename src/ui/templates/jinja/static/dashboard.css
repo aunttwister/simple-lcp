@@ -2639,3 +2639,10 @@ input:disabled {
 /* Anything with an id is a scroll target. The profile tab strip is sticky at
    top 0, so an anchor jump landed with the heading hidden behind it. */
 [id] { scroll-margin-top: 4.5rem; }
+
+/* Smooth scrolling only where motion is welcome. Inside the no-preference
+   query, so a reduced-motion user gets an instant jump rather than a 400ms
+   glide they did not ask for. */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
