@@ -1763,7 +1763,17 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 .breadcrumbs a { color: hsl(var(--muted-foreground)); text-decoration: none; }
 .breadcrumbs a:hover { color: hsl(var(--foreground)); text-decoration: underline; }
 .breadcrumbs .crumb-sep { opacity: 0.45; }
-.breadcrumbs .crumb-current { color: hsl(var(--foreground)); font-weight: 600; }
+.breadcrumbs .crumb-current {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  /* Profile names can be long; a crumb that wraps to a second line pushes the
+     page title down on every visit to that profile. */
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 
 .profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 1rem; margin-bottom: 1.5rem; }
