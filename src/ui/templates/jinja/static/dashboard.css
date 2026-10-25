@@ -2531,3 +2531,11 @@ main:focus-visible { outline: none; }
    paints a light-blue box over a dark page; the ring colour at 35% keeps the
    text readable and matches the focus ring it sits next to. */
 ::selection { background: hsl(var(--ring) / 0.35); color: hsl(var(--foreground)); }
+
+/* Links in body copy are underlined only on hover, which is fine for a mouse and
+   invisible to a reader scanning for them. The offset keeps the underline off
+   the descenders at 12-13px, where it otherwise touches the glyphs. */
+a { text-underline-offset: 2px; text-decoration-thickness: 1px; }
+.main-content a:not(.btn-sm):not(.tab-btn):not(.pc-head):not(.sb-signout) {
+  text-underline-offset: 2px;
+}
