@@ -2492,3 +2492,37 @@ main:focus-visible { outline: none; }
 }
 .sb-signout:active { transform: translateY(1px); }
 .sb-signout svg { flex: 0 0 auto; }
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────────
+   Several surfaces are scroll containers: the sidebar, the log panel, any wide
+   table, the dialog body. A default light scrollbar in a dark console reads as
+   a rendering bug, so they get a thin thumb in the border colour. `scrollbar-*`
+   covers Firefox; the ::-webkit rules cover Chrome and Safari. */
+.sidebar, .sidebar-nav, .work-scroll, .logs-term, .dialog-body, .modal-body {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+.work-scroll::-webkit-scrollbar,
+.logs-term::-webkit-scrollbar,
+.dialog-body::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar { width: 10px; height: 10px; }
+.work-scroll::-webkit-scrollbar-track,
+.logs-term::-webkit-scrollbar-track,
+.dialog-body::-webkit-scrollbar-track,
+.modal-body::-webkit-scrollbar-track { background: transparent; }
+.work-scroll::-webkit-scrollbar-thumb,
+.logs-term::-webkit-scrollbar-thumb,
+.dialog-body::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 9999px;
+}
+.work-scroll::-webkit-scrollbar-thumb:hover,
+.logs-term::-webkit-scrollbar-thumb:hover,
+.dialog-body::-webkit-scrollbar-thumb:hover,
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.6);
+  background-clip: content-box;
+}
