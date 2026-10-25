@@ -2567,3 +2567,8 @@ input:disabled {
    that the eye keeps its place across a wide row. Hover still wins, because it
    is a later rule with the same specificity on a state selector. */
 .work-table tbody tr:nth-child(even) { background: hsl(var(--secondary) / 0.12); }
+
+/* The count line is empty until the first response, and then it grows a line of
+   text: everything below it (toolbar, term bar, table) jumped down by ~18px on
+   every page load. Reserving the height removes that shift. */
+#lg-count, .task-count { min-height: 1.15rem; }
