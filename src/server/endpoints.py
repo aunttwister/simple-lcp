@@ -537,7 +537,24 @@ class HealthEndpoints:
                 tripped_until = datetime.fromtimestamp(
                     h["tripped_until"], tz=timezone.utc
                 ).isoformat()
-            providers_out[f"{provider}/{profile}"] = {
+            # Two configs can share a provider name and profile with different base
+            # URLs (opencode's zen gateway and its OpenAI-compatible endpoint both
+            # serve l2). Keying only by provider/profile made the second one
+            # overwrite the first, so `summary.total` counted a provider that the
+            # payload did not contain — the page showed 10 rows under a heading
+            # claiming 11, and whichever entry lost was invisible.
+            key = f"{provider}/{profile}"
+            if key in providers_out:
+                u = urlparse(url)
+                suffix = (u.netloc + u.path).strip("/").rstrip("/")
+                if suffix.endswith("/v1"):
+                    suffix = suffix[:-3]
+                key = f"{key} ({suffix})"
+                n = 2
+                while key in providers_out:
+                    key = f"{provider}/{profile} ({suffix}) #{n}"
+                    n += 1
+            providers_out[key] = {
                 "provider": provider,
                 "profile": profile,
                 "base_url": url,
