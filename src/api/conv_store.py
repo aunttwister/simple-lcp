@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
@@ -180,11 +181,23 @@ def append_messages(conversation_id: str, messages: Iterable[dict[str, Any]],
     Returns the number of rows actually written, so a caller can tell "imported"
     from "already present" without re-reading.
 
-    Dedup is positional: the incoming hashes are compared against the stored
-    sequence and only the unmatched suffix is appended, continuing the stored
-    numbering. Positional (rather than set) comparison matters because a
-    conversation legitimately repeats a message — an identical "ok" twice is two
-    turns, not one.
+    Dedup is by MULTISET, not by position. The incoming hashes are counted, the
+    stored hashes are counted, and only the surplus — ``incoming_count -
+    stored_count`` copies of each message — is appended, in incoming order.
+
+    Positional (longest-common-prefix) dedup assumed the incoming list is an
+    append-only continuation of what is stored. That holds for a re-import of an
+    unchanged session, but not for the live capture path: `capture_request` sends
+    the client's full history, and the client COMPACTS. A compaction removes
+    messages from the middle, so the incoming list diverges from the stored one
+    early, the prefix stops at the first divergence, and everything after it is
+    appended again — history that was already stored. Measured in prod: one
+    conversation held 193,930 rows for 57 distinct user messages, and a single
+    tool_call_id was stored 222 times. Total 3.55M rows for 629 live conversations.
+
+    Counting per hash is order-independent, so compaction cannot defeat it, and it
+    still preserves legitimate repeats: an identical "ok" sent twice is stored
+    twice, because the count is compared, not membership.
     """
     prepared = [_prepare(m) for m in messages]
     if not prepared:
@@ -199,22 +212,26 @@ def append_messages(conversation_id: str, messages: Iterable[dict[str, Any]],
             (conversation_id,),
         ).fetchall()
         stored_hashes = [r["msg_hash"] for r in stored]
+        stored_count = Counter(h for h in stored_hashes if h)
 
-        # Longest common prefix of stored vs incoming — the part already known.
-        matched = 0
-        limit = min(len(stored_hashes), len(prepared))
-        while matched < limit and stored_hashes[matched] == prepared[matched]["msg_hash"]:
-            matched += 1
+        seen: Counter = Counter()
+        surplus: list = []
+        for m in prepared:
+            h = m["msg_hash"]
+            seen[h] += 1
+            if h and seen[h] <= stored_count.get(h, 0):
+                continue          # already stored, this many times
+            surplus.append(m)
 
-        if matched == len(prepared):
-            return 0  # nothing new (identical re-run)
+        if not surplus:
+            return 0  # nothing new (identical re-run, or a compacted prefix)
 
         next_seq = len(stored_hashes)
         rows = [
             (conversation_id, next_seq + i, m["role"], m["content"], m["content_len"],
              m["truncated"], m["tool_name"], m["tool_call_id"], m["tool_calls"],
              m["reasoning"], m["ts"], m["active"], m["compacted"], m["msg_hash"], origin)
-            for i, m in enumerate(prepared[matched:])
+            for i, m in enumerate(surplus)
         ]
         con.executemany(
             "INSERT OR REPLACE INTO conv_messages "
