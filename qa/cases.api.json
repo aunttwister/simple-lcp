@@ -1,0 +1,212 @@
+[
+ {
+  "id": "api-health",
+  "group": "api",
+  "title": "/health",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/health')\" = \"200\" ] && curl -s '{{BASE}}/health' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('status') is not None, 'missing key status'\""
+ },
+ {
+  "id": "api-in-progress",
+  "group": "api",
+  "title": "/api/in-progress",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/in-progress')\" = \"200\" ] && curl -s '{{BASE}}/api/in-progress' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('count') is not None, 'missing key count'\""
+ },
+ {
+  "id": "api-conversations",
+  "group": "api",
+  "title": "/api/conversations",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/conversations')\" = \"200\" ] && curl -s '{{BASE}}/api/conversations' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('history') is not None, 'missing key history'\""
+ },
+ {
+  "id": "api-cache-stats",
+  "group": "api",
+  "title": "/cache/stats",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/cache/stats')\" = \"200\" ] && curl -s '{{BASE}}/cache/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('hit_rate') is not None, 'missing key hit_rate'\""
+ },
+ {
+  "id": "api-evidence-export",
+  "group": "api",
+  "title": "/api/evidence/export",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/evidence/export')\" = \"200\" ] && curl -s '{{BASE}}/api/evidence/export' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('manifest') is not None, 'missing key manifest'\""
+ },
+ {
+  "id": "api-evidence-key",
+  "group": "api",
+  "title": "/api/evidence/public-key",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/evidence/public-key')\" = \"200\" ] && curl -s '{{BASE}}/api/evidence/public-key' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('public_key_pem') is not None, 'missing key public_key_pem'\""
+ },
+ {
+  "id": "api-settings",
+  "group": "api",
+  "title": "/api/settings",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/settings')\" = \"200\" ] && curl -s '{{BASE}}/api/settings' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('entries') is not None, 'missing key entries'\""
+ },
+ {
+  "id": "api-routing-status",
+  "group": "api",
+  "title": "/api/routing/status",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/routing/status')\" = \"200\" ] && curl -s '{{BASE}}/api/routing/status' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('enabled') is not None, 'missing key enabled'\""
+ },
+ {
+  "id": "api-work-requests",
+  "group": "api",
+  "title": "/api/work/requests",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/requests')\" = \"200\" ] && curl -s '{{BASE}}/api/work/requests' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('rows') is not None, 'missing key rows'\""
+ },
+ {
+  "id": "api-work-decisions",
+  "group": "api",
+  "title": "/api/work/provider-decisions",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/provider-decisions')\" = \"200\" ] && curl -s '{{BASE}}/api/work/provider-decisions' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('rows') is not None, 'missing key rows'\""
+ },
+ {
+  "id": "api-daily-costs",
+  "group": "api",
+  "title": "/api/daily-costs",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/daily-costs')\" = \"200\" ] && curl -s '{{BASE}}/api/daily-costs' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('daily_costs') is not None, 'missing key daily_costs'\""
+ },
+ {
+  "id": "api-recent-requests",
+  "group": "api",
+  "title": "/api/recent-requests",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/recent-requests')\" = \"200\" ] && curl -s '{{BASE}}/api/recent-requests' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('requests') is not None, 'missing key requests'\""
+ },
+ {
+  "id": "api-logs",
+  "group": "api",
+  "title": "/api/logs",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/logs')\" = \"200\" ] && curl -s '{{BASE}}/api/logs' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('rows') is not None, 'missing key rows'\""
+ },
+ {
+  "id": "api-usage-stats",
+  "group": "api",
+  "title": "/api/usage/stats",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/usage/stats')\" = \"200\" ] && curl -s '{{BASE}}/api/usage/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('totals') is not None, 'missing key totals'\""
+ },
+ {
+  "id": "api-usage-totals",
+  "group": "api",
+  "title": "/api/usage/totals",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/usage/totals')\" = \"200\" ] && curl -s '{{BASE}}/api/usage/totals' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('requests') is not None, 'missing key requests'\""
+ },
+ {
+  "id": "api-usage-series",
+  "group": "api",
+  "title": "/api/usage/profile-series",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/usage/profile-series')\" = \"200\" ] && curl -s '{{BASE}}/api/usage/profile-series' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('dates') is not None, 'missing key dates'\""
+ },
+ {
+  "id": "api-providers-presets",
+  "group": "api",
+  "title": "/api/providers/presets",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/providers/presets')\" = \"200\" ] && curl -s '{{BASE}}/api/providers/presets' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('presets') is not None, 'missing key presets'\""
+ },
+ {
+  "id": "api-providers-health",
+  "group": "api",
+  "title": "/api/providers/health",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/providers/health')\" = \"200\" ] && curl -s '{{BASE}}/api/providers/health' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('summary') is not None, 'missing key summary'\""
+ },
+ {
+  "id": "api-providers-failovers",
+  "group": "api",
+  "title": "/api/providers/failovers",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/providers/failovers')\" = \"200\" ] && curl -s '{{BASE}}/api/providers/failovers' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('failovers') is not None, 'missing key failovers'\""
+ },
+ {
+  "id": "api-providers",
+  "group": "api",
+  "title": "/api/providers",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/providers')\" = \"200\" ] && curl -s '{{BASE}}/api/providers' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('providers') is not None, 'missing key providers'\""
+ },
+ {
+  "id": "api-profiles",
+  "group": "api",
+  "title": "/api/profiles",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/profiles')\" = \"200\" ] && curl -s '{{BASE}}/api/profiles' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('profiles') is not None, 'missing key profiles'\""
+ },
+ {
+  "id": "api-audit",
+  "group": "api",
+  "title": "/api/audit",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/audit')\" = \"200\" ] && curl -s '{{BASE}}/api/audit' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('entries') is not None, 'missing key entries'\""
+ },
+ {
+  "id": "api-keys",
+  "group": "api",
+  "title": "/api/keys",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/keys')\" = \"200\" ] && curl -s '{{BASE}}/api/keys' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('keys') is not None, 'missing key keys'\""
+ },
+ {
+  "id": "api-alerts-config",
+  "group": "api",
+  "title": "/api/alerts/config",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/alerts/config')\" = \"200\" ] && curl -s '{{BASE}}/api/alerts/config' | python3 -c \"import sys,json; json.load(sys.stdin)\""
+ },
+ {
+  "id": "api-alerts",
+  "group": "api",
+  "title": "/api/alerts",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/alerts')\" = \"200\" ] && curl -s '{{BASE}}/api/alerts' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('alerts') is not None, 'missing key alerts'\""
+ },
+ {
+  "id": "api-budgets",
+  "group": "api",
+  "title": "/api/budgets",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/budgets')\" = \"200\" ] && curl -s '{{BASE}}/api/budgets' | python3 -c \"import sys,json; json.load(sys.stdin)\""
+ },
+ {
+  "id": "api-cost-plugins-usage",
+  "group": "api",
+  "title": "/api/cost-plugins/usage",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/cost-plugins/usage')\" = \"200\" ] && curl -s '{{BASE}}/api/cost-plugins/usage' | python3 -c \"import sys,json; json.load(sys.stdin)\""
+ },
+ {
+  "id": "api-cost-plugins-balances",
+  "group": "api",
+  "title": "/api/cost-plugins/balances",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/cost-plugins/balances')\" = \"200\" ] && curl -s '{{BASE}}/api/cost-plugins/balances' | python3 -c \"import sys,json; json.load(sys.stdin)\""
+ },
+ {
+  "id": "api-cost-plugins-summary",
+  "group": "api",
+  "title": "/api/cost-plugins/summary",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/cost-plugins/summary')\" = \"200\" ] && curl -s '{{BASE}}/api/cost-plugins/summary' | python3 -c \"import sys,json; json.load(sys.stdin)\""
+ },
+ {
+  "id": "api-models-capability",
+  "group": "api",
+  "title": "/api/models/capability",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/models/capability')\" = \"200\" ] && curl -s '{{BASE}}/api/models/capability' | python3 -c \"import sys,json; json.load(sys.stdin)\""
+ },
+ {
+  "id": "api-models-registry",
+  "group": "api",
+  "title": "/api/models/registry",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/models/registry')\" = \"200\" ] && curl -s '{{BASE}}/api/models/registry' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('registry') is not None, 'missing key registry'\""
+ },
+ {
+  "id": "api-x-profiles",
+  "group": "api",
+  "title": "/api/profiles and /api/providers/profile_chains name the same profiles",
+  "cmd": "curl -s '{{BASE}}/api/profiles' > /tmp/qa_p.json; curl -s '{{BASE}}/api/providers' > /tmp/qa_c.json; python3 -c \"import json; p=set(json.load(open('/tmp/qa_p.json'))['profiles']); c=set(json.load(open('/tmp/qa_c.json'))['profile_chains']); assert p==c, (sorted(p-c), sorted(c-p))\""
+ },
+ {
+  "id": "api-x-routing",
+  "group": "api",
+  "title": "/api/routing/status covers every profile in /api/profiles",
+  "cmd": "curl -s '{{BASE}}/api/routing/status' > /tmp/qa_r.json; curl -s '{{BASE}}/api/profiles' > /tmp/qa_p.json; python3 -c \"import json; r=set(json.load(open('/tmp/qa_r.json'))['per_profile']); p=set(json.load(open('/tmp/qa_p.json'))['profiles']); assert not (p-r), sorted(p-r)\""
+ },
+ {
+  "id": "api-x-health",
+  "group": "api",
+  "title": "health reports every profile and no dead provider",
+  "cmd": "curl -s '{{BASE}}/health' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['status']=='ok'; assert len(d['profiles'])>=1; assert all(v.get('state')!='dead' for v in d['providers'].values()), [k for k,v in d['providers'].items() if v.get('state')=='dead']\""
+ },
+ {
+  "id": "api-x-totals",
+  "group": "api",
+  "title": "/api/usage/totals agrees with /api/usage/stats.totals",
+  "cmd": "curl -s '{{BASE}}/api/usage/stats' > /tmp/qa_s.json; curl -s '{{BASE}}/api/usage/totals' > /tmp/qa_t.json; python3 -c \"import json; s=json.load(open('/tmp/qa_s.json'))['totals']; t=json.load(open('/tmp/qa_t.json')); assert s['requests']==t['requests'], (s['requests'],t['requests']); assert abs(s['cost']-t['cost'])<0.01, (s['cost'],t['cost'])\""
+ }
+]

@@ -1,0 +1,158 @@
+[
+ {
+  "id": "cv-shape",
+  "group": "conv",
+  "title": "list carries both stores: live and history",
+  "cmd": "curl -s '{{BASE}}/api/conversations' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert {'live','history'} <= set(d); assert {'count','profiles','providers','items'} <= set(d['live']); assert d['history']['available'] is True\""
+ },
+ {
+  "id": "cv-total",
+  "group": "conv",
+  "title": "history reports a real total",
+  "cmd": "curl -s '{{BASE}}/api/conversations' | python3 -c \"import sys,json; d=json.load(sys.stdin); h=d['history']; assert h['total']>0; assert len(h['conversations'])<=int(h['filter']['per'])\""
+ },
+ {
+  "id": "cv-newest",
+  "group": "conv",
+  "title": "default order is newest activity first",
+  "cmd": "curl -s '{{BASE}}/api/conversations?per=20' | python3 -c \"import sys,json; d=json.load(sys.stdin); ls=[c['last_at'] or '' for c in d['history']['conversations']]; assert ls==sorted(ls, reverse=True), ls[:4]\""
+ },
+ {
+  "id": "cv-pages",
+  "group": "conv",
+  "title": "page count matches the total",
+  "cmd": "curl -s '{{BASE}}/api/conversations?per=20' | python3 -c \"import sys,json,math; d=json.load(sys.stdin); f=d['history']['filter']; assert f['pages']==max(1,math.ceil(f['total']/20)), (f['pages'],f['total'])\""
+ },
+ {
+  "id": "cv-nonoverlap",
+  "group": "conv",
+  "title": "consecutive pages do not overlap",
+  "cmd": "curl -s '{{BASE}}/api/conversations?per=5&page=1' > /tmp/cv1.json; curl -s '{{BASE}}/api/conversations?per=5&page=2' > /tmp/cv2.json; python3 -c \"import json; a=[c['id'] for c in json.load(open('/tmp/cv1.json'))['history']['conversations']]; b=[c['id'] for c in json.load(open('/tmp/cv2.json'))['history']['conversations']]; assert not (set(a)&set(b)), set(a)&set(b)\""
+ },
+ {
+  "id": "cv-sort-oldest",
+  "group": "conv",
+  "title": "sort=oldest reverses the order",
+  "cmd": "curl -s '{{BASE}}/api/conversations?per=10&sort=oldest' | python3 -c \"import sys,json; d=json.load(sys.stdin); h=d['history']; ls=[c['last_at'] or '' for c in h['conversations']]; assert ls==sorted(ls), ls[:4]; assert h['filter']['sort']=='oldest'\""
+ },
+ {
+  "id": "cv-sort-messages",
+  "group": "conv",
+  "title": "sort=messages is monotonic descending",
+  "cmd": "curl -s '{{BASE}}/api/conversations?per=10&sort=messages' | python3 -c \"import sys,json; d=json.load(sys.stdin); m=[c['messages'] or 0 for c in d['history']['conversations']]; assert m==sorted(m, reverse=True), m\""
+ },
+ {
+  "id": "cv-sort-calls",
+  "group": "conv",
+  "title": "sort=calls is monotonic descending",
+  "cmd": "curl -s '{{BASE}}/api/conversations?per=10&sort=calls' | python3 -c \"import sys,json; d=json.load(sys.stdin); c=[x['calls'] or 0 for x in d['history']['conversations']]; assert c==sorted(c, reverse=True), c\""
+ },
+ {
+  "id": "cv-sorts-advertised",
+  "group": "conv",
+  "title": "the four sorts are advertised to the client",
+  "cmd": "curl -s '{{BASE}}/api/conversations' | python3 -c \"import sys,json; d=json.load(sys.stdin); keys=[s['key'] for s in d['history']['filter']['sorts']]; assert keys==['newest','oldest','messages','calls'], keys\""
+ },
+ {
+  "id": "cv-filter-profile",
+  "group": "conv",
+  "title": "profile filter narrows and echoes back",
+  "cmd": "curl -s '{{BASE}}/api/conversations' > /tmp/cva.json; curl -s '{{BASE}}/api/conversations?profile=l2' > /tmp/cvb.json; python3 -c \"import json; a=json.load(open('/tmp/cva.json'))['history']; b=json.load(open('/tmp/cvb.json'))['history']; assert b['total']<a['total'], (b['total'],a['total']); assert b['filter']['profile']=='l2'; assert all(c['profile']=='l2' for c in b['conversations'])\""
+ },
+ {
+  "id": "cv-filter-q",
+  "group": "conv",
+  "title": "search by id narrows to one conversation",
+  "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations?q=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); h=d['history']; assert h['total']==1, h['total']; assert h['conversations'][0]['id']=='$cid'\""
+ },
+ {
+  "id": "cv-filter-q-none",
+  "group": "conv",
+  "title": "an impossible search returns zero, not an error",
+  "cmd": "curl -s '{{BASE}}/api/conversations?q=zzzz-no-such-conversation-zzzz' | python3 -c \"import sys,json; d=json.load(sys.stdin); h=d['history']; assert h['total']==0; assert h['conversations']==[]\""
+ },
+ {
+  "id": "cv-clamp",
+  "group": "conv",
+  "title": "page past the end clamps instead of 500ing",
+  "cmd": "curl -s '{{BASE}}/api/conversations?per=5&page=99999' | python3 -c \"import sys,json; d=json.load(sys.stdin); f=d['history']['filter']; assert f['page']==f['pages'], f\""
+ },
+ {
+  "id": "cv-idem",
+  "group": "conv",
+  "title": "the list is idempotent",
+  "cmd": "a=$(curl -s '{{BASE}}/api/conversations?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/conversations?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
+ },
+ {
+  "id": "cv-msg-400",
+  "group": "conv",
+  "title": "transcript without cid is 400 JSON",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/conversations/messages')\" = \"400\" ] && curl -s '{{BASE}}/api/conversations/messages' | python3 -c \"import sys,json; assert 'error' in json.load(sys.stdin)\""
+ },
+ {
+  "id": "cv-msg-shape",
+  "group": "conv",
+  "title": "transcript reports its own window honestly",
+  "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations/messages?cid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert {'id','messages','truncated','total','newest'} <= set(d); assert d['id']=='$cid'; assert d['truncated'] == (d['total'] > len(d['messages'])), (d['truncated'], d['total'], len(d['messages']))\""
+ },
+ {
+  "id": "cv-msg-order",
+  "group": "conv",
+  "title": "transcript messages are in stored (seq) order",
+  "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations/messages?cid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); sq=[m['seq'] for m in d['messages']]; assert sq==sorted(sq), 'transcript is not in append order'; assert len(set(sq))==len(sq), 'duplicate seq'\""
+ },
+ {
+  "id": "cv-msg-unknown",
+  "group": "conv",
+  "title": "an unknown cid returns an empty transcript, not a 500",
+  "cmd": "c=$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/conversations/messages?cid=nope'); [ \"$c\" = \"200\" ] && curl -s '{{BASE}}/api/conversations/messages?cid=nope' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['messages']==[]; assert d['total']==0\""
+ },
+ {
+  "id": "cv-msg-traversal",
+  "group": "conv",
+  "title": "a traversal-shaped cid does not read the filesystem",
+  "cmd": "c=$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/conversations/messages?cid=../../etc/passwd'); [ \"$c\" != \"500\" ] && curl -s '{{BASE}}/api/conversations/messages?cid=../../etc/passwd' | grep -qv 'root:x:'"
+ },
+ {
+  "id": "cv-audit-400",
+  "group": "conv",
+  "title": "audit without cid is 400 JSON",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/conversations/audit')\" = \"400\" ] && curl -s '{{BASE}}/api/conversations/audit' | python3 -c \"import sys,json; assert 'error' in json.load(sys.stdin)\""
+ },
+ {
+  "id": "cv-audit-shape",
+  "group": "conv",
+  "title": "audit reports availability and the rollup",
+  "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations/audit?cid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('available') is True; assert d['id']=='$cid'; assert 'tools' in d and 'first_ask' in d\""
+ },
+ {
+  "id": "cv-audit-consistency",
+  "group": "conv",
+  "title": "audit message count equals the transcript total",
+  "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations/messages?cid=$cid\" > /tmp/cvm.json; curl -s \"{{BASE}}/api/conversations/audit?cid=$cid\" > /tmp/cva2.json; python3 -c \"import json; m=json.load(open('/tmp/cvm.json')); a=json.load(open('/tmp/cva2.json')); assert a['messages']==m['total'], (a['messages'], m['total'])\""
+ },
+ {
+  "id": "cv-audit-toolcount",
+  "group": "conv",
+  "title": "audit tool counts sum to the reported tool_calls",
+  "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations/audit?cid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); s=sum(t['count'] for t in d.get('tools') or []); assert s==(d.get('tool_calls') or 0), (s, d.get('tool_calls'))\""
+ },
+ {
+  "id": "cv-audit-unknown",
+  "group": "conv",
+  "title": "an unknown cid reports unavailable, not a 500",
+  "cmd": "c=$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/conversations/audit?cid=nope'); [ \"$c\" = \"200\" ] && curl -s '{{BASE}}/api/conversations/audit?cid=nope' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('available') is False\""
+ },
+ {
+  "id": "cv-page",
+  "group": "conv",
+  "title": "the page renders live + history with a caption",
+  "cmd": "curl -s '{{BASE}}/conversations' | python3 -c \"import sys,re; h=sys.stdin.read(); assert 'In flight' in h; assert 'History' in h; assert len(re.findall(r'<caption', h))>=2, 'a table is uncaptioned'\""
+ },
+ {
+  "id": "cv-page-scope",
+  "group": "conv",
+  "title": "every conversation header carries scope=col",
+  "cmd": "curl -s '{{BASE}}/conversations' | python3 -c \"import sys,re; h=sys.stdin.read(); ths=re.findall(r'<th[\\s>](?![^>]*scope)', h); assert not ths, len(ths)\""
+ }
+]

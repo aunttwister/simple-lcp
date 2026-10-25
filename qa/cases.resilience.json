@@ -1,56 +1,128 @@
 [
  {
-  "id": "rs-idem-_api_work_tasks_lite_1&states_in_progres",
+  "id": "rs-idem-api-profiles",
   "group": "resilience",
-  "title": "idempotent /api/work/tasks?lite=1&states=in_progress&per=5",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=5' | md5sum); [ \"$a\" = \"$b\" ]"
+  "title": "idempotent /api/profiles",
+  "cmd": "a=$(curl -s '{{BASE}}/api/profiles' | md5sum); b=$(curl -s '{{BASE}}/api/profiles' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-idem-_api_work_conversations_per_5",
+  "id": "rs-idem-api-models-registry",
   "group": "resilience",
-  "title": "idempotent /api/work/conversations?per=5",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/conversations?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/conversations?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
+  "title": "idempotent /api/models/registry",
+  "cmd": "a=$(curl -s '{{BASE}}/api/models/registry' | md5sum); b=$(curl -s '{{BASE}}/api/models/registry' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-clamp-1",
+  "id": "rs-idem-api-providers",
   "group": "resilience",
-  "title": "per=0/page=0 clamps safely (not 500)",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/tasks?lite=1&states=all&per=0&page=0')\" != \"500\" ]"
+  "title": "idempotent /api/providers",
+  "cmd": "a=$(curl -s '{{BASE}}/api/providers' | md5sum); b=$(curl -s '{{BASE}}/api/providers' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-clamp-2",
+  "id": "rs-idem-api-work-requests-per-5",
   "group": "resilience",
-  "title": "invalid states falls back (not 500)",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/tasks?lite=1&states=garbage&per=5')\" != \"500\" ]"
+  "title": "idempotent /api/work/requests?per=5",
+  "cmd": "a=$(curl -s '{{BASE}}/api/work/requests?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/requests?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-clamp-3",
+  "id": "rs-idem-api-work-provider-decisions-per-5",
+  "group": "resilience",
+  "title": "idempotent /api/work/provider-decisions?per=5",
+  "cmd": "a=$(curl -s '{{BASE}}/api/work/provider-decisions?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/provider-decisions?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
+ },
+ {
+  "id": "rs-idem-api-conversations-per-5",
+  "group": "resilience",
+  "title": "idempotent /api/conversations?per=5",
+  "cmd": "a=$(curl -s '{{BASE}}/api/conversations?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/conversations?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
+ },
+ {
+  "id": "rs-idem-api-routing-status",
+  "group": "resilience",
+  "title": "idempotent /api/routing/status",
+  "cmd": "a=$(curl -s '{{BASE}}/api/routing/status' | md5sum); b=$(curl -s '{{BASE}}/api/routing/status' | md5sum); [ \"$a\" = \"$b\" ]"
+ },
+ {
+  "id": "rs-clamp-per0",
+  "group": "resilience",
+  "title": "per=0/page=0 clamps (not 500)",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/requests?per=0&page=0')\" != \"500\" ]"
+ },
+ {
+  "id": "rs-clamp-negative",
   "group": "resilience",
   "title": "negative pagination clamps (not 500)",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/conversations?per=-3&page=-2')\" != \"500\" ]"
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/requests?per=-3&page=-2')\" != \"500\" ]"
  },
  {
-  "id": "rs-clamp-4",
+  "id": "rs-clamp-huge",
   "group": "resilience",
   "title": "huge per/page clamps (not 500)",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/tasks?lite=1&states=all&per=99999&page=99999')\" != \"500\" ]"
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/requests?per=99999&page=99999')\" != \"500\" ]"
  },
  {
-  "id": "rs-json-11",
+  "id": "rs-clamp-alpha",
   "group": "resilience",
-  "title": "JSON error body for /api/work/tasks/detail?task=in_progress%2Fmi",
-  "cmd": "code=$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fmissing-x'); [ \"$code\" != \"200\" ] && curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fmissing-x' | python3 -c 'import sys,json; json.load(sys.stdin)'"
+  "title": "non-numeric pagination degrades (not 500)",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/requests?per=abc&page=xyz')\" != \"500\" ]"
  },
  {
-  "id": "rs-json-12",
+  "id": "rs-clamp-conv-per0",
   "group": "resilience",
-  "title": "unknown conversation cid -> 200 JSON (by design)",
-  "cmd": "curl -s '{{BASE}}/api/work/conversations/detail?cid=missing' | python3 -c 'import sys,json; d=json.load(sys.stdin); assert \"events\" in d'"
+  "title": "conversations per=0 clamps (not 500)",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/conversations?per=0&page=0')\" != \"500\" ]"
  },
  {
-  "id": "rs-para-1",
+  "id": "rs-clamp-conv-neg",
   "group": "resilience",
-  "title": "5 parallel lite fetches all succeed",
-  "cmd": "for i in 1 2 3 4 5; do ( curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=10' & ) ; done; wait 2>/dev/null; echo ok"
+  "title": "conversations negative clamps (not 500)",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/conversations?per=-3&page=-2')\" != \"500\" ]"
+ },
+ {
+  "id": "rs-clamp-dec",
+  "group": "resilience",
+  "title": "decisions negative clamps (not 500)",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/provider-decisions?per=-1&page=-9')\" != \"500\" ]"
+ },
+ {
+  "id": "rs-404",
+  "group": "resilience",
+  "title": "an unknown route is 404",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/definitely-not-a-route')\" = \"404\" ]"
+ },
+ {
+  "id": "rs-traversal",
+  "group": "resilience",
+  "title": "a traversal path is not served",
+  "cmd": "[ \"$(curl -q -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/..%%2fetc%%2fpasswd')\" != \"200\" ]"
+ },
+ {
+  "id": "rs-static-traversal",
+  "group": "resilience",
+  "title": "/static does not escape its root",
+  "cmd": "curl -q -s --path-as-is '{{BASE}}/static/../../etc/passwd' | grep -q 'root:x:' && exit 1; exit 0"
+ },
+ {
+  "id": "rs-api-json-errors",
+  "group": "resilience",
+  "title": "API errors are JSON, not HTML",
+  "cmd": "curl -s '{{BASE}}/api/conversations/messages' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'error' in d\""
+ },
+ {
+  "id": "rs-evidence-key",
+  "group": "resilience",
+  "title": "the evidence public key is a real PEM",
+  "cmd": "curl -s '{{BASE}}/api/evidence/public-key' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['public_key_pem'].startswith('-----BEGIN PUBLIC KEY-----'); assert d['fingerprint'].startswith('sha256:')\""
+ },
+ {
+  "id": "rs-parallel",
+  "group": "resilience",
+  "title": "five parallel requests all succeed",
+  "cmd": "rm -f /tmp/rs_p_*; for i in 1 2 3 4 5; do ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/requests?per=10' > /tmp/rs_p_$i ) & done; wait; for f in /tmp/rs_p_*; do [ \"$(cat \"$f\")\" = \"200\" ] || { echo \"bad $f=$(cat \"$f\")\"; exit 1; }; done; echo ok"
+ },
+ {
+  "id": "rs-parallel-mixed",
+  "group": "resilience",
+  "title": "mixed parallel reads never 5xx",
+  "cmd": "rm -f /tmp/rs_m_*; for i in 1 2 3; do ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations?per=20' > /tmp/rs_m_c$i ) & ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/usage/stats' > /tmp/rs_m_u$i ) & ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/routing/status' > /tmp/rs_m_r$i ) & done; wait; for f in /tmp/rs_m_*; do case \"$(cat \"$f\")\" in 5*) echo \"5xx on $f\"; exit 1;; esac; done; echo ok"
  }
 ]
