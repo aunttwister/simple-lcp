@@ -2539,3 +2539,24 @@ a { text-underline-offset: 2px; text-decoration-thickness: 1px; }
 .main-content a:not(.btn-sm):not(.tab-btn):not(.pc-head):not(.sb-signout) {
   text-underline-offset: 2px;
 }
+
+/* ── Buttons: press and disabled ─────────────────────────────────────────────
+   A button that does not move when pressed feels like it did not register, and
+   a disabled button that looks identical to an enabled one is worse: it invites
+   a click that silently does nothing. The pager now disables itself mid-fetch,
+   so this state is visible on the busiest surface in the app. */
+.btn-sm:active:not(:disabled),
+.th-sort:active:not(:disabled),
+.sb-copy-btn:active:not(:disabled),
+.sb-signout:active { transform: translateY(1px); }
+.btn-sm:disabled,
+.th-sort:disabled,
+.sb-copy-btn:disabled,
+button:disabled,
+select:disabled,
+input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* .btn-sm:hover sets opacity .85; that must not win over the disabled state. */
+.btn-sm:disabled:hover { opacity: 0.45; }
