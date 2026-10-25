@@ -3547,14 +3547,6 @@ class WorkEndpoints:
     end_headers: Any
     wfile: Any
 
-    def _tasks_root_for(self, profile: Any) -> str:
-        """Resolved task tree for ?profile=, or "" to mean "use the default"."""
-        from ..api import work_sources
-        try:
-            return work_sources.tasks_root_for(str(profile or "").strip().lower())
-        except Exception:  # noqa: BLE001
-            return ""
-
     def _serve_work_cron_page(self):
         """Legacy /work/cron — the Cron tab is gone, so land on the directory.
 
@@ -3573,74 +3565,6 @@ class WorkEndpoints:
         tab, because /profiles no longer has one.
         """
         self._redirect("/profiles")
-
-    def _serve_work_cron_api(self):
-        """GET /api/work/cron — the Cron view as JSON."""
-        from ..api import work_cron
-
-        try:
-            self._send_json(work_cron.cron_view())
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_work_cron_ops_get(self):
-        """GET /api/work/cron/ops — pending + recent executed cron ops."""
-        from ..api import work_cron
-
-        try:
-            self._send_json(work_cron.cron_ops_view())
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_work_cron_ops_post(self):
-        """POST /api/work/cron/ops — validate + spool a cron mutation intent."""
-        from ..api import work_cron
-
-        try:
-            body = self._read_body()
-        except Exception:
-            self._send_json({"error": "invalid JSON body"}, 400)
-            return
-        try:
-            op = work_cron.submit_cron_op(body)
-        except ValueError as e:
-            self._send_json({"error": str(e)}, 400)
-            return
-        except Exception as e:
-            self._send_json({"error": "internal: %s" % e}, 500)
-            return
-        self._audit("work.cron_op_submitted", op_id=op.get("id"),
-                    op=op.get("op"))
-        self._send_json(op, 201)
-
-    def _serve_work_sources_get(self):
-        """GET /api/work/sources — resolved work-layer source configuration."""
-        from ..api import work_sources
-
-        try:
-            self._send_json(work_sources.resolved_view())
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_work_sources_put(self):
-        """PUT /api/work/sources — validate + persist source configuration."""
-        from ..api import work_sources
-
-        try:
-            body = self._read_body()
-        except Exception:
-            self._send_json({"error": "invalid JSON body"}, 400)
-            return
-        try:
-            saved = work_sources.save_sources(body)
-        except ValueError as e:
-            self._send_json({"error": str(e)}, 400)
-            return
-        except Exception as e:
-            self._send_json({"error": "internal: %s" % e}, 500)
-            return
-        self._audit("work.sources_saved")
-        self._send_json({"saved": True, "sources": saved})
 
     def _serve_work_requests_api(self):
         """GET /api/work/requests — raw request log (paginated)."""

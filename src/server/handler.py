@@ -817,8 +817,6 @@ class LCPHandler(
             self._serve_profile_update(profile)
         elif self.path == "/api/alerts/config":
             self._serve_alerts_config_update()
-        elif self.path == "/api/work/sources":
-            self._serve_work_sources_put()
         elif self.path.startswith("/api/budgets/") and len(self.path.split("/")) == 4:
             budget_id = self.path.split("/")[3]
             self._serve_budget_update(budget_id)
@@ -1087,16 +1085,10 @@ def _build_routes() -> RouteTable:
     t.get("api.routing.status", exact("/api/routing/status"),
           lambda h, p: h._serve_routing_status_api())
     # ── Work layer ──
-    t.get("api.work.cron", exact("/api/work/cron"),
-          lambda h, p: h._serve_work_cron_api())
-    t.get("api.work.cron.ops", exact("/api/work/cron/ops"),
-          lambda h, p: h._serve_work_cron_ops_get())
-    t.post("api.work.cron.ops", exact("/api/work/cron/ops"),
-           lambda h, p: h._serve_work_cron_ops_post())
-    t.get("api.work.sources", exact("/api/work/sources"),
-          lambda h, p: h._serve_work_sources_get())
-    t.put("api.work.sources", exact("/api/work/sources"),
-          lambda h, p: h._serve_work_sources_put())
+    # The cron and sources APIs are gone (2026-10-25): their only caller was the
+    # Cron and Config tabs, both decommissioned. The host-side collector reads and
+    # writes work-sources.json directly from the shared ops mount, so nothing
+    # outside this process depended on them.
     t.get("api.work.requests", exact("/api/work/requests"),
           lambda h, p: h._serve_work_requests_api())
     t.get("api.work.provider-decisions", exact("/api/work/provider-decisions"),
