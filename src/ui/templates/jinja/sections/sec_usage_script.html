@@ -355,9 +355,9 @@ function renderBreakdownTable(containerId, data, labelKey, metric) {
         var v = isTokens ? (data[k].completion_tokens + data[k].prompt_tokens) : data[k].cost;
         if (v > maxVal) maxVal = v;
     });
-    var html = '<table class="breakdown-table"><thead><tr><th>' + labelKey + '</th>' +
-        (isTokens ? '' : '<th class="cost-col">Cost</th>') +
-        '<th class="cost-col">Requests</th><th class="cost-col">Tokens</th><th>Share</th></tr></thead><tbody>';
+    var html = '<table class="breakdown-table"><thead><tr><th scope="col">' + labelKey + '</th>' +
+        (isTokens ? '' : '<th scope="col" class="cost-col">Cost</th>') +
+        '<th scope="col" class="cost-col">Requests</th><th scope="col" class="cost-col">Tokens</th><th scope="col">Share</th></tr></thead><tbody>';
     keys.forEach(function(k) {
         var d = data[k];
         var v = isTokens ? (d.completion_tokens + d.prompt_tokens) : d.cost;

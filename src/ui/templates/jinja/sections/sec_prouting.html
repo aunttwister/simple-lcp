@@ -123,7 +123,7 @@
   <h2 class="pd-sect">Recent decisions <span class="pd-sect-note">why the last requests went where they did</span></h2>
   {% if routing.decisions %}
   <table class="data-table prou-table">
-    <thead><tr><th>When</th><th>Task</th><th>Action</th><th>Went to</th><th>Score</th><th>How</th></tr></thead>
+    <thead><tr><th scope="col">When</th><th scope="col">Task</th><th scope="col">Action</th><th scope="col">Went to</th><th scope="col">Score</th><th scope="col">How</th></tr></thead>
     <tbody>
       {% for d in routing.decisions %}
       <tr>

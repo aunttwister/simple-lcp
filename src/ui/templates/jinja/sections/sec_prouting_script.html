@@ -34,7 +34,7 @@
   function renderRules() {
     var rows = ROUTING.rules || [];
     var html = '<table class="data-table prou-table"><thead><tr>' +
-      '<th>Task</th><th>Action</th><th>Provider</th><th>Model</th><th>Profile</th><th></th>' +
+      '<th scope="col">Task</th><th scope="col">Action</th><th scope="col">Provider</th><th scope="col">Model</th><th scope="col">Profile</th><th scope="col"></th>' +
       '</tr></thead><tbody>';
     if (!rows.length) {
       html += '<tr><td colspan="6" class="empty">No rules for this profile.</td></tr>';

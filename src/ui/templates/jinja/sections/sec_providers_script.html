@@ -269,7 +269,7 @@ function loadFailovers(){
 
 // ── Profile-grouped provider health (lcp-stack pattern, like Keys page) ────
 var PROV_COLS = '<colgroup><col style="width:16%"><col style="width:10%"><col style="width:12%"><col style="width:12%"><col style="width:12%"><col style="width:7%"><col style="width:17%"><col style="width:14%"></colgroup>';
-var PROV_HDR = '<tr class="lcp-stack-header"><th>Provider</th><th>Status</th><th>Uptime 24h</th><th>Uptime 7d</th><th>Uptime 30d</th><th style="text-align:center">Failures</th><th>Last Error</th><th></th></tr>';
+var PROV_HDR = '<tr class="lcp-stack-header"><th scope="col">Provider</th><th scope="col">Status</th><th scope="col">Uptime 24h</th><th scope="col">Uptime 7d</th><th scope="col">Uptime 30d</th><th scope="col" style="text-align:center">Failures</th><th scope="col">Last Error</th><th scope="col"></th></tr>';
 
 function provBadge(st){
   var cls = st === 'healthy' ? 'badge-success' : st === 'degraded' ? 'badge-warning' : 'badge-error';

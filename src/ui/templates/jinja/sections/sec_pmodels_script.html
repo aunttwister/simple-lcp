@@ -30,7 +30,7 @@
 
   function renderChain() {
     var html = '<table class="data-table pp-table"><thead><tr>' +
-      '<th style="width:2rem">#</th><th>Provider</th><th>Model</th><th style="width:6rem">Order</th><th></th>' +
+      '<th scope="col" style="width:2rem">#</th><th scope="col">Provider</th><th scope="col">Model</th><th scope="col" style="width:6rem">Order</th><th scope="col"></th>' +
       '</tr></thead><tbody>';
     if (!chain.length) {
       html += '<tr><td colspan="5" class="empty">No models in the chain.</td></tr>';
