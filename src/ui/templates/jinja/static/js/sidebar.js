@@ -71,3 +71,15 @@ function closeSidebar() {
   pollAlertBadge();
   setInterval(pollAlertBadge, 15000);
 })();
+
+// Escape closes the drawer. On a phone the sidebar is a modal surface — it covers
+// the content and traps nothing — so a keyboard user who opened it with the
+// toggle has no other way back, and the overlay's onclick is mouse-only.
+document.addEventListener('keydown', function (ev) {
+  if (ev.key !== 'Escape') return;
+  var sb = document.getElementById('sidebar');
+  if (!sb || !sb.classList.contains('open')) return;
+  closeSidebar();
+  var toggle = document.getElementById('sidebarToggle');
+  if (toggle) toggle.focus();
+});
