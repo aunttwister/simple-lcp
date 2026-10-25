@@ -2526,3 +2526,8 @@ main:focus-visible { outline: none; }
   background: hsl(var(--muted-foreground) / 0.6);
   background-clip: content-box;
 }
+
+/* Text selection is the one highlight the browser owns. Left at its default it
+   paints a light-blue box over a dark page; the ring colour at 35% keeps the
+   text readable and matches the focus ring it sits next to. */
+::selection { background: hsl(var(--ring) / 0.35); color: hsl(var(--foreground)); }
