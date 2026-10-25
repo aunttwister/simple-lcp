@@ -141,8 +141,11 @@
     <tbody>
       {% for c in h.conversations %}
       <tr class="conv-row" data-cid="{{ c.id }}">
-        <td>{% if c.name %}{{ c.name }}{% else %}<span class="muted">Untitled</span>
-          <span class="mono muted">· {{ c.id }}</span>{% endif %}</td>
+        <td class="conv-name-cell">
+          {% if c.name %}{{ c.name }}{% else %}<span class="muted">Untitled</span>
+          <span class="mono muted">· {{ c.id }}</span>{% endif %}
+          {% if c.summary %}<span class="conv-summary">{{ c.summary }}</span>{% endif %}
+        </td>
         <td>{{ c.profile or '—' }}</td>
         <td class="mono">{{ c.model or '—' }}</td>
         <td>{{ c.source or '—' }}</td>
