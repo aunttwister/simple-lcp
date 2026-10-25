@@ -197,6 +197,21 @@
     {% for pp in f.per_choices %}
       <a class="btn-sm{% if f.per == pp %} active{% endif %}" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ pp }}&amp;sort={{ f.sort }}">{{ pp }}</a>
     {% endfor %}
+    {# 5,051 conversations at 20/page is 253 pages and the window above shows five.
+       A GET form, so the jump is a URL and stays shareable — and the server clamps
+       an out-of-range page to the last one rather than returning an empty table. #}
+    <form class="task-pager-jump" method="get" action="/conversations">
+      <input type="hidden" name="profile" value="{{ f.profile }}">
+      <input type="hidden" name="q" value="{{ f.q }}">
+      <input type="hidden" name="per" value="{{ f.per }}">
+      <input type="hidden" name="sort" value="{{ f.sort }}">
+      <label class="sr-only" for="convJump">Jump to page</label>
+      <span class="muted">page</span>
+      <input id="convJump" type="number" name="page" min="1" max="{{ f.pages }}"
+             value="{{ f.page }}" inputmode="numeric">
+      <span class="muted">of {{ f.pages }}</span>
+      <button type="submit" class="btn-sm">Go</button>
+    </form>
   </div>
   {% endif %}
 
