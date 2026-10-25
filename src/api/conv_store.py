@@ -297,6 +297,11 @@ def list_conversations(params: Optional[dict[str, Any]] = None) -> dict[str, Any
             "tokens": r["tokens"] or 0,
             "cost": round(r["cost"] or 0.0, 6),
             "errors": r["errors"] or 0,
+            # A conversation whose requests were never stamped has calls/tokens/
+            # cost all at 0 — 3,666 of 5,051 here, all `source='hermes'`. Those
+            # zeros are "not measured", not "nothing spent": one of them has 5,874
+            # messages. `measured` lets the view say "—" instead of "$0.0000".
+            "measured": (r["calls"] or 0) > 0,
         } for r in rows]
     finally:
         con.close()

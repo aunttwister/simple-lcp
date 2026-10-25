@@ -162,8 +162,8 @@
            what an operator does with a spend column. `fmt_num` compresses 6.2B to
            "6250.7M" — a token count this size is only useful as an order of
            magnitude, and the exact figure is in the modal. #}
-        <td class="mono num">{{ c.tokens | fmt_num }}</td>
-        <td class="mono num">{% if c.cost %}${% endif %}{{ '%.4f' % c.cost if c.cost else '—' }}</td>
+        <td class="mono num">{% if c.measured %}{{ c.tokens | fmt_num }}{% else %}—{% endif %}</td>
+        <td class="mono num">{% if c.measured %}${% endif %}{{ '%.4f' % c.cost if c.measured else '—' }}</td>
         <td class="mono">{{ c.last_at | fmt_iso }}</td>
         <td><button type="button" class="btn-sm conv-toggle" data-cid="{{ c.id }}"
                     data-name="{{ c.name or c.id }}">View</button></td>
