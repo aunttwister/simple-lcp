@@ -133,12 +133,19 @@ function buildCharts(view) {
   if (costChart) { costChart.destroy(); costChart = null; }
   if (latChart) { latChart.destroy(); latChart = null; }
 
+  // Canvas text has to be a concrete colour, so read the theme token off the
+  // document instead of hardcoding a hex that silently drifts from the CSS.
+  var muted = (getComputedStyle(document.documentElement)
+               .getPropertyValue('--muted-foreground') || '').trim();
+  var axisColor = muted ? 'hsl(' + muted + ')' : '#a1a1aa';
+
   var darkOpts = {
     responsive: true,
-    plugins: { legend: { labels: { color: '#a1a1aa' } } },
+    plugins: { legend: { labels: { color: axisColor } } },
     scales: {
-      x: { ticks: { color: '#a1a1aa', maxTicksLimit: 10 } },
-      y: { ticks: { color: '#a1a1aa' } }
+      x: { ticks: { color: axisColor, maxTicksLimit: 10 } },
+      y: { ticks: { color: axisColor } },
+      grid: { color: 'hsl(var(--card-border) / 0.35)' }
     }
   };
 
