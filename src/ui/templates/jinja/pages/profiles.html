@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{% if tab == 'config' %}Config — LCP{% else %}Profiles — LCP{% endif %}{% endblock %}
+{% block title %}Profiles — LCP{% endblock %}
 
 {#
   M2c — the profile directory (level 2).
@@ -13,8 +13,9 @@
   Skills, memory and cron are not here and never will be: those are Hermes agent
   artefacts, and the Hermes dashboard owns them.
 
-  Config stays on this page: it is the one genuinely cross-profile view, the
-  work-layer defaults plus every profile's overrides in a single table.
+  There are no tabs here any more: Config was the last one, and it edited agent
+  infrastructure (task-tree root, cron store, op spool), so it went on 2026-10-25
+  with the skills/memory/cron tabs. A strip with a single entry is not a strip.
 
   Sections live in sections/sec_*.html and are guarded by the `tab` variable, so
   including every one of them only renders the active tab.
@@ -35,16 +36,9 @@
   Hermes dashboard, not here.</span>
 </p>
 
-<div class="page-tabs">
-  <a class="tab-btn{% if tab == 'profiles' %} active{% endif %}" href="/profiles">Profiles</a>
-  <a class="tab-btn{% if tab == 'config' %} active{% endif %}" href="/profiles?tab=config">Config</a>
-</div>
-
 {% include "sections/sec_profiles.html" %}
-{% include "sections/sec_config.html" %}
 {% endblock %}
 
 {% block scripts %}
 {% include "sections/sec_profiles_script.html" %}
-{% include "sections/sec_config_script.html" %}
 {% endblock %}

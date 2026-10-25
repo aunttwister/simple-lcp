@@ -260,13 +260,17 @@ def render_profiles_page(config, engine=None, params=None) -> str:
     This page is the directory. In M2b it also carried API Keys, Cron and Config
     as tabs; in M2c every artefact that belongs to a *profile* moved under the
     profile itself (``/profiles/<name>``), because that is where a reader looks
-    for it and because keys are per-profile by design (R9). Config stays: it is the
-    one genuinely cross-profile view, the defaults plus every profile's overrides
-    in a single table.
+    for it and because keys are per-profile by design (R9).
+
+    Config left on 2026-10-25. It edited the task-tree root, the cron store and the
+    op spool — Hermes agent infrastructure, not routing — so it went with the
+    skills/memory/cron tabs. The page now has no tabs at all: a strip with one
+    entry is not a strip. ``?tab=config`` and every other retired value fall back
+    to the directory.
     """
     from .render import render_page
     params = dict(params or {})
-    tab = _tab(params, ("profiles", "config"), "profiles")
+    tab = _tab(params, ("profiles",), "profiles")
     budgets = _profile_budgets(engine)
     # One router call for the whole grid: the badge on each card says what the profile
     # does, so it has to come from the router rather than the profile's declared field.
@@ -281,16 +285,13 @@ def render_profiles_page(config, engine=None, params=None) -> str:
     from ..api import profile_data
     names = list(config.profiles.keys()) if (config is not None and hasattr(config, "profiles")) else []
     agent_choices = sorted(profile_data.agent_profiles(names))
-    crumbs = (_crumbs(("Profiles", "/profiles"), ("Config", None)) if tab == "config"
-              else _crumbs(("Profiles", None)))
+    crumbs = _crumbs(("Profiles", None))
     ctx = {"active_page": "profiles", "tab": tab, "params": params,
            "profile_budgets": budgets,
            "profile_cards": groups["declared"] + groups["lcp_only"],
            "profile_groups": groups,
            "agent_choices": agent_choices,
            "crumbs": crumbs}
-    if tab == "config":
-        ctx["view"] = _work_config_view()
     return render_page("pages/profiles.html", config, engine, **ctx)
 
 
@@ -387,20 +388,6 @@ def _work_cron_view(params=None) -> dict:
         view["profiles"] = kept
         view["profile_filter"] = wanted
     return view
-
-
-def _work_config_view() -> dict:
-    """The Config tab's data: every path the work layer reads, per profile.
-
-    ``work-sources.json`` already carries a per-profile section (``tasks_root`` and
-    ``cron_store`` overrides on top of the host defaults), so this view is the
-    per-profile config — the page edits it, the host-side collector picks it up.
-    """
-    from ..api import work_sources
-    try:
-        return {"sources": work_sources.resolved_view()}
-    except Exception:
-        return {"sources": None}
 
 
 def _profile_config_payload(config, name, pcfg) -> dict:
