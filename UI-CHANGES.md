@@ -184,7 +184,8 @@ repointable without a UI. Its `PUT` is now UI-orphaned — see "Still open".
 
 **Not shipped**
 
-- Prod cutover. Staging is 62 commits ahead of `origin/main` and nothing is pushed
+- Prod cutover. Staging is ahead of `origin/main` by `git rev-list --count
+  origin/main..HEAD` commits (66 as of this line) and nothing is pushed
   anywhere. Prod is at `2e1e326` (the ring fix `14efbdc` is still an ancestor) and
   serves neither `ui.js` nor `sparkline.js` — both 404 there. Prod also carries 4
   pre-existing dirty files unrelated to this work.
