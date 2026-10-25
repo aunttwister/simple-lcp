@@ -185,7 +185,12 @@ details.dashboard-section .section-content { padding: 1rem 1.25rem; }
 .ph-modal-overlay {
   position: fixed; inset: 0; z-index: 300;
   display: flex; opacity: 0; pointer-events: none;
-  background: rgba(0,0,0,0.8);
+  background: rgba(0,0,0,0.72);
+  /* The page behind a dialog stays legible through the blur, so you keep the
+     context you opened the dialog from without being able to read it as if it
+     were live. */
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
   align-items: center; justify-content: center;
   transition: opacity 0.15s ease;
 }
@@ -501,7 +506,12 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   display: flex;
   opacity: 0;
   pointer-events: none;
-  background: rgba(0,0,0,0.8);
+  background: rgba(0,0,0,0.72);
+  /* The page behind a dialog stays legible through the blur, so you keep the
+     context you opened the dialog from without being able to read it as if it
+     were live. */
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
   align-items: center; justify-content: center;
   transition: opacity 0.15s ease;
 }
