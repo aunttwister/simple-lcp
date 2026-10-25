@@ -241,6 +241,283 @@ that is filesystem drift in the generator's task-directory scan, not a consequen
 this change, and accepting an 18-case coverage drop to make a generator run cleanly
 would be worse than leaving it.
 
+## Wave 7 — QA made truthful, conversations audited, charts coloured by name
+
+Three things at once, because they turned out to be one thing: the QA sweep was
+84% red against routes that no longer exist, the Conversations page was presenting
+"unknown" as "zero", and the charts drew the biggest spender in the same grey as a
+profile that spent nothing.
+
+### 7a. The QA sweep is generated from the live route table again
+
+`0a70e59` — `test(qa): rebuild the sweep against the live route table`
+
+The suite had drifted to 166 of 197 failing, and almost none of it was real: the
+cases targeted pages and endpoints decommissioned in waves 4–6, and every console
+route returned 302 because the runner never authenticated. A suite that is 84% red
+teaches the operator to ignore it, which is worse than no suite.
+
+Grounded in reality first: probed every registered GET route (`_build_routes()`),
+43 of 54 exact paths answer 200 behind the admin cookie; the rest are deliberate
+redirects or `cid required` 400s. Regenerated the cases from that probe.
+
+- `runner.py` logs in once, writes the cookie to a throwaway `HOME/.curlrc`, runs
+  each case with that HOME. Anonymous cases use `curl -q` (curl ignores the config
+  file), so the auth boundary is still tested rather than assumed.
+- Deleted the generators for surfaces that no longer exist: `gen_tasks`,
+  `gen_workload`, `gen_misc`, `gen_extra`, `gen_lifecycle`, `gen_gateway`,
+  `gen_cron`.
+- 182 cases: api 35, auth 9, conv 26, logs 26, pages 35, proxy 11, resilience 21,
+  routing 7, usage 12.
+
+Two expectations I got wrong and corrected rather than working around:
+
+- An anonymous `POST /nope/chat/completions` returns **302**, not 400. That is
+  correct — a 400 naming the unknown profile would be an unauthenticated oracle for
+  enumerating profile names. The 400 is asserted with the cookie, the 302 without.
+- `grep -L` exits 0 when every file **matches**, so `grep -L … && exit 1` failed a
+  passing run. The parallel cases now check each file explicitly.
+
+The one genuine defect the suite found is `d0253a7`.
+
+`d0253a7` — `fix(api): /api/providers/health silently dropped a colliding provider`
+
+`providers_out` was keyed by `provider/profile`, and two configs can share both
+while pointing at different base URLs: opencode's zen gateway
+(`https://opencode.ai/zen/go/v1`) and its OpenAI-compatible endpoint
+(`https://opencode.ai/inference/openai/v1`) both serve `l2`. The second write
+overwrote the first, so the payload carried 10 entries while `summary.total`
+counted 11 from the loop.
+
+Measured before the fix: `summary {total: 11, healthy: 10, degraded: 1}`,
+`len(providers) = 10`. After: 11 and 11. The entry that was lost was the **healthy**
+zen gateway; the survivor was the degraded "out of credits" endpoint. The page
+showed 10 rows under a heading claiming 11, and the provider that was actually fine
+was the invisible one.
+
+The key carries a discriminator derived from the base URL only on collision, so the
+common `provider/profile` key is unchanged (existing tests pin it). The providers
+page no longer parses the key to recover provider and profile — it reads them from
+the entry, so the discriminator cannot leak into a profile heading.
+
+### 7b. Conversations: audited against the database, then fixed
+
+The audit read the live store directly (`data/costs.db`) and probed the endpoints.
+Staging's copy is 1.0 GB against prod's 7.8 GB, so the prod file was audited
+read-only for anything that had to be true of the product rather than of the copy.
+
+**What the audit found**
+
+1. **The transcript capture re-appends history.** `capture_request` appends the
+   client's full `messages` array, and dedup was a longest-common-**prefix** match
+   against the stored hashes. A prefix match only holds while the incoming list is
+   an append-only continuation. The agent compacts, so the list diverges early, the
+   prefix stops at the first divergence, and the entire remainder — history already
+   stored — is appended again. Every compaction re-appends everything after it, so
+   a conversation grows as O(n²).
+
+   Measured: conversation `20261023_155414_d4409841` held **193,930 rows for 57
+   distinct user messages**, with one `tool_call_id` stored **222 times**. Prod:
+   **3,550,889 rows** for 629 live conversations, one conversation holding 494,944
+   messages across 48 hours.
+
+2. **`msg_hash` cannot identify a message.** It covers role + content + tool_name +
+   tool_call_id, but not `tool_calls` — and a tool-calling assistant turn has no
+   content. So **1,044,282 empty assistant rows share exactly one hash** (distinct
+   hashes among them: 1). Any uniqueness or dedupe keyed on it treats all of them as
+   the same message.
+
+3. **Cost and transcript are disjoint.** On staging, the 1,383 conversations that
+   carry cost ($1,121.69, 5.1B tokens) have no transcript, and the 3,666 that carry
+   a transcript have `calls`/`tokens`/`cost` all zero. On prod, 1,427 of 2,056
+   conversations are rollup-only (requests, no transcript) and 629 are transcript-
+   only-ish; **$245.31 of $1,481.14 spend (16.6%) is unattributed** because 38,100
+   requests (31.5%) carry no `x-opencode-session`. Almost all of it is `l2`
+   ($243.12). `conversations.cost` sums to $1,210.71, so the Conversations page's
+   Cost column can never reconcile with the Usage page's total and nothing on
+   screen explains the gap.
+
+   The comment in `handler.py` says "Hermes attaches its agent session id to every
+   LCP request". Measured: 31.5% of requests have none, and they are concentrated in
+   the main agent profile. That comment is not true of the deployed system.
+
+4. **Summary generation is inverted.** Prod: 1,428 conversations carry an
+   LLM-written summary and **exactly one** of them has a transcript; 628 transcript
+   conversations have none. Staging: 1,383 with summary, **zero** with a transcript.
+   So the summaries describe conversations you cannot read, and the conversations
+   you can read have no summary — which means a summary can never be checked against
+   its source.
+
+5. **Timestamps are not monotonic along `seq`.** 218 staging conversations have a
+   `ts` that goes backwards as `seq` advances; 164 have a first-by-`seq` message
+   whose `ts` is not the earliest. `seq` is the authoritative order (and the
+   transcript renders by it), but the per-message times shown can appear to run
+   backwards. The QA case now asserts `seq` order, not `ts` order.
+
+6. **Naming.** 1,663 of 5,051 staging conversations have no name: 461 `api-<hex>`,
+   806 bare timestamps, 392 `cron_<id>_<ts>`, 2 `E2E`. The table rendered a bare id
+   with nothing marking it as untitled.
+
+7. **Compaction dominates.** In the largest conversations 78.9–97.4% of messages are
+   inactive. The default transcript view is therefore mostly compacted history.
+
+**What shipped**
+
+`39a10be` — `fix(conversations): the history table stops presenting "unknown" as "zero"`
+
+`message_count`, `active_message_count` and `tool_call_count` are NULL on a
+rollup-only conversation, and `r["message_count"] or 0` turned that into 0. A row
+read "0 messages, 0 tool calls" while its own summary said "16 tool calls recorded
+over a four-minute span", and the audit modal correctly rendered "—" for the same
+fields — the table and the modal contradicted each other about the same conversation.
+
+Now NULL survives to the template, which renders an em dash plus a muted "no
+transcript"; `(N live)` became `(N active)` with a tooltip (`active_message_count` is
+what remains in the context window after compaction, not a call in flight); a new
+`fmt_iso` filter renders `2026-09-20 04:49:03 UTC` instead of the 32-character ISO
+string that wrapped mid-token; an unnamed row renders "Untitled · <id>".
+
+Verified: `?sort=calls&per=all` returns 5,051 rows, 1,383 of them rendering
+"— — no transcript".
+
+`9feab61` — `fix(conversations): mark spend as unmeasured instead of showing $0.0000`
+
+Same class of bug on the new columns: 3,666 conversations have a transcript and no
+request rows, so `calls`/`tokens`/`cost` are 0 — one of them has 5,874 messages and
+read "0 tokens, $0.0000". The store exposes `measured` (true only when the
+conversation has at least one request row) and the columns render an em dash when it
+is false. Measured: 1,385 of 5,051 are measurable; the other 3,666 render "—".
+
+`68f6a1d` — `feat(conversations): offer the sorts the API already supports`
+
+`/api/conversations` advertises four sorts and the filter form offered none; only
+the default was ever sent. The options render from `f.sorts`, the same list the
+server resolves its ORDER BY against, so the control cannot offer a sort the endpoint
+would reject. Every pager link now carries `sort=` — without it, paging through
+oldest-first silently reverted to newest-first on page 2.
+
+`1c9f269` — `feat(conversations): show tokens and cost per conversation`
+
+This is a router; spend per conversation is the first number an operator asks for and
+it was reachable only by opening the modal. Both columns are right-aligned with
+tabular figures. Tokens go through `fmt_num` (6.25B renders as "6250.7M") because at
+that magnitude the exact count is noise in a table; the precise figure stays in the
+modal.
+
+`a5335bb` — `feat(conversations): surface the stored summary in the history row`
+
+1,383 conversations carry an LLM-written summary and the table showed none of it —
+the only way to read one was to open the modal and expand a collapsed `<details>`.
+It now sits under the name, clamped to two lines, in muted type; the full text is
+still in the audit panel. Measured: 2 lines at 15.55px line-height, 31px tall.
+
+`7ed257a` — `feat(conversations): jump to a page, not just the five in the window`
+
+5,051 conversations at 20/page is 253 pages and the pager windows five of them, so
+reaching page 180 meant clicking Next 170 times. The log tables got a jump field in
+wave 3; this pager did not. It is a GET form carrying profile, query, per and sort,
+so the jump stays a URL. Verified: page 17 → `activePage 17`, 20 rows; page 9999 →
+clamped to 21, 8 rows (the last page), not an empty table.
+
+`80f08c7` — `fix(conv): stop re-appending history when the client compacts`
+
+Dedup is now by **multiset**: count each incoming hash, count each stored hash,
+append only the surplus copies in incoming order. Counting is order-independent, so
+compaction cannot defeat it, and multiplicity is preserved — an identical "ok" sent
+twice is still stored twice, which both positional and set dedup got wrong.
+
+Eight unit tests in `tests/test_conv_capture_dedup.py` pin it, including the two
+failure modes: a compacted list must add nothing, and a compacted list plus one new
+turn must add exactly one row.
+
+**Not retroactive.** Existing rows stay inflated; this stops the growth, it does not
+shrink what is already there. A cleanup would be a separate, destructive migration.
+
+**Not fixed.** `content_hash` ignores `tool_calls`, so all empty assistant turns
+share one hash. Multiset dedup copes with that (it compares counts) but a hash that
+identified a message rather than its text would be better — that is a schema change
+and needs approval.
+
+### 7c. Charts: colour by name, not by position
+
+`e0b9713` — `fix(charts): colour series by name, not by position`
+
+`ppData` carries six profiles — `l2`, `l1`, `career`, `cron`, `coder`,
+`naptune-admin` — and `profileColors` had entries for four. `coder` ($533.13, the
+largest spender on the page) and `naptune-admin` both fell through to the same grey:
+two series in an identical colour, and the biggest one was the hardest to find.
+
+The per-model chart had the mirror bug: a six-hue ring indexed by array position, so
+inserting one model shifted every colour and the same model was a different colour on
+different days.
+
+Both now derive the hue from the series **name** — FNV-1a into a twelve-hue ring,
+with the four original colours pinned and `coder`/`naptune-admin` given fixed slots.
+A name colliding with a hue already used on the chart steps to the next free one.
+Verified: per-profile 6 datasets / 6 distinct colours / 67 points each; per-model 6
+datasets / 6 distinct / 99 points each.
+
+`8672e58` — `fix(charts): take axis and legend colour from the theme token`
+
+Axis and legend text was hardcoded `#a1a1aa` in two places — a hex that merely
+happens to match `--muted-foreground` today. It now reads the token off
+`document.documentElement` and falls back to the old hex only if it is missing.
+Gridlines were Chart.js's default mid-grey (chosen for a light canvas); they now use
+the card-border token at 35%.
+
+`79e9730` — `fix(charts): put the grid option inside each scale`
+
+The grid colour above was written as a sibling of `x`/`y` inside `scales`. Chart.js
+reads every key of `scales` as a scale definition, so it created a scale named
+"grid" with no axis and threw
+`TypeError: Cannot read properties of undefined (reading 'axis')` from
+`buildCharts`. Both `switchView('per-profile')` and `switchView('per-model')`
+aborted, so clicking either tab left the previous view on screen and the palette fix
+was invisible. Caught by calling `switchView` in the browser and reading the
+exception — the unit tests could not see it.
+
+`f16736a` — `fix(dashboard): a profile dropped from config no longer blanks the whole page`
+
+`pp_data["profiles"]` was pre-seeded from `config.profiles` only, then indexed by
+`r.profile` for every request row in the window. History outlives config: dropping a
+profile leaves its requests in the database and the lookup raises KeyError. The
+failure mode is worse than a 500 — the whole query block sits under a blanket
+`except Exception` that logs `dashboard_query_failed` and substitutes zeros, so the
+page renders successfully reporting $0.00 and no traffic. The series is now created
+on demand, so a retired profile shows its historical spend instead of erasing the
+page. (The per-model block already guarded this way.)
+
+### Rollback
+
+`git revert --no-edit 79e9730 f16736a 8672e58 e0b9713 80f08c7 7ed257a a5335bb 1c9f269 68f6a1d 9feab61 0a70e59 d0253a7`
+
+newest-first. `80f08c7` reverts the dedup but leaves `tests/test_conv_capture_dedup.py`
+in place — revert that file by hand, or revert `80f08c7` and delete it.
+
+### Still open after wave 7
+
+- **Attribution.** 16.6% of spend cannot be tied to a conversation because 31.5% of
+  requests carry no session header. The fix is client-side (attach the id) plus a
+  backfill heuristic, and the heuristic is ambiguous — one 36-hour window contained
+  1,410 `l2` requests for a single conversation. Needs a decision.
+- **Summary coverage.** Summaries exist only for conversations with no transcript.
+  Either generate them for transcripts (then they can be checked) or stop generating
+  them where there is nothing to summarise.
+- **Inflated history.** ~3.5M prod rows for what is probably ~250k real messages.
+  A dedupe migration would be destructive and needs approval.
+- **`msg_hash`.** Should cover `tool_calls`; schema change.
+- **Profile vocabulary.** Staging carries `homelab-expert-l2` (3,016),
+  `homelab-expert-l1` (516), `hermes-career-advisor` (49), `blog-writer` (80) — agent
+  profile names written by a session importer that prod does not run. Prod is clean
+  (`l2`, `l1`, `coder`, `career`, `naptune-admin`, `blog`). Two importers, two
+  vocabularies; the Conversations filter can offer values `/api/profiles` does not
+  know.
+- **Default transcript view.** 78.9–97.4% of the messages in the largest
+  conversations are compacted. An "active only" default would be honest about that.
+- **No print stylesheet**; the log tables print with dark backgrounds.
+- **Motion phase** still unimplemented — only the `prefers-reduced-motion` gate
+  exists.
+
 ## Still open
 
 **Not shipped**
@@ -255,20 +532,14 @@ would be worse than leaving it.
 both modules and `profile_paths` are gone. What remains outside this repo, by design:
 `work-sources.json` and the host-side collector/executor that own it.
 
-**QA harness** — the cron+sources group is regenerated, but the rest of the suite
-still exercises routes cut in earlier slims (`/api/setup`, `/api/work/tasks`,
-`/api/work/fleet`, `/api/work/status`, `/api/work/conversations`). Those cases could
-only ever fail; they need their own regeneration pass against the current route table.
+**QA harness** — regenerated in wave 7 from a probe of the live route table. 182
+cases, 182 passing, with the runner authenticating through a throwaway `HOME/.curlrc`.
 
 **UI and design gaps**
 
 - Dark-only by design; no high-contrast light theme.
 - The motion phase (Odometer / AutoAnimate) is unimplemented — only the
   `prefers-reduced-motion` gate exists.
-- `sec_dashboard_script.html` hardcodes chart colours for four profile names
-  (`l2`, `l1`, `career`, `cron`) and falls back to grey for everything else. A
-  six-profile fleet therefore draws several identical grey series. It needs a
-  generated palette, not a lookup table.
 - No print stylesheet; the log tables print with dark backgrounds.
 
 **Known, accepted**
