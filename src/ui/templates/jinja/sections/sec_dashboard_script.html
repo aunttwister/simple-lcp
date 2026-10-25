@@ -143,9 +143,14 @@ function buildCharts(view) {
     responsive: true,
     plugins: { legend: { labels: { color: axisColor } } },
     scales: {
-      x: { ticks: { color: axisColor, maxTicksLimit: 10 } },
-      y: { ticks: { color: axisColor } },
-      grid: { color: 'hsl(var(--card-border) / 0.35)' }
+      // `grid` belongs INSIDE each scale. As a sibling of x/y Chart.js treats it
+      // as a scale named "grid" with no axis, and throws
+      // "Cannot read properties of undefined (reading 'axis')" — which broke
+      // switchView('per-profile') and left both charts unbuilt.
+      x: { ticks: { color: axisColor, maxTicksLimit: 10 },
+           grid: { color: 'hsl(var(--card-border) / 0.35)' } },
+      y: { ticks: { color: axisColor },
+           grid: { color: 'hsl(var(--card-border) / 0.35)' } }
     }
   };
 
