@@ -1770,7 +1770,14 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 .profile-card { display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem;
   border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
   background: hsl(var(--secondary) / 0.18); }
-.profile-card:hover { border-color: hsl(var(--card-border) / 0.4); }
+.profile-card { transition: border-color 0.15s, background 0.15s; }
+/* The hover rule used to REDUCE the border's alpha from 1.0 to 0.4, so pointing
+   at a card made its edge fainter — the opposite of a hover affordance. It now
+   brightens toward the ring colour and lifts the wash. */
+.profile-card:hover {
+  border-color: hsl(var(--ring) / 0.55);
+  background: hsl(var(--secondary) / 0.28);
+}
 .pc-head { display: flex; align-items: center; gap: 0.625rem; text-decoration: none; color: inherit; }
 .pc-avatar { flex: 0 0 auto; width: 2.5rem; height: 2.5rem; border-radius: 9999px; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
