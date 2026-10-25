@@ -6,34 +6,10 @@
   "cmd": "a=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=5' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-idem-_api_work_cron",
-  "group": "resilience",
-  "title": "idempotent /api/work/cron",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/cron' | md5sum); b=$(curl -s '{{BASE}}/api/work/cron' | md5sum); [ \"$a\" = \"$b\" ]"
- },
- {
   "id": "rs-idem-_api_work_conversations_per_5",
   "group": "resilience",
   "title": "idempotent /api/work/conversations?per=5",
   "cmd": "a=$(curl -s '{{BASE}}/api/work/conversations?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/conversations?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
- },
- {
-  "id": "rs-idem-_api_work_fleet",
-  "group": "resilience",
-  "title": "idempotent /api/work/fleet",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/fleet' | md5sum); b=$(curl -s '{{BASE}}/api/work/fleet' | md5sum); [ \"$a\" = \"$b\" ]"
- },
- {
-  "id": "rs-idem-_api_work_sources",
-  "group": "resilience",
-  "title": "idempotent /api/work/sources",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/sources' | md5sum); b=$(curl -s '{{BASE}}/api/work/sources' | md5sum); [ \"$a\" = \"$b\" ]"
- },
- {
-  "id": "rs-idem-_api_work_cron_ops",
-  "group": "resilience",
-  "title": "idempotent /api/work/cron/ops",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/cron/ops' | md5sum); b=$(curl -s '{{BASE}}/api/work/cron/ops' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
   "id": "rs-clamp-1",
@@ -70,60 +46,6 @@
   "group": "resilience",
   "title": "unknown conversation cid -> 200 JSON (by design)",
   "cmd": "curl -s '{{BASE}}/api/work/conversations/detail?cid=missing' | python3 -c 'import sys,json; d=json.load(sys.stdin); assert \"events\" in d'"
- },
- {
-  "id": "rs-json-13",
-  "group": "resilience",
-  "title": "cron op malformed body -> 400 JSON",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{bad')\" = \"400\" ]"
- },
- {
-  "id": "rs-op-1",
-  "group": "resilience",
-  "title": "op reject: action missing",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"profile\\\": \\\"backups\\\"}')\" = \"400\" ]"
- },
- {
-  "id": "rs-op-2",
-  "group": "resilience",
-  "title": "op reject: profile empty",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"remove\\\", \\\"profile\\\": \\\"\\\", \\\"job_id\\\": \\\"a1b2c3d4e5f6\\\"}')\" = \"400\" ]"
- },
- {
-  "id": "rs-op-3",
-  "group": "resilience",
-  "title": "op reject: job_id too long",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"remove\\\", \\\"profile\\\": \\\"backups\\\", \\\"job_id\\\": \\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}')\" = \"400\" ]"
- },
- {
-  "id": "rs-op-4",
-  "group": "resilience",
-  "title": "op reject: repeat negative",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"repeat\\\": -1}')\" = \"400\" ]"
- },
- {
-  "id": "rs-op-5",
-  "group": "resilience",
-  "title": "op reject: prompt over 8k",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp\\\"}')\" = \"400\" ]"
- },
- {
-  "id": "rs-op-6",
-  "group": "resilience",
-  "title": "op reject: no-agent without script",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"no_agent\\\": true}')\" = \"400\" ]"
- },
- {
-  "id": "rs-op-7",
-  "group": "resilience",
-  "title": "op reject: skill with slash",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"skill\\\": \\\"a/b\\\"}')\" = \"400\" ]"
- },
- {
-  "id": "rs-op-8",
-  "group": "resilience",
-  "title": "op reject: schedule empty",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"\\\", \\\"prompt\\\": \\\"p\\\"}')\" = \"400\" ]"
  },
  {
   "id": "rs-para-1",

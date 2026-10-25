@@ -53,9 +53,8 @@ API = [
     ("api-007", "/api/work/tasks/detail?task=in_progress%2Flcp-pentest-fixes", None),
     ("api-008", "/api/work/tasks?states=all&per=5", "total"),
     ("api-009", "/api/work/conversations?per=5", "conversations"),
-    ("api-010", "/api/work/cron", "counts"),
-    ("api-011", "/api/work/cron/ops", "pending"),
-    ("api-012", "/api/work/sources", "profiles"),
+    # api-010..012 were /api/work/cron, /api/work/cron/ops and /api/work/sources.
+    # All three routes went on 2026-10-25 with the Cron and Config tabs.
     ("api-013", "/api/work/fleet", "summary"),
     ("api-014", "/api/work/status", "available"),
 ]

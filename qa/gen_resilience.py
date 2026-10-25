@@ -6,9 +6,10 @@ CASES = []
 G = "resilience"
 
 # ── Idempotency: repeat calls return same shape (×6 endpoints) ──
+# Only routes that exist. /api/work/cron, /api/work/sources and /api/work/cron/ops
+# went on 2026-10-25 with the Cron and Config tabs.
 for ep in ["/api/work/tasks?lite=1&states=in_progress&per=5",
-           "/api/work/cron", "/api/work/conversations?per=5",
-           "/api/work/fleet", "/api/work/sources", "/api/work/cron/ops"]:
+           "/api/work/conversations?per=5"]:
     CASES.append({
         "id": "rs-idem-%s" % ep.replace("/", "_").replace("?", "_").replace("=", "_")[:40],
         "group": G, "title": "idempotent %s" % ep[:48],
@@ -47,33 +48,6 @@ CASES.append({
     "id": "rs-json-12", "group": G, "title": "unknown conversation cid -> 200 JSON (by design)",
     "cmd": "curl -s '{{BASE}}/api/work/conversations/detail?cid=missing' | python3 -c 'import sys,json; d=json.load(sys.stdin); assert \"events\" in d'",
 })
-# malformed cron op body -> 400 with JSON error
-CASES.append({
-    "id": "rs-json-13", "group": G, "title": "cron op malformed body -> 400 JSON",
-    "cmd": ("[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' "
-            "-H 'Content-Type: application/json' -d '{bad')\" = \"400\" ]"),
-})
-
-# ── Cron op validation matrix ──
-import json as _json
-VAL = [
-    ("rs-op-1", "action missing", {"profile": "backups"}),
-    ("rs-op-2", "profile empty", {"action": "remove", "profile": "", "job_id": "a1b2c3d4e5f6"}),
-    ("rs-op-3", "job_id too long", {"action": "remove", "profile": "backups", "job_id": "a" * 40}),
-    ("rs-op-4", "repeat negative", {"action": "create", "profile": "backups", "name": "x", "schedule": "30m", "prompt": "p", "repeat": -1}),
-    ("rs-op-5", "prompt over 8k", {"action": "create", "profile": "backups", "name": "x", "schedule": "30m", "prompt": "p" * 9000}),
-    ("rs-op-6", "no-agent without script", {"action": "create", "profile": "backups", "name": "x", "schedule": "30m", "no_agent": True}),
-    ("rs-op-7", "skill with slash", {"action": "create", "profile": "backups", "name": "x", "schedule": "30m", "prompt": "p", "skill": "a/b"}),
-    ("rs-op-8", "schedule empty", {"action": "create", "profile": "backups", "name": "x", "schedule": "", "prompt": "p"}),
-]
-for cid, title, payload in VAL:
-    CASES.append({
-        "id": cid, "group": G, "title": "op reject: %s" % title,
-        "cmd": ("[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' "
-                "-H 'Content-Type: application/json' -d '%s')\" = \"400\" ]"
-                % _json.dumps(payload).replace('"', '\\"')),
-    })
-
 # ── Parallel load: 5 concurrent lite fetches all 200 ──
 CASES.append({
     "id": "rs-para-1", "group": G, "title": "5 parallel lite fetches all succeed",

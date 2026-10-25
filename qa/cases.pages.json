@@ -162,24 +162,6 @@
   "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/conversations?per=5')\" = \"200\" ] && curl -s '{{BASE}}/api/work/conversations?per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('conversations') is not None, 'missing key conversations'\""
  },
  {
-  "id": "api-010",
-  "group": "api",
-  "title": "/api/work/cron",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/cron')\" = \"200\" ] && curl -s '{{BASE}}/api/work/cron' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('counts') is not None, 'missing key counts'\""
- },
- {
-  "id": "api-011",
-  "group": "api",
-  "title": "/api/work/cron/ops",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/cron/ops')\" = \"200\" ] && curl -s '{{BASE}}/api/work/cron/ops' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('pending') is not None, 'missing key pending'\""
- },
- {
-  "id": "api-012",
-  "group": "api",
-  "title": "/api/work/sources",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/sources')\" = \"200\" ] && curl -s '{{BASE}}/api/work/sources' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('profiles') is not None, 'missing key profiles'\""
- },
- {
   "id": "api-013",
   "group": "api",
   "title": "/api/work/fleet",
