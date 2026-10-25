@@ -45,7 +45,6 @@ SECTION_TAB = {
     "sec_providers": "providers",
     "sec_profiles": "profiles",
     "sec_keys": "keys",
-    "sec_config": "config",
     # M2d: level-3 only — the routing controls and the model pool act on one
     # profile, which is what the level-3 page is.
     "sec_prouting": "routing",
@@ -174,7 +173,8 @@ MERGED = [
     # reached from. (`?tab=cron` used to do the same; cron left the app entirely
     # on 2026-10-24 and is a Hermes dashboard surface now.)
     ("/profiles?tab=keys", "profiles", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "keys"})),
-    ("/profiles?tab=config", "config", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "config"})),
+    # (`?tab=config` was the work-sources editor; it left on 2026-10-25 with the
+    # other agent-infrastructure tabs, so it now falls back to the directory.)
     ("/models", "matrix", lambda c, e: _pages().render_models_page(c, e, {})),
     ("/models?tab=providers", "providers", lambda c, e: _pages().render_models_page(c, e, {"tab": "providers"})),
     ("/activity", "overview", lambda c, e: _pages().render_activity_page(c, e, {}, {"Host": "test:8734"})),
@@ -200,18 +200,31 @@ def test_tab_does_not_render_other_sections(cfg, engine, label, tab, render):
     assert not leaked, "leaked %s" % leaked
 
 
-def test_every_tab_serves_a_tab_strip(cfg, engine):
-    """Each merged page shows its tabs, with the active one marked."""
-    from src.ui.pages import render_models_page, render_profiles_page
-    for render, params, active_href in (
-            (render_profiles_page, {}, "/profiles"),
-            (render_profiles_page, {"tab": "config"}, "/profiles?tab=config"),
-            (render_models_page, {}, "/models"),
-            (render_models_page, {"tab": "providers"}, "/models?tab=providers"),
+def test_every_page_with_tabs_serves_a_strip(cfg, engine):
+    """Each merged page that still has tabs shows them, active one marked."""
+    from src.ui.pages import render_models_page
+    for params, active_href in (
+            ({}, "/models"),
+            ({"tab": "providers"}, "/models?tab=providers"),
     ):
-        html = render(cfg, engine, params)
+        html = render_models_page(cfg, engine, params)
         assert 'href="%s"' % active_href in html
         assert 'class="tab-btn active"' in html
+
+
+def test_the_profiles_page_has_no_single_tab_strip(cfg, engine):
+    """Config was the last tab, so the strip went with it.
+
+    A strip whose only entry is the page you are already on tells you nothing and
+    costs a row of vertical space above the cards.
+    """
+    from src.ui.pages import render_profiles_page
+    for params in ({}, {"tab": "config"}, {"tab": "skills"}, {"tab": "cron"}):
+        html = render_profiles_page(cfg, engine, params)
+        assert 'class="page-tabs"' not in html, params
+        assert 'href="/profiles?tab=' not in html, params
+        # every retired tab value lands on the directory, not on an error page
+        assert "<h1>Profiles</h1>" in html, params
 
 
 def test_activity_has_exactly_overview_logs_and_evidence(cfg, engine):
@@ -248,9 +261,9 @@ def _pages_module():
 
 @pytest.mark.parametrize("params,title", [
     ({}, "Profiles — LCP"),
-    ({"tab": "config"}, "Config — LCP"),
     ({"tab": "keys"}, "Profiles — LCP"),   # retired tab -> the directory
     ({"tab": "cron"}, "Profiles — LCP"),   # cron is a Hermes surface now
+    ({"tab": "config"}, "Profiles — LCP"), # and so is config (2026-10-25)
 ])
 def test_profiles_title_follows_the_tab(cfg, engine, params, title):
     from src.ui.pages import render_profiles_page
@@ -349,15 +362,15 @@ def test_the_retired_templates_are_really_gone():
         assert not os.path.exists(os.path.join(TEMPLATES, "pages", gone)), gone
 
 
-def test_the_legacy_work_routes_redirect_to_the_profiles_page(cfg, engine):
-    """`/work/cron` and `/work/config` 302 into the Profiles tabs that own them.
+def test_the_legacy_work_routes_still_redirect(cfg, engine):
+    """`/work/cron` and `/work/config` 302 rather than 404.
 
-    M2c: cron and config are per-profile tabs. Before the slim the handlers
-    redirected while two unused render aliases sat behind them; the aliases are
-    gone, so this pins the behaviour that actually ships.
+    Cron is a per-profile tab and config is gone entirely, so the two land in
+    different places — but both URLs were in bookmarks and in the host-side
+    collector's notes, so neither may 404.
     """
     from src.server.handler import LCPHandler
-    for path, want in (("/work/cron", "tab=cron"), ("/work/config", "tab=config")):
+    for path, want in (("/work/cron", "tab=cron"), ("/work/config", "/profiles")):
         h = LCPHandler.__new__(LCPHandler)
         h.path = path
         h.config = cfg
