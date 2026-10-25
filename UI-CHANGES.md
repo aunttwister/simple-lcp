@@ -6,7 +6,8 @@ Prod (`/your/data/docker-apps/lcp`, `:8734`) has **none** of this — it is stil
 `3be4362` and serves neither `ui.js` nor `sparkline.js` (both 404 there).
 
 Baseline for "before all of this" is `78c9e23^` — the commit before the first UI
-wave. 34 commits sit on top of it — the last is this file.
+wave. Everything below sits on top of it; `git rev-list --count 78c9e23^..HEAD`
+is the authoritative number, because this file's own commits count too.
 
 ## How to roll back
 
