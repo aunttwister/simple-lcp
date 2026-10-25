@@ -101,6 +101,16 @@
   </select>
   <label for="convQ">Search</label>
   <input id="convQ" type="text" name="q" value="{{ f.q }}" placeholder="name or id">
+  {# The API advertises four sorts and this form offered none, so three of them
+     were unreachable from the UI. Options come from f.sorts — the same list the
+     server resolves the ORDER BY against — so a sort can never be offered here
+     that the endpoint would reject. #}
+  <label for="convSort">Sort</label>
+  <select id="convSort" name="sort">
+    {% for s in f.sorts %}
+      <option value="{{ s.key }}"{% if f.sort == s.key %} selected{% endif %}>{{ s.label }}</option>
+    {% endfor %}
+  </select>
   <input type="hidden" name="per" value="{{ f.per }}">
   <button type="submit" class="btn-sm">Filter</button>
   {% if f.profile or f.q %}
@@ -164,17 +174,17 @@
   {% set wto = [f.pages, wfrom + 4] | min %}
   <div class="pager">
     {% if f.page > 1 %}
-      <a class="btn-sm" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;page={{ f.page - 1 }}">Prev</a>
+      <a class="btn-sm" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;sort={{ f.sort }}&amp;page={{ f.page - 1 }}">Prev</a>
     {% endif %}
     {% for n in range(wfrom, wto + 1) %}
-      <a class="btn-sm{% if n == f.page %} active{% endif %}" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;page={{ n }}">{{ n }}</a>
+      <a class="btn-sm{% if n == f.page %} active{% endif %}" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;sort={{ f.sort }}&amp;page={{ n }}">{{ n }}</a>
     {% endfor %}
     {% if f.page < f.pages %}
-      <a class="btn-sm" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;page={{ f.page + 1 }}">Next</a>
+      <a class="btn-sm" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;sort={{ f.sort }}&amp;page={{ f.page + 1 }}">Next</a>
     {% endif %}
     <span class="muted task-pager-label">per page</span>
     {% for pp in f.per_choices %}
-      <a class="btn-sm{% if f.per == pp %} active{% endif %}" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ pp }}">{{ pp }}</a>
+      <a class="btn-sm{% if f.per == pp %} active{% endif %}" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ pp }}&amp;sort={{ f.sort }}">{{ pp }}</a>
     {% endfor %}
   </div>
   {% endif %}
