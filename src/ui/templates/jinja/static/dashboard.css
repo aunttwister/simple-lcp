@@ -1340,7 +1340,22 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 .todo-more { margin: 0.5rem 0 0.25rem; }
 
 /* Tasks page — server-side filter toolbar + pager */
-.task-toolbar { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.35rem 0 0.75rem; }
+.task-toolbar {
+  /* Sort and filter controls are one decision surface, not a stack of fields:
+     they read as a row when there is width for it, and wrap instead of
+     overflowing when there is not. */
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.5rem;
+  row-gap: 0.4rem;
+  margin: 0.35rem 0 0.75rem;
+}
+@media (max-width: 640px) {
+  .task-toolbar { flex-direction: column; align-items: stretch; }
+}
+.task-toolbar > select, .task-toolbar > .lcp-filter-dropdown { flex: 0 0 auto; }
 .task-toolbar-row { display: flex; align-items: center; gap: 0.5rem; }
 .task-search {
   background: var(--bg-elevated, #161b22); color: var(--foreground);
