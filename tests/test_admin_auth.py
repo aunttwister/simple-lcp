@@ -477,8 +477,10 @@ class TestRouteCoverage:
         from src.server.handler import LCPHandler
         LCPHandler._routes = None
         table = LCPHandler._route_table()
-        # 1 today (PUT /api/work/sources), 0 after the slim cut. Never more.
-        assert table.count("PUT") <= 1
+        # 0: the last table-level PUT (PUT /api/work/sources) went on 2026-10-25.
+        # Every write verb is now dispatched through do_PUT's own guard chain, so
+        # a PUT appearing here means someone bypassed it. Never more.
+        assert table.count("PUT") == 0
         assert table.count("DELETE") == 0
 
 
