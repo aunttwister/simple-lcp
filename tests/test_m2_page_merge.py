@@ -45,12 +45,8 @@ SECTION_TAB = {
     "sec_providers": "providers",
     "sec_profiles": "profiles",
     "sec_keys": "keys",
-    "sec_cron": "cron",
     "sec_config": "config",
-    # M2c: these only ever render on /profiles/<name>, never on a level-2 page.
-    "sec_skills": "skills",
-    "sec_memory": "memory",
-    # M2d: likewise level-3 only — the routing controls and the model pool act on one
+    # M2d: level-3 only — the routing controls and the model pool act on one
     # profile, which is what the level-3 page is.
     "sec_prouting": "routing",
     "sec_pmodels": "models",
@@ -171,11 +167,11 @@ def _pages():
 
 MERGED = [
     ("/profiles", "profiles", lambda c, e: _pages().render_profiles_page(c, e, {})),
-    # M2c: keys and cron moved under the profile. The old tab params are not a
-    # 404 — they fall back to the profile directory, which is where those keys and
-    # jobs are now reached from.
+    # M2c: keys moved under the profile. The old tab param is not a 404 — it
+    # falls back to the profile directory, which is where those keys are now
+    # reached from. (`?tab=cron` used to do the same; cron left the app entirely
+    # on 2026-10-24 and is a Hermes dashboard surface now.)
     ("/profiles?tab=keys", "profiles", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "keys"})),
-    ("/profiles?tab=cron", "profiles", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "cron"})),
     ("/profiles?tab=config", "config", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "config"})),
     ("/models", "matrix", lambda c, e: _pages().render_models_page(c, e, {})),
     ("/models?tab=providers", "providers", lambda c, e: _pages().render_models_page(c, e, {"tab": "providers"})),
@@ -234,39 +230,9 @@ def test_usage_is_a_page_of_its_own(cfg, engine):
     assert 'href="/activity"' in html  # ...but still reachable from the nav
 
 
-def test_profile_cron_tab_is_scoped_to_its_profile(cfg, engine, cron_snapshot):
-    """The cron tab of a profile shows that profile's jobs, not the cross-profile view.
-
-    M2c moved cron under the profile, so the view is always narrowed now — the
-    ``?profile=`` narrowing this test used to pin is built in rather than optional.
-    """
-    from src.ui.pages import render_profile_detail_page
-    view = _pages_module()._work_cron_view({"profile": "l2"})
-    assert view.get("profile_filter") == "l2"
-    assert all(str(p.get("profile", "")).lower() == "l2" for p in view.get("profiles") or [])
-    html = render_profile_detail_page(cfg, engine, "l2", {"tab": "cron"})
-    assert 'id="cron-modal"' in html
-    assert "Cron jobs for <b>l2</b>" in html
-
-
-def test_the_cron_tab_says_so_when_the_snapshot_is_missing(cfg, engine, monkeypatch):
-    """The other half of the contract: no snapshot means the tab says so.
-
-    This is the state a fresh install is in before the host-side collector has run,
-    and it is what a CI runner always sees. Pinned deliberately, because the test
-    above spent eleven pushes asserting the opposite without saying so.
-
-    The missing path is forced rather than assumed: asserting "there is no snapshot"
-    by relying on the dev box not having one would be the same environment coupling
-    that caused the red CI in the first place.
-    """
-    from src.api import work_cron
-    from src.ui.pages import render_profile_detail_page
-    monkeypatch.setattr(work_cron, "_snapshot_path", lambda: "/nonexistent/cron-jobs.json")
-    html = render_profile_detail_page(cfg, engine, "l2", {"tab": "cron"})
-    assert "snapshot missing" in html
-    # and it does not pretend to be showing jobs it never read
-    assert 'id="cron-modal"' not in html
+# The cron tab (and its two tests: scoped-to-profile, and missing-snapshot) was
+# decommissioned on 2026-10-24. Cron is Hermes agent infrastructure, managed in
+# the Hermes dashboard; LCP is a router and does not render it.
 
 
 def _pages_module():
@@ -282,7 +248,7 @@ def _pages_module():
     ({}, "Profiles — LCP"),
     ({"tab": "config"}, "Config — LCP"),
     ({"tab": "keys"}, "Profiles — LCP"),   # retired tab -> the directory
-    ({"tab": "cron"}, "Profiles — LCP"),
+    ({"tab": "cron"}, "Profiles — LCP"),   # cron is a Hermes surface now
 ])
 def test_profiles_title_follows_the_tab(cfg, engine, params, title):
     from src.ui.pages import render_profiles_page
