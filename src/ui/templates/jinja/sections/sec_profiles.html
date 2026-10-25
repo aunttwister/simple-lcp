@@ -13,7 +13,7 @@
    `agent_profile`, or a suggestion derived from the Hermes side and flagged as such)
    plus the LCP-only ones. Both are LCP profiles: editable, routable, key-bearing.
    The LCP-only card says "profile without an agent" and nothing more — having no
-   skills directory is a property of that kind, not a gap. #}
+   agent behind it is a property of that kind, not a gap. #}
 {% if profile_cards %}
 <div class="profile-grid">
   {% for c in profile_cards %}
@@ -123,7 +123,7 @@
         {% for a in agent_choices %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
       </select>
       <div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.125rem">
-        The Hermes profile whose skills, memory and tasks this profile presents. Declared here, not guessed from a name.
+        The Hermes profile this route serves. Declared here, not guessed from a name — the card shows the declared mapping, and flags a derived one as a suggestion.
       </div>
     </div>
     <div style="margin-bottom:0.75rem">

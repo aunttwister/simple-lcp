@@ -2,10 +2,10 @@
   M2b — flat navigation. No group labels: every entry is a page, and the two
   groups ("Work" / "Gateway") only made the reader classify before clicking.
 
-  Profiles   — the profile surface: the profiles themselves, the API keys scoped
-               to them, the cron jobs that belong to them, and the work-layer
-               paths they read. First, because the profile is the unit every
-               other page is scoped to.
+  Profiles   — the directory: one card per routing subject, and each card opens
+               that profile's routing rules, its model pool and the API keys that
+               call it. First, because the profile is the unit every other page
+               is scoped to.
   Models     — the capability matrix + where those models come from
   Activity   — what happened: the cost/token overview and every log realm. Before
                Conversations, because the log is the surface you open to answer
@@ -20,9 +20,11 @@
   Usage      — spend per provider, balances, and the scrape cache (its own page:
                it is a billing view, not a log)
   Alerts     — things to act on (R10: alerts and budgets are per subject)
-  Setup      — install wizard and module config
-  Tasks      — the work module's task tree
-  Fleet      — the work module's machines
+
+  Setup, Tasks and Fleet are not here: they were the work module's own pages, and
+  the module's remaining surface is a Hermes concern. Skills, memory and cron left
+  the profile page for the same reason on 2026-10-24, and Config — the work-layer
+  paths editor — followed on 2026-10-25.
 
   The provider-credit submenu and the usage-cache refresh button lived on the
   Activity entry; both are gone. Usage carries its own refresh controls, so no
