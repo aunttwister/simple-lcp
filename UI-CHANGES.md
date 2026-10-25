@@ -145,6 +145,41 @@ the jump field's CSS; reverting #20 re-strips scope from every header.
   `1452f7f`; the only new one, `test_an_lcp_only_profiles_empty_tabs_say_why`,
   failed on a decommissioned tab name and was retargeted in `04c6fa0`.
 
+## Wave 5 — the Config tab leaves, and its leftovers with it
+
+`/profiles?tab=config` was the work-sources editor: it repointed the task-tree
+root, the cron store and the op spool for every profile. That is Hermes agent
+infrastructure, not routing — the same reason skills, memory and cron left — so it
+went on 2026-10-25.
+
+| Commit | Change | Where |
+|---|---|---|
+| `30fd6c2` | Removes the Config tab, its section and its script. The Profiles page has **no tabs at all** — a strip whose only entry is the page you are already on is noise. `_work_config_view` deleted with its only caller. Every retired `?tab=` value falls back to the directory. | `pages.py`, `profiles.html`, `sections/sec_config.html`, `sections/sec_config_script.html` |
+| `134af86` | `/work/config` redirects to `/profiles` instead of the removed tab | `endpoints.py` |
+| `c68fcfe` | Tests follow: config markers and its MERGED row removed; the strip test split into "Models must show its tabs" and "Profiles must NOT have a strip"; every retired tab value asserted to land on the directory | `test_m2_page_merge.py` |
+| `25e0f7b` | Deletes `_work_cron_view` — dead since the Cron tab went, still building a cron snapshot, op list and per-profile filter that nothing rendered | `pages.py` |
+| `0cce42a` | Comments cleared: the sidebar no longer promises cron jobs and work-layer paths on Profiles, or lists Setup/Tasks/Fleet as nav entries; the Agent Profile field says "the Hermes profile this route serves" rather than "whose skills, memory and tasks" | `_sidebar.html`, `sec_profiles.html` |
+| `d43c7b1` | `/work/cron` redirects to `/profiles` directly — it was pointing at `?tab=cron`, a tab that no longer exists, which fell back to the directory anyway (two hops, and a docstring claiming a Cron tab was there) | `endpoints.py`, `test_m2_page_merge.py` |
+
+**Revert:** `git revert --no-edit d43c7b1 0cce42a 25e0f7b c68fcfe 134af86 30fd6c2`
+(newest first). Restoring the Config tab means restoring two deleted templates and
+the `_work_config_view` builder, so revert the whole unit — `30fd6c2` alone leaves
+`profiles.html` including files that do not exist.
+
+**What stayed, deliberately:** `src/api/work_sources.py` and the `/api/work/sources`
+API. It is the documented contract the host-side collector reads, and the paths stay
+repointable without a UI. Its `PUT` is now UI-orphaned — see "Still open".
+
+## Measured, after wave 5
+
+- `/profiles`, `/profiles?tab=config`, `/profiles?tab=cron`, `/profiles?tab=skills`
+  all render the directory: title `Profiles — LCP`, no `.page-tabs`, no
+  `#sources-form`, 6 cards, first card at y=274.
+- `/work/config` → `302 /profiles`; `/work/cron` → `302 /profiles`.
+- `GET /api/work/sources` still answers with `configured: true` and the resolved paths.
+- Zero JS exceptions across 12 surfaces.
+- 256 tests pass in the five UI-facing files.
+
 ## Still open
 
 **Not shipped**
