@@ -727,8 +727,12 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 /* ── Sidebar alert badge ── */
 .sb-alert-badge {
   display: inline-block;
-  background: #dc2626;
-  color: #fff;
+  /* A hard-coded #dc2626 was the only raw hex left in the sidebar, so it was the
+     one thing a theme change would miss. 0 72.2% 50.6% is the same red as a
+     token; white on it is 4.83:1. */
+  background: hsl(0 72.2% 50.6%);
+  color: hsl(0 0% 100%);
+  font-variant-numeric: tabular-nums;
   font-size: 0.6rem;
   font-weight: 700;
   padding: 0.1rem 0.35rem;
