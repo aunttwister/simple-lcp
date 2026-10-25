@@ -132,6 +132,8 @@
         <th scope="col">Source</th>
         <th scope="col">Messages</th>
         <th scope="col">Tool calls</th>
+        <th scope="col" class="num">Tokens</th>
+        <th scope="col" class="num">Cost</th>
         <th scope="col">Last activity</th>
         <th scope="col"></th>
       </tr>
@@ -153,6 +155,12 @@
           <span class="muted" title="Messages still in the agent's context window; the rest were compacted">{{ c.active_messages }} active</span>{% endif %}
           {% if c.messages is none %}<span class="muted">no transcript</span>{% endif %}</td>
         <td class="mono">{% if c.tool_calls is none %}—{% else %}{{ c.tool_calls }}{% endif %}</td>
+        {# Right-aligned and tabular: these are compared down the column, which is
+           what an operator does with a spend column. `fmt_num` compresses 6.2B to
+           "6250.7M" — a token count this size is only useful as an order of
+           magnitude, and the exact figure is in the modal. #}
+        <td class="mono num">{{ c.tokens | fmt_num }}</td>
+        <td class="mono num">{% if c.cost %}${% endif %}{{ '%.4f' % c.cost if c.cost else '—' }}</td>
         <td class="mono">{{ c.last_at | fmt_iso }}</td>
         <td><button type="button" class="btn-sm conv-toggle" data-cid="{{ c.id }}"
                     data-name="{{ c.name or c.id }}">View</button></td>
