@@ -95,13 +95,17 @@
   {% for t in tabs %}<a href="{{ t.href }}" class="tab-btn {% if t.active %}active{% endif %}"{% if t.active %} aria-current="page"{% endif %}>{{ t.label }}{% if t.count is not none %} <span class="tab-count">{{ t.count }}</span>{% endif %}</a>{% endfor %}
 </div>
 
-{% include "sections/sec_prouting.html" %}
-{% include "sections/sec_pmodels.html" %}
-{% include "sections/sec_keys.html" %}
+{# Says what this page deliberately does not show, next to the strip that is
+   missing those tabs — at the bottom of the page it answered a question nobody
+   had asked yet. #}
 <p class="pd-scope-note">
   Skills, memory and cron belong to a Hermes agent, not to a route — they are
   managed in the Hermes dashboard, so they are not shown here.
 </p>
+
+{% include "sections/sec_prouting.html" %}
+{% include "sections/sec_pmodels.html" %}
+{% include "sections/sec_keys.html" %}
 {% endblock %}
 
 {% block scripts %}
