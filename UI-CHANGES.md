@@ -147,11 +147,41 @@ the jump field's CSS; reverting #20 re-strips scope from every header.
 
 ## Still open
 
-- Prod cutover; nothing pushed to origin.
-- `/profiles?tab=config` still carries per-profile **task tree** and **cron store**
-  overrides that only fed the removed tabs — next candidate for removal.
-- `_sidebar.html`'s header comment still mentions "the cron jobs that belong to
-  them".
+**Not shipped**
+
+- Prod cutover. Staging is 62 commits ahead of `origin/main` and nothing is pushed
+  anywhere. Prod is at `2e1e326` (the ring fix `14efbdc` is still an ancestor) and
+  serves neither `ui.js` nor `sparkline.js` — both 404 there. Prod also carries 4
+  pre-existing dirty files unrelated to this work.
+
+**Agent-infrastructure plumbing still inside LCP** (the UI is gone; the API is not)
+
+- `PUT /api/work/sources` — UI-orphaned. It repoints the task-tree root, the cron
+  store and the op spool for every profile. Removing it changes the API contract and
+  the QA harness (`qa/gen_lifecycle.py`) exercises it, so it is flagged rather than
+  deleted.
+- `GET /api/work/cron`, `GET /api/work/cron/ops`, `POST /api/work/cron/ops` — all
+  orphaned since the Cron tab went. The POST spools cron mutation intents.
+- `src/api/work_cron.py` and `src/api/work_sources.py` remain, read by
+  `profile_data` and by each other. `work-sources.json` still governs the paths.
+- The QA harness still maps `/api/work/sources` to the "profiles" page area
+  (`qa/gen_pages.py`) — accurate, but it is the last place the config surface is
+  still described as page-adjacent.
+
+**UI and design gaps**
+
 - Dark-only by design; no high-contrast light theme.
-- The motion phase (Odometer / AutoAnimate) is still unimplemented — only the
-  reduced-motion gate exists.
+- The motion phase (Odometer / AutoAnimate) is unimplemented — only the
+  `prefers-reduced-motion` gate exists.
+- `sec_dashboard_script.html` hardcodes chart colours for four profile names
+  (`l2`, `l1`, `career`, `cron`) and falls back to grey for everything else. A
+  six-profile fleet therefore draws several identical grey series. It needs a
+  generated palette, not a lookup table.
+- No print stylesheet; the log tables print with dark backgrounds.
+
+**Known, accepted**
+
+- The wider test suite has 82 failures/errors (router, LanceDB memory backend) that
+  reproduce at `1452f7f`; the five UI-facing files are clean.
+- `vision_analyze` times out on full-page screenshots in this environment; crops and
+  CDP geometry are the reliable read-back.
