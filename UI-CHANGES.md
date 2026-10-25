@@ -181,6 +181,66 @@ repointable without a UI. Its `PUT` is now UI-orphaned — see "Still open".
 - Zero JS exceptions across 12 surfaces.
 - 256 tests pass in the five UI-facing files.
 
+## Wave 6 — the dead work-layer backend
+
+The UI lost Cron, Config and the task/fleet pages over three waves. What was left
+was an HTTP surface with no caller, and two modules whose only purpose was to feed
+it. Five routes:
+
+| Route | Called | Wrote |
+|---|---|---|
+| `GET /api/work/cron` | the Cron tab (gone) | no |
+| `GET /api/work/cron/ops` | the Cron tab (gone) | no |
+| `POST /api/work/cron/ops` | the Cron tab (gone) | **yes** — spooled cron mutation intents for a host executor |
+| `GET /api/work/sources` | the Config tab (gone) | no |
+| `PUT /api/work/sources` | the Config tab (gone) | **yes** — repointed the task-tree root, cron store and op spool for every profile |
+
+The two writes were reachable by anything holding the admin token, and nothing in
+the app called them. That is not dead code, it is unused attack surface.
+
+With the routes gone, the modules had no live root:
+
+```
+work_cron.tasks_dir <- _snapshot_path <- cron_view <- work_sources.resolved_view
+                                                   <- profile_data.profile_paths  (no caller)
+```
+
+so both modules went, with `profile_paths`, `_tasks_root_for` (its only caller passed
+it a `?profile=` from the cron page) and the `cron_snapshot` test fixture.
+
+| Commit | Change |
+|---|---|
+| `f6f0f29` | Removes the five routes, their handler methods, the `do_PUT` dispatch branch for sources, and `_tasks_root_for` |
+| `3cb41c3` | Deletes `src/api/work_cron.py` (346 lines) and `src/api/work_sources.py` (233 lines), `profile_data.profile_paths`, and the `cron_snapshot` fixture |
+| `2e86e9d` | Deletes `tests/test_work_cron.py` and `tests/test_work_sources.py`; drops the seven `tasks_root_for` cases; the admin-auth route-table test now asserts **zero** table-level PUTs |
+| `eb10a5e` | The slim-surface guard (C7) pins the five route names and both module names, so a later refactor cannot restore a cron write endpoint by renaming it |
+| `ed9f22a` | QA harness regenerated: the cron+sources group deleted, three API rows and four sources cases removed, the op-validation matrix and its JSON-error case gone. 197 cases, zero references left |
+
+**20 files, −1,630 lines, +31.**
+
+**Revert:** `git revert --no-edit ed9f22a eb10a5e 2e86e9d 3cb41c3 f6f0f29` (newest
+first). The two deleted test files and the two deleted modules come back with
+`3cb41c3` and `2e86e9d`; the routes come back with `f6f0f29`. Reverting only part of
+this leaves the endpoints pointing at modules that do not exist, so revert the unit.
+
+**What stayed, and why:** `work-sources.json` on disk, and the host-side collector
+and executor that read and write it through the shared ops mount. That was always the
+design — LCP's reader was a convenience for a panel that no longer exists. Deleting the
+file would break the host cron system; deleting LCP's reader does not.
+
+**Verified:** all five routes return `404` (GET, and the POST/PUT writes); the two
+survivors `/api/work/requests` and `/api/work/provider-decisions` return `200`;
+`/work/cron` and `/work/config` still `302 → /profiles`; eleven UI surfaces render
+with zero JS exceptions; the full suite's failure list is identical to the
+`1452f7f` baseline (82 pre-existing failures in router and the LanceDB memory
+backend, none new).
+
+**Deliberately not touched:** `cases.workload.json` keeps its committed contents.
+Running `gen_workload.py` produces 34 cases where the committed fragment has 52 —
+that is filesystem drift in the generator's task-directory scan, not a consequence of
+this change, and accepting an 18-case coverage drop to make a generator run cleanly
+would be worse than leaving it.
+
 ## Still open
 
 **Not shipped**
@@ -191,19 +251,14 @@ repointable without a UI. Its `PUT` is now UI-orphaned — see "Still open".
   serves neither `ui.js` nor `sparkline.js` — both 404 there. Prod also carries 4
   pre-existing dirty files unrelated to this work.
 
-**Agent-infrastructure plumbing still inside LCP** (the UI is gone; the API is not)
+**Agent-infrastructure plumbing** — cleared on 2026-10-25 (wave 6). The five routes,
+both modules and `profile_paths` are gone. What remains outside this repo, by design:
+`work-sources.json` and the host-side collector/executor that own it.
 
-- `PUT /api/work/sources` — UI-orphaned. It repoints the task-tree root, the cron
-  store and the op spool for every profile. Removing it changes the API contract and
-  the QA harness (`qa/gen_lifecycle.py`) exercises it, so it is flagged rather than
-  deleted.
-- `GET /api/work/cron`, `GET /api/work/cron/ops`, `POST /api/work/cron/ops` — all
-  orphaned since the Cron tab went. The POST spools cron mutation intents.
-- `src/api/work_cron.py` and `src/api/work_sources.py` remain, read by
-  `profile_data` and by each other. `work-sources.json` still governs the paths.
-- The QA harness still maps `/api/work/sources` to the "profiles" page area
-  (`qa/gen_pages.py`) — accurate, but it is the last place the config surface is
-  still described as page-adjacent.
+**QA harness** — the cron+sources group is regenerated, but the rest of the suite
+still exercises routes cut in earlier slims (`/api/setup`, `/api/work/tasks`,
+`/api/work/fleet`, `/api/work/status`, `/api/work/conversations`). Those cases could
+only ever fail; they need their own regeneration pass against the current route table.
 
 **UI and design gaps**
 
