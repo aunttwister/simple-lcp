@@ -6,7 +6,7 @@ Prod (`/your/data/docker-apps/lcp`, `:8734`) has **none** of this — it is stil
 `3be4362` and serves neither `ui.js` nor `sparkline.js` (both 404 there).
 
 Baseline for "before all of this" is `78c9e23^` — the commit before the first UI
-wave. 33 commits sit on top of it.
+wave. 34 commits sit on top of it — the last is this file.
 
 ## How to roll back
 
