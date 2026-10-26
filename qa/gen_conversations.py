@@ -44,13 +44,17 @@ CASES += [
              "d=json.load(sys.stdin); h=d['history']; ls=[c['last_at'] or '' for c in h['conversations']]; "
              "assert ls==sorted(ls), ls[:4]; assert h['filter']['sort']=='oldest'\"" % CONV)},
     {"id": "cv-sort-messages", "group": G, "title": "sort=messages is monotonic descending",
-     "cmd": ("curl -s '{{BASE}}%s?per=10&sort=messages' | python3 -c \"import sys,json; "
-             "d=json.load(sys.stdin); m=[c['messages'] or 0 for c in d['history']['conversations']]; "
-             "assert m==sorted(m, reverse=True), m\"" % CONV)},
+     "cmd": ("curl -s '{{BASE}}%s?per=100&sort=messages' | python3 -c \"import sys,json; "
+             "d=json.load(sys.stdin); m=[c['messages'] for c in d['history']['conversations']]; "
+             "known=[x for x in m if x is not None]; "
+             "assert known==sorted(known, reverse=True), known[:6]; "
+             "assert all(x is None for x in m[len(known):]), m[:12]\"" % CONV)},
     {"id": "cv-sort-calls", "group": G, "title": "sort=calls is monotonic descending",
-     "cmd": ("curl -s '{{BASE}}%s?per=10&sort=calls' | python3 -c \"import sys,json; "
-             "d=json.load(sys.stdin); c=[x['calls'] or 0 for x in d['history']['conversations']]; "
-             "assert c==sorted(c, reverse=True), c\"" % CONV)},
+     "cmd": ("curl -s '{{BASE}}%s?per=100&sort=calls' | python3 -c \"import sys,json; "
+             "d=json.load(sys.stdin); c=[x['tool_calls'] for x in d['history']['conversations']]; "
+             "known=[x for x in c if x is not None]; "
+             "assert known==sorted(known, reverse=True), known[:6]; "
+             "assert all(x is None for x in c[len(known):]), c[:12]\"" % CONV)},
     {"id": "cv-sorts-advertised", "group": G, "title": "the four sorts are advertised to the client",
      "cmd": ("curl -s '{{BASE}}%s' | python3 -c \"import sys,json; d=json.load(sys.stdin); "
              "keys=[s['key'] for s in d['history']['filter']['sorts']]; "
