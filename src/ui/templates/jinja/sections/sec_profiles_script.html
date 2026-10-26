@@ -373,6 +373,102 @@ function loadProfileBudget(name) {
     }
   });
 }
+
+// ── Per-profile cost trend ────────────────────────────────────────────────
+// One request for every profile (`GROUP BY profile, date` server-side), then
+// one braille sparkline per card. Braille is used here rather than ASCII
+// because a profile's daily spend is spiky: 2x4 dots per character resolve
+// the difference between two adjacent days, which a 10-step ASCII ramp does
+// not. Days with no traffic arrive as 0, so a flat run is genuinely zero.
+var PROFILE_TREND_DAYS = 30;
+
+// Sub-cent daily spend is normal here (a few hundred calls a day on a cheap
+// model), and `toFixed(2)` would print "peak $0.00/day" — a true but useless
+// number. Scale the precision to the magnitude instead.
+function fmtCost(n) {
+  if (!isFinite(n)) return '$0';
+  if (n >= 1) return '$' + n.toFixed(2);
+  if (n >= 0.01) return '$' + n.toFixed(3);
+  return '$' + n.toFixed(4);
+}
+
+function loadProfileTrends() {
+  if (!window.LCPSpark) return;
+  var cards = document.querySelectorAll('.pc-spark');
+  if (!cards.length) return;
+  api('GET', '/api/usage/profile-series?days=' + PROFILE_TREND_DAYS).then(function (d) {
+    var profiles = d.profiles || {};
+    cards.forEach(function (el) {
+      var name = (el.id || '').replace(/^pc-spark-/, '');
+      var sumEl = document.getElementById('pc-spark-sum-' + name);
+      var series = profiles[name];
+      if (!series || !series.cost || !series.cost.length) {
+        LCPSpark.mount(el, [], { empty: 'no requests in ' + PROFILE_TREND_DAYS + 'd' });
+        if (sumEl) sumEl.textContent = '';
+        return;
+      }
+      var info = LCPSpark.mount(el, series.cost, { mode: 'braille', width: 22 });
+      if (!info || !sumEl) return;
+      // A profile served by a local (zero-cost) model has a real series but an
+      // all-zero cost series: drawing it would show a flat line and imply "no
+      // activity". Fall back to request volume and say so in the label.
+      var metric = 'cost', values = series.cost;
+      if (series.total_cost === 0 && series.total_requests > 0) {
+        metric = 'requests';
+        values = series.requests;
+      }
+      if (metric !== 'cost') {
+        info = LCPSpark.mount(el, values, { mode: 'braille', width: 22 });
+        if (!info) return;
+      }
+      // The picture carries the shape; the text carries the magnitude. Never
+      // make the reader infer a figure from glyph density.
+      sumEl.textContent = metric === 'cost'
+        ? PROFILE_TREND_DAYS + 'd · ' + fmtCost(series.total_cost) +
+          ' · ' + series.total_requests.toLocaleString() + ' req' +
+          ' · peak ' + fmtCost(info.max) + '/day'
+        : PROFILE_TREND_DAYS + 'd · ' + series.total_requests.toLocaleString() +
+          ' req · $0 cost (local model) · peak ' + Math.round(info.max) + ' req/day';
+    });
+  }).catch(function (e) {
+    // A trend is an addition; its failure must not take the page with it.
+    console.error('profile trend fetch failed', e);
+    cards.forEach(function (el) {
+      LCPSpark.mount(el, [], { empty: 'trend unavailable' });
+    });
+  });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', loadProfileTrends);
+} else {
+  loadProfileTrends();
+}
+
+// ── Copy gateway URL ──────────────────────────────────────────────────────
+// The path is what the card shows; the absolute URL is what a client needs,
+// so the origin is composed here rather than baked into the template (the
+// renderer has no request context, and the gateway is reached by IP as often
+// as by hostname).
+(function () {
+  function wire() {
+    if (!window.LCPUI) return;
+    document.querySelectorAll('.copy-btn[data-copy-path]').forEach(function (btn) {
+      var path = btn.getAttribute('data-copy-path');
+      LCPUI.copyButton(btn, window.location.origin + path, {
+        glyph: 'Copy',
+        copiedGlyph: 'Copied',
+        copiedMsg: 'Gateway URL copied',
+        failMsg: 'Copy failed — select the URL manually'
+      });
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wire);
+  } else {
+    wire();
+  }
+})();
 {% endraw %}
 </script>
 {% endif %}

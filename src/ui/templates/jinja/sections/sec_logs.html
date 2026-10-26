@@ -37,12 +37,38 @@
   <div class="empty"><span class="muted">{{ view.tab_error }}</span></div>
 {% endif %}
 
+{% set _sk_widths = ['sk-w2','sk-w1','sk-w4','sk-w3','sk-w2','sk-w1','sk-w3','sk-w2','sk-w1','sk-w2'] %}
+
 {% if view.tab == 'requests' %}
   <div class="task-toolbar" id="lg-controls"></div>
-  <div class="work-scroll">
+  <div class="work-scroll logs-term">
+    <div class="term-bar"><span class="term-dot" aria-hidden="true"></span><span id="lg-term">requests · newest first</span></div>
     <table class="work-table">
-      <thead id="lg-head"></thead>
-      <tbody id="lg-rows"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody>
+      {# A table with no accessible name is announced as just "table" — the
+         caption is the name, and sr-only keeps it out of the visual design. #}
+      <caption class="sr-only">Request log: one row per gateway call, with tokens, cost and latency.</caption>
+      <thead id="lg-head">
+        {# Static header so the skeleton has labels: logtable.js replaces this
+           with the same spec on render, but until the fetch lands the column
+           names are the one thing the reader can already be told. #}
+        <tr>
+          <th scope="col">When</th><th scope="col">Profile</th><th scope="col">Model</th>
+          <th scope="col">Provider</th><th scope="col" class="num">Tokens</th>
+          <th scope="col" class="num">Cost</th><th scope="col" class="num">Latency</th>
+          <th scope="col">Status</th><th scope="col">Conversation</th>
+        </tr>
+      </thead>
+      {# Skeleton rows while the first fetch is in flight: the column rhythm and
+         row height stay put, so the table does not jump when data lands.
+         aria-busy tells assistive tech the region is filling; logtable.js
+         clears it and announces the row count on the transition. #}
+      <tbody id="lg-rows" aria-busy="true">
+        {% for _ in range(4) %}
+        <tr class="sk-row" aria-hidden="true">
+          {% for w in _sk_widths[:9] %}<td><span class="sk {{ w }}"></span></td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
     </table>
   </div>
   <div class="task-pager" id="lg-pager"></div>
@@ -51,10 +77,25 @@
 
 {% if view.tab == 'providers' %}
   <div class="task-toolbar" id="lg-controls"></div>
-  <div class="work-scroll">
+  <div class="work-scroll logs-term">
+    <div class="term-bar"><span class="term-dot" aria-hidden="true"></span><span id="lg-term">provider decisions · newest first</span></div>
     <table class="work-table">
-      <thead id="lg-head"></thead>
-      <tbody id="lg-rows"><tr><td colspan="10" class="muted">Loading…</td></tr></tbody>
+      <caption class="sr-only">Provider routing decisions: one row per routing decision, with the policy, action and score.</caption>
+      <thead id="lg-head">
+        <tr>
+          <th scope="col">When</th><th scope="col">Profile</th><th scope="col">Task</th>
+          <th scope="col">Policy</th><th scope="col">Action</th><th scope="col">Provider</th>
+          <th scope="col">Model</th><th scope="col" class="num">Score</th>
+          <th scope="col">Note</th><th scope="col">Conversation</th>
+        </tr>
+      </thead>
+      <tbody id="lg-rows" aria-busy="true">
+        {% for _ in range(4) %}
+        <tr class="sk-row" aria-hidden="true">
+          {% for w in _sk_widths %}<td><span class="sk {{ w }}"></span></td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
     </table>
   </div>
   <div class="task-pager" id="lg-pager"></div>

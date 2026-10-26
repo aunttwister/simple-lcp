@@ -2,1396 +2,1096 @@
  "name": "LCP staging QA sweep",
  "cases": [
   {
-   "id": "cr-001",
-   "group": "cron-sources",
-   "title": "cron view counts sane",
-   "cmd": "curl -s '{{BASE}}/api/work/cron' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['available'] is True; assert d['counts']['total']>0\""
+   "id": "api-health",
+   "group": "api",
+   "title": "/health",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/health')\" = \"200\" ] && curl -s '{{BASE}}/health' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('status') is not None, 'missing key status'\""
   },
   {
-   "id": "cr-002",
-   "group": "cron-sources",
-   "title": "cron ops list empty-pending",
-   "cmd": "curl -s '{{BASE}}/api/work/cron/ops' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'pending' in d and 'done' in d\""
+   "id": "api-in-progress",
+   "group": "api",
+   "title": "/api/in-progress",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/in-progress')\" = \"200\" ] && curl -s '{{BASE}}/api/in-progress' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('count') is not None, 'missing key count'\""
   },
   {
-   "id": "cr-003",
-   "group": "cron-sources",
-   "title": "ops spool dir writable (POST surface)",
-   "cmd": "[ -d /your/data/app/lcp/cron-ops/ops ] && [ -d /your/data/app/lcp/cron-ops/done ]"
+   "id": "api-conversations",
+   "group": "api",
+   "title": "/api/conversations",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations')\" = \"200\" ] && curl -s '{{BASE}}/api/conversations' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('history') is not None, 'missing key history'\""
   },
   {
-   "id": "cr-004",
-   "group": "cron-sources",
-   "title": "fixture is hidden from the cron listing",
-   "cmd": "curl -s '{{BASE}}/api/work/cron' | python3 -c \"import sys,json; d=json.load(sys.stdin); f=[p for p in d['profiles'] if p['profile']=='qa-fixture']; assert len(f)==1, 'fixture missing from snapshot'; assert f[0]['hidden'] is True, 'fixture is not hidden'\""
+   "id": "api-cache-stats",
+   "group": "api",
+   "title": "/cache/stats",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/cache/stats')\" = \"200\" ] && curl -s '{{BASE}}/cache/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('hit_rate') is not None, 'missing key hit_rate'\""
   },
   {
-   "id": "cr-005",
-   "group": "cron-sources",
-   "title": "fixture is not an agent profile (no config.yaml)",
-   "cmd": "[ ! -f /root/.hermes/profiles/qa-fixture/config.yaml ]"
+   "id": "api-evidence-export",
+   "group": "api",
+   "title": "/api/evidence/export",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/evidence/export')\" = \"200\" ] && curl -s '{{BASE}}/api/evidence/export' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('manifest') is not None, 'missing key manifest'\""
   },
   {
-   "id": "cr-009",
-   "group": "cron-sources",
-   "title": "fixture reset: remove stale probes",
-   "cmd": "python3 -c \"import json,os,subprocess;p='/root/.hermes/profiles/qa-fixture/cron/jobs.json';j=json.load(open(p)).get('jobs',[]) if os.path.exists(p) else [];ids=[x['id'] for x in j if x.get('name')=='qa-suite-probe'];[subprocess.run(['/root/.hermes/hermes-agent/venv/bin/python','-m','hermes_cli.main','--profile','qa-fixture','cron','remove',i],capture_output=True) for i in ids];print('removed',len(ids))\""
+   "id": "api-evidence-key",
+   "group": "api",
+   "title": "/api/evidence/public-key",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/evidence/public-key')\" = \"200\" ] && curl -s '{{BASE}}/api/evidence/public-key' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('public_key_pem') is not None, 'missing key public_key_pem'\""
   },
   {
-   "id": "cr-010",
-   "group": "cron-sources",
-   "title": "reject: unknown action",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"explode\\\", \\\"profile\\\": \\\"qa-fixture\\\"}')\" = \"400\" ]"
+   "id": "api-settings",
+   "group": "api",
+   "title": "/api/settings",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/settings')\" = \"200\" ] && curl -s '{{BASE}}/api/settings' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('entries') is not None, 'missing key entries'\""
   },
   {
-   "id": "cr-011",
-   "group": "cron-sources",
-   "title": "reject: unknown profile",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"remove\\\", \\\"profile\\\": \\\"nope-profile\\\", \\\"job_id\\\": \\\"a1b2c3d4e5f6\\\"}')\" = \"400\" ]"
+   "id": "api-routing-status",
+   "group": "api",
+   "title": "/api/routing/status",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/routing/status')\" = \"200\" ] && curl -s '{{BASE}}/api/routing/status' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('enabled') is not None, 'missing key enabled'\""
   },
   {
-   "id": "cr-012",
-   "group": "cron-sources",
-   "title": "reject: create without prompt/script",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"qa-fixture\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\"}')\" = \"400\" ]"
+   "id": "api-work-requests",
+   "group": "api",
+   "title": "/api/work/requests",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/requests')\" = \"200\" ] && curl -s '{{BASE}}/api/work/requests' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('rows') is not None, 'missing key rows'\""
   },
   {
-   "id": "cr-013",
-   "group": "cron-sources",
-   "title": "reject: script with slash",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"qa-fixture\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"script\\\": \\\"../evil.sh\\\"}')\" = \"400\" ]"
+   "id": "api-work-decisions",
+   "group": "api",
+   "title": "/api/work/provider-decisions",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/provider-decisions')\" = \"200\" ] && curl -s '{{BASE}}/api/work/provider-decisions' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('rows') is not None, 'missing key rows'\""
   },
   {
-   "id": "cr-014",
-   "group": "cron-sources",
-   "title": "reject: edit empty fields",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"edit\\\", \\\"profile\\\": \\\"qa-fixture\\\", \\\"job_id\\\": \\\"a1b2c3d4e5f6\\\", \\\"fields\\\": {}}')\" = \"400\" ]"
+   "id": "api-daily-costs",
+   "group": "api",
+   "title": "/api/daily-costs",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/daily-costs')\" = \"200\" ] && curl -s '{{BASE}}/api/daily-costs' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('daily_costs') is not None, 'missing key daily_costs'\""
   },
   {
-   "id": "cr-015",
-   "group": "cron-sources",
-   "title": "reject: bad deliver",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"qa-fixture\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"deliver\\\": \\\"nowhere\\\"}')\" = \"400\" ]"
+   "id": "api-recent-requests",
+   "group": "api",
+   "title": "/api/recent-requests",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/recent-requests')\" = \"200\" ] && curl -s '{{BASE}}/api/recent-requests' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('requests') is not None, 'missing key requests'\""
   },
   {
-   "id": "cr-016",
-   "group": "cron-sources",
-   "title": "reject: workdir outside /your/data",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"qa-fixture\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"workdir\\\": \\\"/etc\\\"}')\" = \"400\" ]"
+   "id": "api-logs",
+   "group": "api",
+   "title": "/api/logs",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/logs')\" = \"200\" ] && curl -s '{{BASE}}/api/logs' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('rows') is not None, 'missing key rows'\""
   },
   {
-   "id": "cr-020",
-   "group": "cron-sources",
-   "title": "create op accepted (qa-fixture)",
-   "cmd": "op=$(curl -s -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\"action\":\"create\",\"profile\":\"qa-fixture\",\"name\":\"qa-suite-probe\",\"schedule\":\"2033-01-01T00:00:00\",\"prompt\":\"qa probe - safe to delete\",\"deliver\":\"local\"}'); echo \"$op\" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d.get(\"status\")==\"pending\", d'"
+   "id": "api-usage-stats",
+   "group": "api",
+   "title": "/api/usage/stats",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/usage/stats')\" = \"200\" ] && curl -s '{{BASE}}/api/usage/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('totals') is not None, 'missing key totals'\""
   },
   {
-   "id": "cr-021",
-   "group": "cron-sources",
-   "title": "accepted create leaves no real profile touched",
-   "cmd": "python3 -c \"import json;bad=[n for n in ('homelab-expert-l1','homelab-expert-l2','blog-writer') if any(x.get('name')=='qa-suite-probe' for x in json.load(open('/root/.hermes/profiles/'+n+'/cron/jobs.json')).get('jobs',[]))];assert not bad, 'probe leaked into a live profile: %s' % bad\""
+   "id": "api-usage-totals",
+   "group": "api",
+   "title": "/api/usage/totals",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/usage/totals')\" = \"200\" ] && curl -s '{{BASE}}/api/usage/totals' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('requests') is not None, 'missing key requests'\""
   },
   {
-   "id": "ms-x-01",
-   "group": "misc",
-   "title": "conversations per=all single page",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=all' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['pages']==1\""
+   "id": "api-usage-series",
+   "group": "api",
+   "title": "/api/usage/profile-series",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/usage/profile-series')\" = \"200\" ] && curl -s '{{BASE}}/api/usage/profile-series' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('dates') is not None, 'missing key dates'\""
   },
   {
-   "id": "ms-x-02",
-   "group": "misc",
-   "title": "requests per=all",
-   "cmd": "curl -s '{{BASE}}/api/work/requests?per=all' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])==d['total']\""
+   "id": "api-providers-presets",
+   "group": "api",
+   "title": "/api/providers/presets",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/providers/presets')\" = \"200\" ] && curl -s '{{BASE}}/api/providers/presets' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('presets') is not None, 'missing key presets'\""
   },
   {
-   "id": "ms-x-03",
-   "group": "misc",
-   "title": "provider-decisions per=all",
-   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=all' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])==d['total']\""
+   "id": "api-providers-health",
+   "group": "api",
+   "title": "/api/providers/health",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/providers/health')\" = \"200\" ] && curl -s '{{BASE}}/api/providers/health' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('summary') is not None, 'missing key summary'\""
   },
   {
-   "id": "ms-x-04",
-   "group": "misc",
-   "title": "tasks states=in_progress+completed paginates (per=15 p2)",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress,completed&per=15&page=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])>=1\""
+   "id": "api-providers-failovers",
+   "group": "api",
+   "title": "/api/providers/failovers",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/providers/failovers')\" = \"200\" ] && curl -s '{{BASE}}/api/providers/failovers' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('failovers') is not None, 'missing key failovers'\""
   },
   {
-   "id": "ms-x-05",
-   "group": "misc",
-   "title": "tasks states=all per=all has 0 dup keys",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=all' | python3 -c \"import sys,json; d=json.load(sys.stdin); ks=[t['key'] for t in d['tasks']]; assert len(ks)==len(set(ks))\""
+   "id": "api-providers",
+   "group": "api",
+   "title": "/api/providers",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/providers')\" = \"200\" ] && curl -s '{{BASE}}/api/providers' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('providers') is not None, 'missing key providers'\""
   },
   {
-   "id": "ms-x-06",
-   "group": "misc",
-   "title": "search q=zgx matches at least 1",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?states=all&q=zgx&per=10' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=1\""
+   "id": "api-profiles",
+   "group": "api",
+   "title": "/api/profiles",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/profiles')\" = \"200\" ] && curl -s '{{BASE}}/api/profiles' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('profiles') is not None, 'missing key profiles'\""
   },
   {
-   "id": "ms-x-07",
-   "group": "misc",
-   "title": "search q=infra matches >= tag count for that text",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?states=all&q=infra&per=10' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=0\""
+   "id": "api-audit",
+   "group": "api",
+   "title": "/api/audit",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/audit')\" = \"200\" ] && curl -s '{{BASE}}/api/audit' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('entries') is not None, 'missing key entries'\""
   },
   {
-   "id": "ms-x-08",
-   "group": "misc",
-   "title": "conversations newest has last_seen within 48h",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=1' | python3 -c \"import sys,json,datetime; d=json.load(sys.stdin); c=d['conversations'][0]; ts=datetime.datetime.fromisoformat(c['last_at'].replace('Z','+00:00')); diff=(datetime.datetime.now(datetime.timezone.utc)-ts).total_seconds(); assert diff < 172800\""
+   "id": "api-keys",
+   "group": "api",
+   "title": "/api/keys",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/keys')\" = \"200\" ] && curl -s '{{BASE}}/api/keys' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('keys') is not None, 'missing key keys'\""
   },
   {
-   "id": "ms-x-09",
-   "group": "misc",
-   "title": "logs decisions tab ledger rows exist",
-   "cmd": "curl -s '{{BASE}}/api/work/decisions' | python3 -c \"import sys,json; d=json.load(sys.stdin); rows=(d.get('ledger') or {}).get('rows') or []; assert len(rows)>=1\""
+   "id": "api-alerts-config",
+   "group": "api",
+   "title": "/api/alerts/config",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/alerts/config')\" = \"200\" ] && curl -s '{{BASE}}/api/alerts/config' | python3 -c \"import sys,json; json.load(sys.stdin)\""
   },
   {
-   "id": "ms-x-10",
-   "group": "misc",
-   "title": "setup page reachable (admin group)",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/setup')\" = \"200\" ]"
+   "id": "api-alerts",
+   "group": "api",
+   "title": "/api/alerts",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/alerts')\" = \"200\" ] && curl -s '{{BASE}}/api/alerts' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('alerts') is not None, 'missing key alerts'\""
   },
   {
-   "id": "gw-001",
-   "group": "gateway",
-   "title": "fleet summary payload",
-   "cmd": "curl -s '{{BASE}}/api/work/fleet' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'summary' in d and 'profiles' in d\""
+   "id": "api-budgets",
+   "group": "api",
+   "title": "/api/budgets",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/budgets')\" = \"200\" ] && curl -s '{{BASE}}/api/budgets' | python3 -c \"import sys,json; json.load(sys.stdin)\""
   },
   {
-   "id": "gw-002",
-   "group": "gateway",
-   "title": "providers health 200",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/providers/health')\" = \"200\" ]"
+   "id": "api-cost-plugins-usage",
+   "group": "api",
+   "title": "/api/cost-plugins/usage",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/cost-plugins/usage')\" = \"200\" ] && curl -s '{{BASE}}/api/cost-plugins/usage' | python3 -c \"import sys,json; json.load(sys.stdin)\""
   },
   {
-   "id": "gw-003",
-   "group": "gateway",
-   "title": "fleet has all profiles",
-   "cmd": "curl -s '{{BASE}}/api/work/fleet' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d.get('profiles',[]))>=1\""
+   "id": "api-cost-plugins-balances",
+   "group": "api",
+   "title": "/api/cost-plugins/balances",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/cost-plugins/balances')\" = \"200\" ] && curl -s '{{BASE}}/api/cost-plugins/balances' | python3 -c \"import sys,json; json.load(sys.stdin)\""
   },
   {
-   "id": "gw-004",
-   "group": "gateway",
-   "title": "routing status endpoint",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/routing/status')\" = \"200\" ]"
+   "id": "api-cost-plugins-summary",
+   "group": "api",
+   "title": "/api/cost-plugins/summary",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/cost-plugins/summary')\" = \"200\" ] && curl -s '{{BASE}}/api/cost-plugins/summary' | python3 -c \"import sys,json; json.load(sys.stdin)\""
   },
   {
-   "id": "gw-010",
-   "group": "gateway",
-   "title": "decisions view has funnel + ledger",
-   "cmd": "curl -s '{{BASE}}/api/work/decisions' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('available') is True; assert d.get('funnel') or d.get('ledger')\""
+   "id": "api-models-capability",
+   "group": "api",
+   "title": "/api/models/capability",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/models/capability')\" = \"200\" ] && curl -s '{{BASE}}/api/models/capability' | python3 -c \"import sys,json; json.load(sys.stdin)\""
   },
   {
-   "id": "gw-011",
-   "group": "gateway",
-   "title": "decisions ledger rows have actors",
-   "cmd": "curl -s '{{BASE}}/api/work/decisions' | python3 -c \"import sys,json; d=json.load(sys.stdin); rows=(d.get('ledger') or {}).get('rows') or []; assert all(r.get('actor') for r in rows[:5])\""
+   "id": "api-models-registry",
+   "group": "api",
+   "title": "/api/models/registry",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/models/registry')\" = \"200\" ] && curl -s '{{BASE}}/api/models/registry' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('registry') is not None, 'missing key registry'\""
   },
   {
-   "id": "gw-020",
-   "group": "gateway",
-   "title": "classifications index present",
-   "cmd": "[ -f /root/.hermes/profiles/homelab-expert-l2/work/tasks/.work-layers/classifications.json ]"
+   "id": "api-x-profiles",
+   "group": "api",
+   "title": "/api/profiles and /api/providers/profile_chains name the same profiles",
+   "cmd": "curl -s '{{BASE}}/api/profiles' > /tmp/qa_p.json; curl -s '{{BASE}}/api/providers' > /tmp/qa_c.json; python3 -c \"import json; p=set(json.load(open('/tmp/qa_p.json'))['profiles']); c=set(json.load(open('/tmp/qa_c.json'))['profile_chains']); assert p==c, (sorted(p-c), sorted(c-p))\""
   },
   {
-   "id": "gw-021",
-   "group": "gateway",
-   "title": "classifications index has by_label map",
-   "cmd": "python3 -c \"import json; d=json.load(open('/root/.hermes/profiles/homelab-expert-l2/work/tasks/.work-layers/classifications.json')); assert len(d.get('by_label',{}))>=8\""
+   "id": "api-x-routing",
+   "group": "api",
+   "title": "/api/routing/status covers every profile in /api/profiles",
+   "cmd": "curl -s '{{BASE}}/api/routing/status' > /tmp/qa_r.json; curl -s '{{BASE}}/api/profiles' > /tmp/qa_p.json; python3 -c \"import json; r=set(json.load(open('/tmp/qa_r.json'))['per_profile']); p=set(json.load(open('/tmp/qa_p.json'))['profiles']); assert not (p-r), sorted(p-r)\""
   },
   {
-   "id": "gw-022",
-   "group": "gateway",
-   "title": "cron snapshot exists and fresh",
-   "cmd": "python3 -c \"import json,time; d=json.load(open('/root/.hermes/profiles/homelab-expert-l2/work/tasks/.work-layers/cron-jobs.json')); assert time.time()-d['generated_at_ts']<3600\""
+   "id": "api-x-health",
+   "group": "api",
+   "title": "health reports every profile and no dead provider",
+   "cmd": "curl -s '{{BASE}}/health' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['status']=='ok'; assert len(d['profiles'])>=1; assert all(v.get('state')!='dead' for v in d['providers'].values()), [k for k,v in d['providers'].items() if v.get('state')=='dead']\""
   },
   {
-   "id": "gw-023",
-   "group": "gateway",
-   "title": "conversations table populated with LLM summaries",
-   "cmd": "python3 -c \"import sqlite3; con=sqlite3.connect('/your/data/app/lcp-staging/data/costs.db'); n=con.execute(\\\"SELECT count(*) FROM conversations WHERE summary_source='llm'\\\").fetchone()[0]; assert n>0\""
+   "id": "api-x-totals",
+   "group": "api",
+   "title": "/api/usage/totals agrees with /api/usage/stats.totals",
+   "cmd": "curl -s '{{BASE}}/api/usage/stats' > /tmp/qa_s.json; curl -s '{{BASE}}/api/usage/totals' > /tmp/qa_t.json; python3 -c \"import json; s=json.load(open('/tmp/qa_s.json'))['totals']; t=json.load(open('/tmp/qa_t.json')); assert s['requests']==t['requests'], (s['requests'],t['requests']); assert abs(s['cost']-t['cost'])<0.01, (s['cost'],t['cost'])\""
   },
   {
-   "id": "gw-030",
-   "group": "gateway",
-   "title": "chat completion (stream off) returns 200/201",
-   "cmd": "code=$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":8}'); [ \"$code\" = \"200\" ] || [ \"$code\" = \"201\" ]"
+   "id": "au-001",
+   "group": "auth",
+   "title": "anonymous /profiles redirects to the login page",
+   "cmd": "loc=$(curl -q -s -o /dev/null -w '%{redirect_url}' '{{BASE}}/profiles'); case \"$loc\" in */admin/login*) exit 0;; *) echo \"got $loc\"; exit 1;; esac"
   },
   {
-   "id": "gw-031",
-   "group": "gateway",
-   "title": "chat completion with tools payload routes",
-   "cmd": "code=$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"what is 2+2\"}],\"max_tokens\":8,\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"add\",\"parameters\":{\"type\":\"object\"}}}]}'); [ \"$code\" = \"200\" ] || [ \"$code\" = \"201\" ]"
+   "id": "au-002",
+   "group": "auth",
+   "title": "anonymous /api/work/requests is refused, not served",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/requests'); [ \"$c\" = \"302\" ] || [ \"$c\" = \"401\" ] || [ \"$c\" = \"403\" ]"
   },
   {
-   "id": "gw-032",
-   "group": "gateway",
-   "title": "unknown profile rejected (400, measured)",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/nope/chat/completions' -H 'Content-Type: application/json' -d '{}')\" = \"400\" ]"
+   "id": "au-003",
+   "group": "auth",
+   "title": "anonymous /api/profiles is refused",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/profiles'); [ \"$c\" = \"302\" ] || [ \"$c\" = \"401\" ] || [ \"$c\" = \"403\" ]"
   },
   {
-   "id": "gw-033",
-   "group": "gateway",
-   "title": "malformed body rejected 400",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{bad')\" = \"400\" ]"
+   "id": "au-004",
+   "group": "auth",
+   "title": "anonymous /api/evidence/export is refused",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/evidence/export'); [ \"$c\" = \"302\" ] || [ \"$c\" = \"401\" ] || [ \"$c\" = \"403\" ]"
   },
   {
-   "id": "gw-034",
-   "group": "gateway",
-   "title": "routing decisions recorded for the probe",
-   "cmd": "sleep 2; python3 -c \"import sqlite3; con=sqlite3.connect('/your/data/app/lcp-staging/data/costs.db'); n=con.execute(\\\"SELECT count(*) FROM routing_decisions WHERE ts > datetime('now','-5 minutes')\\\").fetchone()[0]; assert n>=1\""
+   "id": "au-005",
+   "group": "auth",
+   "title": "proxy path stays public (no admin cookie)",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":4}'); [ \"$c\" = \"200\" ] || [ \"$c\" = \"201\" ]"
   },
   {
-   "id": "lc-001",
-   "group": "lifecycle",
-   "title": "sources GET is configured",
-   "cmd": "curl -s '{{BASE}}/api/work/sources' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('configured') is not None\""
+   "id": "au-006",
+   "group": "auth",
+   "title": "an unauthenticated unknown profile is gated, so profile names cannot be probed",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/nope/chat/completions' -H 'Content-Type: application/json' -d '{}'); [ \"$c\" = \"302\" ]"
   },
   {
-   "id": "lc-002",
-   "group": "lifecycle",
-   "title": "sources PUT rejects relative path",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X PUT '{{BASE}}/api/work/sources' -H 'Content-Type: application/json' -d '{\"version\":1,\"hermes_profiles_dir\":\"relative\"}')\" = \"400\" ]"
+   "id": "au-007",
+   "group": "auth",
+   "title": "a bad admin token does not mint a session",
+   "cmd": "loc=$(curl -q -s -o /dev/null -w '%{redirect_url}' -d 'token=definitely-wrong&next=/' '{{BASE}}/admin/login'); case \"$loc\" in *admin/login*) exit 0;; *) echo \"got $loc\"; exit 1;; esac"
   },
   {
-   "id": "lc-003",
-   "group": "lifecycle",
-   "title": "sources PUT rejects bad version",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X PUT '{{BASE}}/api/work/sources' -H 'Content-Type: application/json' -d '{\"version\":99}')\" = \"400\" ]"
+   "id": "au-008",
+   "group": "auth",
+   "title": "the admin cookie actually grants the console",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/profiles')\" = \"200\" ]"
   },
   {
-   "id": "lc-004",
-   "group": "lifecycle",
-   "title": "sources GET exposes documented fields",
-   "cmd": "curl -s '{{BASE}}/api/work/sources' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'hermes_profiles_dir' in d and 'tasks_root' in d and 'ops_dir' in d and 'profiles' in d\""
+   "id": "au-009",
+   "group": "auth",
+   "title": "logout clears the session",
+   "cmd": "curl -s -o /dev/null '{{BASE}}/admin/logout'; c=$(curl -q -s -o /dev/null -w '%{http_code}' '{{BASE}}/profiles'); [ \"$c\" = \"302\" ]"
   },
   {
-   "id": "lc-010",
-   "group": "lifecycle",
-   "title": "setup shows module registry",
-   "cmd": "out=$(curl -s '{{BASE}}/setup'); echo \"$out\" | grep -qi 'module'"
+   "id": "cv-shape",
+   "group": "conv",
+   "title": "list carries both stores: live and history",
+   "cmd": "curl -s '{{BASE}}/api/conversations' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert {'live','history'} <= set(d); assert {'count','profiles','providers','items'} <= set(d['live']); assert d['history']['available'] is True\""
   },
   {
-   "id": "lc-011",
-   "group": "lifecycle",
-   "title": "workspace work-status endpoint healthy",
-   "cmd": "curl -s '{{BASE}}/api/work/status' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('available') or d\" "
+   "id": "cv-total",
+   "group": "conv",
+   "title": "history reports a real total",
+   "cmd": "curl -s '{{BASE}}/api/conversations' | python3 -c \"import sys,json; d=json.load(sys.stdin); h=d['history']; assert h['total']>0; assert len(h['conversations'])<=int(h['filter']['per'])\""
   },
   {
-   "id": "lc-012",
-   "group": "lifecycle",
-   "title": "work status reports liveness rather than lying",
-   "cmd": "curl -s '{{BASE}}/api/work/status' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'available' in d\""
+   "id": "cv-newest",
+   "group": "conv",
+   "title": "default order is newest activity first",
+   "cmd": "curl -s '{{BASE}}/api/conversations?per=20' | python3 -c \"import sys,json; d=json.load(sys.stdin); ls=[c['last_at'] or '' for c in d['history']['conversations']]; assert ls==sorted(ls, reverse=True), ls[:4]\""
   },
   {
-   "id": "lc-020",
-   "group": "lifecycle",
-   "title": "unknown route 404",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/definitely-not-a-route')\" = \"404\" ]"
+   "id": "cv-pages",
+   "group": "conv",
+   "title": "page count matches the total",
+   "cmd": "curl -s '{{BASE}}/api/conversations?per=20' | python3 -c \"import sys,json,math; d=json.load(sys.stdin); f=d['history']['filter']; assert f['pages']==max(1,math.ceil(f['total']/20)), (f['pages'],f['total'])\""
   },
   {
-   "id": "lc-021",
-   "group": "lifecycle",
-   "title": "traversal in path rejected",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/..%%2fetc%%2fpasswd')\" != \"200\" ]"
+   "id": "cv-nonoverlap",
+   "group": "conv",
+   "title": "consecutive pages do not overlap",
+   "cmd": "curl -s '{{BASE}}/api/conversations?per=5&page=1' > /tmp/cv1.json; curl -s '{{BASE}}/api/conversations?per=5&page=2' > /tmp/cv2.json; python3 -c \"import json; a=[c['id'] for c in json.load(open('/tmp/cv1.json'))['history']['conversations']]; b=[c['id'] for c in json.load(open('/tmp/cv2.json'))['history']['conversations']]; assert not (set(a)&set(b)), set(a)&set(b)\""
   },
   {
-   "id": "lc-022",
-   "group": "lifecycle",
-   "title": "json content type enforced",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: text/plain' -d '{}')\" != \"200\" ]"
+   "id": "cv-sort-oldest",
+   "group": "conv",
+   "title": "sort=oldest reverses the order",
+   "cmd": "curl -s '{{BASE}}/api/conversations?per=10&sort=oldest' | python3 -c \"import sys,json; d=json.load(sys.stdin); h=d['history']; ls=[c['last_at'] or '' for c in h['conversations']]; assert ls==sorted(ls), ls[:4]; assert h['filter']['sort']=='oldest'\""
   },
   {
-   "id": "lc-023",
-   "group": "lifecycle",
-   "title": "API error responses are JSON",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fmissing-xyz' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'error' in d\""
+   "id": "cv-sort-messages",
+   "group": "conv",
+   "title": "sort=messages is monotonic descending",
+   "cmd": "curl -s '{{BASE}}/api/conversations?per=10&sort=messages' | python3 -c \"import sys,json; d=json.load(sys.stdin); m=[c['messages'] or 0 for c in d['history']['conversations']]; assert m==sorted(m, reverse=True), m\""
   },
   {
-   "id": "lc-030",
-   "group": "lifecycle",
-   "title": "alerts API 200",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/alerts')\" = \"200\" ]"
+   "id": "cv-sort-calls",
+   "group": "conv",
+   "title": "sort=calls is monotonic descending",
+   "cmd": "curl -s '{{BASE}}/api/conversations?per=10&sort=calls' | python3 -c \"import sys,json; d=json.load(sys.stdin); c=[x['calls'] or 0 for x in d['history']['conversations']]; assert c==sorted(c, reverse=True), c\""
   },
   {
-   "id": "lc-031",
-   "group": "lifecycle",
-   "title": "usage stats 200",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/usage/stats')\" = \"200\" ]"
+   "id": "cv-sorts-advertised",
+   "group": "conv",
+   "title": "the four sorts are advertised to the client",
+   "cmd": "curl -s '{{BASE}}/api/conversations' | python3 -c \"import sys,json; d=json.load(sys.stdin); keys=[s['key'] for s in d['history']['filter']['sorts']]; assert keys==['newest','oldest','messages','calls'], keys\""
   },
   {
-   "id": "lg-01",
-   "group": "logs-convo",
-   "title": "Logs tab conversations renders",
-   "cmd": "out=$(curl -s '{{BASE}}/logs?view=conversations'); echo \"$out\" | grep -q 'Conversations' && echo \"$out\" | grep -q 'tab-btn'"
+   "id": "cv-filter-profile",
+   "group": "conv",
+   "title": "profile filter narrows and echoes back",
+   "cmd": "curl -s '{{BASE}}/api/conversations' > /tmp/cva.json; curl -s '{{BASE}}/api/conversations?profile=l2' > /tmp/cvb.json; python3 -c \"import json; a=json.load(open('/tmp/cva.json'))['history']; b=json.load(open('/tmp/cvb.json'))['history']; assert b['total']<a['total'], (b['total'],a['total']); assert b['filter']['profile']=='l2'; assert all(c['profile']=='l2' for c in b['conversations'])\""
   },
   {
-   "id": "lg-02",
-   "group": "logs-convo",
-   "title": "Logs tab requests renders",
-   "cmd": "out=$(curl -s '{{BASE}}/logs?view=requests'); echo \"$out\" | grep -q 'Requests' && echo \"$out\" | grep -q 'tab-btn'"
+   "id": "cv-filter-q",
+   "group": "conv",
+   "title": "search by id narrows to one conversation",
+   "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations?q=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); h=d['history']; assert h['total']==1, h['total']; assert h['conversations'][0]['id']=='$cid'\""
   },
   {
-   "id": "lg-03",
-   "group": "logs-convo",
-   "title": "Logs tab providers renders",
-   "cmd": "out=$(curl -s '{{BASE}}/logs?view=providers'); echo \"$out\" | grep -q 'Provider decisions' && echo \"$out\" | grep -q 'tab-btn'"
+   "id": "cv-filter-q-none",
+   "group": "conv",
+   "title": "an impossible search returns zero, not an error",
+   "cmd": "curl -s '{{BASE}}/api/conversations?q=zzzz-no-such-conversation-zzzz' | python3 -c \"import sys,json; d=json.load(sys.stdin); h=d['history']; assert h['total']==0; assert h['conversations']==[]\""
   },
   {
-   "id": "lg-04",
-   "group": "logs-convo",
-   "title": "Logs tab decisions renders",
-   "cmd": "out=$(curl -s '{{BASE}}/logs?view=decisions'); echo \"$out\" | grep -q 'Board decisions' && echo \"$out\" | grep -q 'tab-btn'"
+   "id": "cv-clamp",
+   "group": "conv",
+   "title": "page past the end clamps instead of 500ing",
+   "cmd": "curl -s '{{BASE}}/api/conversations?per=5&page=99999' | python3 -c \"import sys,json; d=json.load(sys.stdin); f=d['history']['filter']; assert f['page']==f['pages'], f\""
   },
   {
-   "id": "lg-005",
-   "group": "logs-convo",
-   "title": "requests tab renders with rows",
-   "cmd": "out=$(curl -s '{{BASE}}/logs?view=requests&per=5'); echo \"$out\" | grep -q 'work-table' && echo \"$out\" | grep -q 'requests'"
+   "id": "cv-idem",
+   "group": "conv",
+   "title": "the list is idempotent",
+   "cmd": "a=$(curl -s '{{BASE}}/api/conversations?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/conversations?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
   },
   {
-   "id": "lg-006",
-   "group": "logs-convo",
-   "title": "requests API rows have conversation links when stamped",
-   "cmd": "curl -s '{{BASE}}/api/work/requests?per=10' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['total']>0\""
+   "id": "cv-msg-400",
+   "group": "conv",
+   "title": "transcript without cid is 400 JSON",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations/messages')\" = \"400\" ] && curl -s '{{BASE}}/api/conversations/messages' | python3 -c \"import sys,json; assert 'error' in json.load(sys.stdin)\""
   },
   {
-   "id": "lg-010",
-   "group": "logs-convo",
-   "title": "conversations exist with names",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['total']>0; assert all(c.get('name') for c in d['conversations'])\""
+   "id": "cv-msg-shape",
+   "group": "conv",
+   "title": "transcript reports its own window honestly",
+   "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations/messages?cid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert {'id','messages','truncated','total','newest'} <= set(d); assert d['id']=='$cid'; assert d['truncated'] == (d['total'] > len(d['messages'])), (d['truncated'], d['total'], len(d['messages']))\""
   },
   {
-   "id": "lg-011",
-   "group": "logs-convo",
-   "title": "conversations paginate",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=3' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['conversations'])<=3; assert d['filter']['per']=='3'\""
+   "id": "cv-msg-order",
+   "group": "conv",
+   "title": "transcript messages are in stored (seq) order",
+   "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations/messages?cid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); sq=[m['seq'] for m in d['messages']]; assert sq==sorted(sq), 'transcript is not in append order'; assert len(set(sq))==len(sq), 'duplicate seq'\""
   },
   {
-   "id": "lg-012",
-   "group": "logs-convo",
-   "title": "profile filter works",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=5&profile=l2' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['total']>=0\""
+   "id": "cv-msg-unknown",
+   "group": "conv",
+   "title": "an unknown cid returns an empty transcript, not a 500",
+   "cmd": "c=$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations/messages?cid=nope'); [ \"$c\" = \"200\" ] && curl -s '{{BASE}}/api/conversations/messages?cid=nope' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['messages']==[]; assert d['total']==0\""
   },
   {
-   "id": "lg-013",
-   "group": "logs-convo",
-   "title": "LLM summaries present (summary_source=llm rows)",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert sum(1 for c in d['conversations'] if c.get('summary'))>=1\""
+   "id": "cv-msg-traversal",
+   "group": "conv",
+   "title": "a traversal-shaped cid does not read the filesystem",
+   "cmd": "c=$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations/messages?cid=../../etc/passwd'); [ \"$c\" != \"500\" ] && curl -s '{{BASE}}/api/conversations/messages?cid=../../etc/passwd' | grep -qv 'root:x:'"
   },
   {
-   "id": "lg-020",
-   "group": "logs-convo",
-   "title": "detail returns chronological events",
-   "cmd": "cid=$(curl -s '{{BASE}}/api/work/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/work/conversations/detail?cid=$cid\" | python3 -c 'import sys,json; ts=[e[\"ts\"] for e in json.load(sys.stdin)[\"events\"]]; assert ts==sorted(ts), \"not chronological\"'"
+   "id": "cv-audit-400",
+   "group": "conv",
+   "title": "audit without cid is 400 JSON",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations/audit')\" = \"400\" ] && curl -s '{{BASE}}/api/conversations/audit' | python3 -c \"import sys,json; assert 'error' in json.load(sys.stdin)\""
   },
   {
-   "id": "lg-021",
-   "group": "logs-convo",
-   "title": "detail requires cid",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/conversations/detail')\" = \"400\" ]"
+   "id": "cv-audit-shape",
+   "group": "conv",
+   "title": "audit reports availability and the rollup",
+   "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations/audit?cid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('available') is True; assert d['id']=='$cid'; assert 'tools' in d and 'first_ask' in d\""
   },
   {
-   "id": "lg-022",
-   "group": "logs-convo",
-   "title": "detail unknown cid returns events empty (not 500)",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/conversations/detail?cid=nope')\" != \"500\" ]"
+   "id": "cv-audit-consistency",
+   "group": "conv",
+   "title": "audit message count equals the transcript total",
+   "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations/messages?cid=$cid\" > /tmp/cvm.json; curl -s \"{{BASE}}/api/conversations/audit?cid=$cid\" > /tmp/cva2.json; python3 -c \"import json; m=json.load(open('/tmp/cvm.json')); a=json.load(open('/tmp/cva2.json')); assert a['messages']==m['total'], (a['messages'], m['total'])\""
   },
   {
-   "id": "lg-030",
-   "group": "logs-convo",
-   "title": "decisions view accessible",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/decisions')\" = \"200\" ]"
+   "id": "cv-audit-toolcount",
+   "group": "conv",
+   "title": "audit tool counts sum to the reported tool_calls",
+   "cmd": "cid=$(curl -s '{{BASE}}/api/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"history\"][\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/conversations/audit?cid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); s=sum(t['count'] for t in d.get('tools') or []); assert s==(d.get('tool_calls') or 0), (s, d.get('tool_calls'))\""
   },
   {
-   "id": "lg-040",
-   "group": "logs-convo",
-   "title": "provider decisions list has rows",
-   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['total']>0\""
+   "id": "cv-audit-unknown",
+   "group": "conv",
+   "title": "an unknown cid reports unavailable, not a 500",
+   "cmd": "c=$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations/audit?cid=nope'); [ \"$c\" = \"200\" ] && curl -s '{{BASE}}/api/conversations/audit?cid=nope' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('available') is False\""
   },
   {
-   "id": "lg-041",
-   "group": "logs-convo",
-   "title": "provider decisions paginate",
-   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=3' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])<=3\""
+   "id": "cv-page",
+   "group": "conv",
+   "title": "the page renders live + history with a caption",
+   "cmd": "curl -s '{{BASE}}/conversations' | python3 -c \"import sys,re; h=sys.stdin.read(); assert 'In flight' in h; assert 'History' in h; assert len(re.findall(r'<caption', h))>=2, 'a table is uncaptioned'\""
   },
   {
-   "id": "lg-050",
-   "group": "logs-convo",
-   "title": "logs page ships the shared table module",
-   "cmd": "out=$(curl -s '{{BASE}}/logs?view=requests'); echo \"$out\" | grep -q 'logtable.js' && echo \"$out\" | grep -q 'LCPTable.mount'"
+   "id": "cv-page-scope",
+   "group": "conv",
+   "title": "every conversation header carries scope=col",
+   "cmd": "curl -s '{{BASE}}/conversations' | python3 -c \"import sys,re; h=sys.stdin.read(); ths=re.findall(r'<th[\\s>](?![^>]*scope)', h); assert not ths, len(ths)\""
   },
   {
-   "id": "lg-051",
-   "group": "logs-convo",
-   "title": "every logs tab ships a table shell",
-   "cmd": "for v in conversations requests providers decisions; do out=$(curl -s \"{{BASE}}/logs?view=$v\"); echo \"$out\" | grep -q 'work-table' || exit 1; echo \"$out\" | grep -q 'logtable.js' || exit 1; done"
+   "id": "lg-req-shape",
+   "group": "logs",
+   "title": "requests default: newest first, 20 rows",
+   "cmd": "curl -s '{{BASE}}/api/work/requests' | python3 -c \"import sys,json; d=json.load(sys.stdin); f=d['filter']; assert f['sort']=='newest', f; assert f['per']=='20'; assert len(d['rows'])<=20; assert d['total']>0\""
   },
   {
-   "id": "lg-052",
-   "group": "logs-convo",
-   "title": "requests API reports newest-first default",
-   "cmd": "curl -s '{{BASE}}/api/work/requests?per=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); f=d['filter']; assert f['sort']=='newest', f; assert [s['key'] for s in f['sorts']][0]=='newest'; assert len(d['rows'])<=2\""
+   "id": "lg-req-pages",
+   "group": "logs",
+   "title": "requests page count matches the total",
+   "cmd": "curl -s '{{BASE}}/api/work/requests?per=20' | python3 -c \"import sys,json,math; d=json.load(sys.stdin); f=d['filter']; assert f['pages']==max(1,math.ceil(f['total']/20)), (f['pages'],f['total'])\""
   },
   {
-   "id": "lg-053",
-   "group": "logs-convo",
+   "id": "lg-req-nonoverlap",
+   "group": "logs",
    "title": "requests pages do not overlap or drop rows",
-   "cmd": "curl -s '{{BASE}}/api/work/requests?per=3&page=1' > /tmp/lg1.json; curl -s '{{BASE}}/api/work/requests?per=3&page=2' > /tmp/lg2.json; python3 -c \"import json; a=json.load(open('/tmp/lg1.json'))['rows']; b=json.load(open('/tmp/lg2.json'))['rows']; ia=[r['id'] for r in a]; ib=[r['id'] for r in b]; assert len(set(ia)&set(ib))==0; assert min(ia)>max(ib)\""
+   "cmd": "curl -s '{{BASE}}/api/work/requests?per=3&page=1' > /tmp/lg1.json; curl -s '{{BASE}}/api/work/requests?per=3&page=2' > /tmp/lg2.json; python3 -c \"import json; a=[r['id'] for r in json.load(open('/tmp/lg1.json'))['rows']]; b=[r['id'] for r in json.load(open('/tmp/lg2.json'))['rows']]; assert not (set(a)&set(b)); assert min(a)>max(b)\""
   },
   {
-   "id": "lg-054",
-   "group": "logs-convo",
+   "id": "lg-req-oldest",
+   "group": "logs",
    "title": "requests sort=oldest flips the order",
    "cmd": "curl -s '{{BASE}}/api/work/requests?per=3&sort=oldest' | python3 -c \"import sys,json; d=json.load(sys.stdin); ids=[r['id'] for r in d['rows']]; assert ids==sorted(ids), ids; assert d['filter']['sort']=='oldest'\""
   },
   {
-   "id": "lg-055",
-   "group": "logs-convo",
-   "title": "unknown sort key falls back to newest (no SQL leak)",
-   "cmd": "curl -s '{{BASE}}/api/work/requests?per=2&sort=id%20DESC%3B%20DROP%20TABLE%20requests' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['sort']=='newest'\"; curl -s '{{BASE}}/api/work/requests?per=1' | python3 -c \"import sys,json; assert json.load(sys.stdin)['total']>0\""
+   "id": "lg-req-cost",
+   "group": "logs",
+   "title": "requests sort=cost is monotonic descending",
+   "cmd": "curl -s '{{BASE}}/api/work/requests?per=5&sort=cost' | python3 -c \"import sys,json; d=json.load(sys.stdin); c=[r['cost'] for r in d['rows']]; assert c==sorted(c, reverse=True), c; assert d['filter']['sort']=='cost'\""
   },
   {
-   "id": "lg-056",
-   "group": "logs-convo",
+   "id": "lg-req-tokens",
+   "group": "logs",
+   "title": "requests sort=tokens is monotonic descending",
+   "cmd": "curl -s '{{BASE}}/api/work/requests?per=5&sort=tokens' | python3 -c \"import sys,json; d=json.load(sys.stdin); t=[(r['prompt_tokens'] or 0)+(r['completion_tokens'] or 0) for r in d['rows']]; assert t==sorted(t, reverse=True), t\""
+  },
+  {
+   "id": "lg-req-latency",
+   "group": "logs",
+   "title": "requests sort=latency is monotonic descending",
+   "cmd": "curl -s '{{BASE}}/api/work/requests?per=5&sort=latency' | python3 -c \"import sys,json; d=json.load(sys.stdin); l=[r['latency_ms'] or 0 for r in d['rows']]; assert l==sorted(l, reverse=True), l\""
+  },
+  {
+   "id": "lg-req-inject",
+   "group": "logs",
+   "title": "a sort key that is SQL is rejected, and the table survives",
+   "cmd": "curl -s '{{BASE}}/api/work/requests?per=2&sort=id%20DESC%3B%20DROP%20TABLE%20requests' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['sort']=='newest', d['filter']['sort']\"; curl -s '{{BASE}}/api/work/requests?per=1' | python3 -c \"import sys,json; assert json.load(sys.stdin)['total']>0\""
+  },
+  {
+   "id": "lg-req-clamp-page",
+   "group": "logs",
    "title": "page past the end clamps to the last page",
    "cmd": "curl -s '{{BASE}}/api/work/requests?per=5&page=99999' | python3 -c \"import sys,json; d=json.load(sys.stdin); f=d['filter']; assert f['page']==f['pages'], f; assert len(d['rows'])>0\""
   },
   {
-   "id": "lg-057",
-   "group": "logs-convo",
-   "title": "per=all still honoured by the API but not offered per-tab",
-   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=all' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])==d['total']; assert 'all' not in d['filter']['per_choices']\""
+   "id": "lg-req-clamp-per0",
+   "group": "logs",
+   "title": "per=0 clamps to 1 rather than dividing by zero",
+   "cmd": "curl -s '{{BASE}}/api/work/requests?per=0' | python3 -c \"import sys,json; d=json.load(sys.stdin); f=d['filter']; assert f['per']=='1', f; assert len(d['rows'])==1\""
   },
   {
-   "id": "lg-058",
-   "group": "logs-convo",
-   "title": "provider decisions default is newest-first",
-   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); ids=[r['id'] for r in d['rows']]; assert ids==sorted(ids, reverse=True), ids\""
+   "id": "lg-req-clamp-permax",
+   "group": "logs",
+   "title": "an absurd per is capped",
+   "cmd": "curl -s '{{BASE}}/api/work/requests?per=100000' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert int(d['filter']['per'])<=500, d['filter']['per']; assert len(d['rows'])<=500\""
   },
   {
-   "id": "lg-059",
-   "group": "logs-convo",
-   "title": "board decisions ledger paginates and reports sorts",
-   "cmd": "curl -s '{{BASE}}/api/work/decisions?per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['ledger']['rows'])<=5; f=d['filter']; assert f['sort']=='newest'; assert len(d['filter']['sorts'])>=2\""
+   "id": "lg-req-profile",
+   "group": "logs",
+   "title": "profile filter narrows and echoes back",
+   "cmd": "curl -s '{{BASE}}/api/work/requests' > /tmp/lga.json; curl -s '{{BASE}}/api/work/requests?profile=l2' > /tmp/lgb.json; python3 -c \"import json; a=json.load(open('/tmp/lga.json')); b=json.load(open('/tmp/lgb.json')); assert b['total']<a['total'], (b['total'],a['total']); assert b['filter']['profile']=='l2'; assert all(r['profile']=='l2' for r in b['rows'])\""
   },
   {
-   "id": "lg-060",
-   "group": "logs-convo",
-   "title": "board decisions funnel covers the whole ledger, not the page",
-   "cmd": "curl -s '{{BASE}}/api/work/decisions?per=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); rows=len(d['ledger']['rows']); cons=d['funnel']['considered']; assert cons>=rows, (cons, rows); assert sum(d['funnel']['by_label'].values())==cons\""
+   "id": "lg-req-profile-none",
+   "group": "logs",
+   "title": "an unknown profile returns zero, not an error",
+   "cmd": "curl -s '{{BASE}}/api/work/requests?profile=definitely-not-a-profile' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['total']==0; assert d['rows']==[]\""
   },
   {
-   "id": "lg-061",
-   "group": "logs-convo",
-   "title": "board decisions ledger without params is the whole ledger (back-compat)",
-   "cmd": "curl -s '{{BASE}}/api/work/decisions' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['ledger']['count']==len(d['ledger']['rows'])\""
+   "id": "lg-req-perall",
+   "group": "logs",
+   "title": "per=all returns every row on one page",
+   "cmd": "curl -s '{{BASE}}/api/work/requests?per=all' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])==d['total']; assert d['filter']['pages']==1\""
   },
   {
-   "id": "lg-062",
-   "group": "logs-convo",
-   "title": "conversations default is newest activity first",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=3' | python3 -c \"import sys,json; d=json.load(sys.stdin); ls=[c['last_at'] for c in d['conversations']]; assert ls==sorted(ls, reverse=True), ls\""
+   "id": "lg-req-idem",
+   "group": "logs",
+   "title": "two identical requests return identical bytes",
+   "cmd": "a=$(curl -s '{{BASE}}/api/work/requests?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/requests?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
   },
   {
-   "id": "lg-063",
-   "group": "logs-convo",
-   "title": "conversations qid narrows to the named conversation",
-   "cmd": "cid=$(curl -s '{{BASE}}/api/work/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/work/conversations?qid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['total']==1 and d['conversations'][0]['id']=='$cid'\""
+   "id": "lg-dec-shape",
+   "group": "logs",
+   "title": "decisions default: newest first",
+   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); ids=[r['id'] for r in d['rows']]; assert ids==sorted(ids, reverse=True), ids; assert d['total']>0\""
   },
   {
-   "id": "lg-064",
-   "group": "logs-convo",
-   "title": "conversations mount wires the detail endpoint (expand)",
-   "cmd": "out=$(curl -s '{{BASE}}/logs?view=conversations'); echo \"$out\" | grep -q \"endpoint: '/api/work/conversations/detail'\" && echo \"$out\" | grep -q 'convo-timeline'"
+   "id": "lg-dec-oldest",
+   "group": "logs",
+   "title": "decisions sort=oldest flips the order",
+   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=3&sort=oldest' | python3 -c \"import sys,json; d=json.load(sys.stdin); ids=[r['id'] for r in d['rows']]; assert ids==sorted(ids), ids\""
   },
   {
-   "id": "lg-065",
-   "group": "logs-convo",
-   "title": "conversation detail payload carries the event window",
-   "cmd": "cid=$(curl -s '{{BASE}}/api/work/conversations?per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"conversations\"][0][\"id\"])'); curl -s \"{{BASE}}/api/work/conversations/detail?cid=$cid\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['id']=='$cid'; assert len(d['events'])>0; assert 'kind' in d['events'][0]\""
+   "id": "lg-dec-pages",
+   "group": "logs",
+   "title": "decisions page count matches the total",
+   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=20' | python3 -c \"import sys,json,math; d=json.load(sys.stdin); f=d['filter']; assert f['pages']==max(1,math.ceil(f['total']/20)), (f['pages'],f['total'])\""
   },
   {
-   "id": "ms-001",
-   "group": "misc",
-   "title": "retired /work/decisions page 404",
+   "id": "lg-dec-perall",
+   "group": "logs",
+   "title": "decisions per=all returns every row",
+   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=all' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])==d['total']\""
+  },
+  {
+   "id": "lg-dec-fields",
+   "group": "logs",
+   "title": "every decision row carries the routing verdict",
+   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=25' | python3 -c \"import sys,json; d=json.load(sys.stdin); miss=[r['id'] for r in d['rows'] if not (r.get('profile') and r.get('provider') and r.get('model') and r.get('action'))]; assert not miss, miss\""
+  },
+  {
+   "id": "lg-dec-idem",
+   "group": "logs",
+   "title": "decisions are idempotent",
+   "cmd": "a=$(curl -s '{{BASE}}/api/work/provider-decisions?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/provider-decisions?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
+  },
+  {
+   "id": "lg-api-logs",
+   "group": "logs",
+   "title": "/api/logs reports total, rows and facets",
+   "cmd": "curl -s '{{BASE}}/api/logs' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['total']>0; assert d['rows']; assert {'total','limit','offset','rows','profiles','providers'} <= set(d)\""
+  },
+  {
+   "id": "lg-api-logs-limit",
+   "group": "logs",
+   "title": "/api/logs honours its limit",
+   "cmd": "curl -s '{{BASE}}/api/logs?limit=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])<=5, len(d['rows'])\""
+  },
+  {
+   "id": "lg-page-shell",
+   "group": "logs",
+   "title": "the logs tab ships the shared table module",
+   "cmd": "out=$(curl -s '{{BASE}}/activity?tab=logs'); echo \"$out\" | grep -q 'logtable.js' && echo \"$out\" | grep -q 'lg-rows' && echo \"$out\" | grep -q 'lg-controls'"
+  },
+  {
+   "id": "lg-page-captions",
+   "group": "logs",
+   "title": "every log table carries a non-empty caption",
+   "cmd": "for t in logs 'logs&view=providers'; do curl -s \"{{BASE}}/activity?tab=$t\" | python3 -c \"import sys,re; h=sys.stdin.read(); caps=re.findall(r'<caption[^>]*>(.*?)</caption>', h, re.S); assert len(caps)==1, (len(caps), caps); assert caps[0].strip(), 'empty caption'\" || exit 1; done"
+  },
+  {
+   "id": "lg-page-scope",
+   "group": "logs",
+   "title": "every log header carries scope=col",
+   "cmd": "for t in logs 'logs&view=providers'; do curl -s \"{{BASE}}/activity?tab=$t\" | python3 -c \"import sys,re; h=sys.stdin.read(); ths=re.findall(r'<th[\\s>](?![^>]*scope)', h); assert not ths, len(ths)\" || exit 1; done"
+  },
+  {
+   "id": "pg-profiles",
+   "group": "pages",
+   "title": "page /profiles renders 'Profiles'",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/profiles')\" = \"200\" ] && curl -s '{{BASE}}/profiles' | grep -qF 'Profiles'"
+  },
+  {
+   "id": "pg-models",
+   "group": "pages",
+   "title": "page /models renders 'Models'",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/models')\" = \"200\" ] && curl -s '{{BASE}}/models' | grep -qF 'Models'"
+  },
+  {
+   "id": "pg-models-providers",
+   "group": "pages",
+   "title": "page /models?tab=providers renders 'Providers'",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/models?tab=providers')\" = \"200\" ] && curl -s '{{BASE}}/models?tab=providers' | grep -qF 'Providers'"
+  },
+  {
+   "id": "pg-usage",
+   "group": "pages",
+   "title": "page /usage renders 'Usage'",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/usage')\" = \"200\" ] && curl -s '{{BASE}}/usage' | grep -qF 'Usage'"
+  },
+  {
+   "id": "pg-alerts",
+   "group": "pages",
+   "title": "page /alerts renders 'Alerts'",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/alerts')\" = \"200\" ] && curl -s '{{BASE}}/alerts' | grep -qF 'Alerts'"
+  },
+  {
+   "id": "pg-conversations",
+   "group": "pages",
+   "title": "page /conversations renders 'Conversations'",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/conversations')\" = \"200\" ] && curl -s '{{BASE}}/conversations' | grep -qF 'Conversations'"
+  },
+  {
+   "id": "pg-activity",
+   "group": "pages",
+   "title": "page /activity renders 'Activity'",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/activity')\" = \"200\" ] && curl -s '{{BASE}}/activity' | grep -qF 'Activity'"
+  },
+  {
+   "id": "pg-activity-logs",
+   "group": "pages",
+   "title": "page /activity?tab=logs renders 'lg-rows'",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/activity?tab=logs')\" = \"200\" ] && curl -s '{{BASE}}/activity?tab=logs' | grep -qF 'lg-rows'"
+  },
+  {
+   "id": "pg-r-root",
+   "group": "pages",
+   "title": "/ redirects to /activity",
+   "cmd": "loc=$(curl -s -o /dev/null -w '%{redirect_url}' '{{BASE}}/'); case \"$loc\" in */activity*) exit 0;; *) echo \"got $loc\"; exit 1;; esac"
+  },
+  {
+   "id": "pg-r-dashboard",
+   "group": "pages",
+   "title": "/dashboard redirects to /activity",
+   "cmd": "loc=$(curl -s -o /dev/null -w '%{redirect_url}' '{{BASE}}/dashboard'); case \"$loc\" in */activity*) exit 0;; *) echo \"got $loc\"; exit 1;; esac"
+  },
+  {
+   "id": "pg-r-keys",
+   "group": "pages",
+   "title": "/keys redirects to /profiles?tab=keys",
+   "cmd": "loc=$(curl -s -o /dev/null -w '%{redirect_url}' '{{BASE}}/keys'); case \"$loc\" in */profiles?tab=keys*) exit 0;; *) echo \"got $loc\"; exit 1;; esac"
+  },
+  {
+   "id": "pg-r-providers",
+   "group": "pages",
+   "title": "/providers redirects to /models?tab=providers",
+   "cmd": "loc=$(curl -s -o /dev/null -w '%{redirect_url}' '{{BASE}}/providers'); case \"$loc\" in */models?tab=providers*) exit 0;; *) echo \"got $loc\"; exit 1;; esac"
+  },
+  {
+   "id": "pg-r-logs",
+   "group": "pages",
+   "title": "/logs redirects to /activity?tab=logs",
+   "cmd": "loc=$(curl -s -o /dev/null -w '%{redirect_url}' '{{BASE}}/logs'); case \"$loc\" in */activity?tab=logs*) exit 0;; *) echo \"got $loc\"; exit 1;; esac"
+  },
+  {
+   "id": "pg-r-work-config",
+   "group": "pages",
+   "title": "/work/config redirects to /profiles",
+   "cmd": "loc=$(curl -s -o /dev/null -w '%{redirect_url}' '{{BASE}}/work/config'); case \"$loc\" in */profiles*) exit 0;; *) echo \"got $loc\"; exit 1;; esac"
+  },
+  {
+   "id": "pg-r-work-cron",
+   "group": "pages",
+   "title": "/work/cron redirects to /profiles",
+   "cmd": "loc=$(curl -s -o /dev/null -w '%{redirect_url}' '{{BASE}}/work/cron'); case \"$loc\" in */profiles*) exit 0;; *) echo \"got $loc\"; exit 1;; esac"
+  },
+  {
+   "id": "pg-404-setup",
+   "group": "pages",
+   "title": "retired /setup is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/setup')\" = \"404\" ]"
+  },
+  {
+   "id": "pg-404-work-tasks",
+   "group": "pages",
+   "title": "retired /work/tasks is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/work/tasks')\" = \"404\" ]"
+  },
+  {
+   "id": "pg-404-work-fleet",
+   "group": "pages",
+   "title": "retired /work/fleet is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/work/fleet')\" = \"404\" ]"
+  },
+  {
+   "id": "pg-404-work-decisions",
+   "group": "pages",
+   "title": "retired /work/decisions is 404",
    "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/work/decisions')\" = \"404\" ]"
   },
   {
-   "id": "ms-002",
-   "group": "misc",
-   "title": "retired /work/conversations page 404",
+   "id": "pg-404-work-conversations",
+   "group": "pages",
+   "title": "retired /work/conversations is 404",
    "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/work/conversations')\" = \"404\" ]"
   },
   {
-   "id": "ms-req-3",
-   "group": "misc",
-   "title": "requests per=3",
-   "cmd": "curl -s '{{BASE}}/api/work/requests?per=3' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])<=3; assert d['total']>0\""
-  },
-  {
-   "id": "ms-pro-3",
-   "group": "misc",
-   "title": "provider-decisions per=3",
-   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=3' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])<=3; assert d['total']>0\""
-  },
-  {
-   "id": "ms-req-7",
-   "group": "misc",
-   "title": "requests per=7",
-   "cmd": "curl -s '{{BASE}}/api/work/requests?per=7' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])<=7; assert d['total']>0\""
-  },
-  {
-   "id": "ms-pro-7",
-   "group": "misc",
-   "title": "provider-decisions per=7",
-   "cmd": "curl -s '{{BASE}}/api/work/provider-decisions?per=7' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['rows'])<=7; assert d['total']>0\""
-  },
-  {
-   "id": "ms-conv-1",
-   "group": "misc",
-   "title": "newest page names are not bare fallbacks",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=10' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert not any(c['name'].startswith('Conversation c') for c in d['conversations'])\""
-  },
-  {
-   "id": "ms-conv-2",
-   "group": "misc",
-   "title": "LLM summary coverage > 500 conversations",
-   "cmd": "python3 -c \"import sqlite3; con=sqlite3.connect('/your/data/app/lcp/data/costs.db'); n=con.execute(\\\"SELECT count(*) FROM conversations WHERE summary_source='llm'\\\").fetchone()[0]; assert n>500, n\""
-  },
-  {
-   "id": "ms-conv-3",
-   "group": "misc",
-   "title": "conversations page shows names in table",
-   "cmd": "out=$(curl -s '{{BASE}}/logs?view=conversations&per=5'); echo \"$out\" | grep -c 'work-job-name' | python3 -c 'import sys; assert int(sys.stdin.read()) >= 5'"
-  },
-  {
-   "id": "ms-svc-1",
-   "group": "misc",
-   "title": "convo-summarize timer active",
-   "cmd": "systemctl is-active work-layers-convo-summarize.timer | grep -q active"
-  },
-  {
-   "id": "ms-svc-2",
-   "group": "misc",
-   "title": "convo-sync timer active",
-   "cmd": "systemctl is-active work-layers-convo-sync.timer | grep -q active"
-  },
-  {
-   "id": "ms-svc-3",
-   "group": "misc",
-   "title": "classify timer active",
-   "cmd": "systemctl is-active work-layers-classify.timer | grep -q active"
-  },
-  {
-   "id": "ms-svc-4",
-   "group": "misc",
-   "title": "cron snapshot service ran recently",
-   "cmd": "python3 -c \"import json,time; d=json.load(open('/root/.hermes/profiles/homelab-expert-l2/work/tasks/.work-layers/cron-jobs.json')); assert time.time()-d['generated_at_ts']<3600\""
-  },
-  {
-   "id": "ms-svc-5",
-   "group": "misc",
-   "title": "lcp-staging container running",
-   "cmd": "docker inspect -f '{{.State.Running}}' lcp-staging | grep -q true"
-  },
-  {
-   "id": "ms-svc-6",
-   "group": "misc",
-   "title": "convo summarizer lock released (no stuck run)",
-   "cmd": "pgrep -f summarize_convs.py | wc -l | python3 -c 'import sys; assert int(sys.stdin.read()) <= 1'"
-  },
-  {
-   "id": "ms-fx-1",
-   "group": "misc",
-   "title": "streaming chat returns SSE",
-   "cmd": "out=$(curl -s -N -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":6}'); echo \"$out\" | grep -q 'data:'"
-  },
-  {
-   "id": "ms-fx-2",
-   "group": "misc",
-   "title": "chat with unknown model never 5xx (chain fallback or 4xx)",
-   "cmd": "code=$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"nope/nope\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":6}'); [ \"$code\" != \"500\" ] && [ \"$code\" != \"000\" ]"
-  },
-  {
-   "id": "ms-nav-1",
-   "group": "misc",
-   "title": "exactly 4 nav groups",
-   "cmd": "out=$(curl -s '{{BASE}}/work/tasks'); echo \"$out\" | grep -c 'nav-label' | python3 -c 'import sys; assert int(sys.stdin.read())==4'"
-  },
-  {
-   "id": "ms-nav-2",
-   "group": "misc",
-   "title": "Tasks link present once in nav",
-   "cmd": "out=$(curl -s '{{BASE}}/work/tasks'); echo \"$out\" | grep -c 'href=\"/work/tasks\"' | python3 -c 'import sys; assert int(sys.stdin.read())==1'"
-  },
-  {
-   "id": "pg-001",
+   "id": "pg-404-api-setup",
    "group": "pages",
-   "title": "Dashboard",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/dashboard')\" = \"200\" ] && out=$(curl -s '{{BASE}}/dashboard') && echo \"$out\" | grep -q 'Monitor' && out=$(curl -s '{{BASE}}/dashboard') && echo \"$out\" | grep -q 'Providers'"
+   "title": "retired /api/setup is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/setup')\" = \"404\" ]"
   },
   {
-   "id": "pg-002",
+   "id": "pg-404-api-work-tasks",
    "group": "pages",
-   "title": "Usage page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/usage')\" = \"200\" ] && out=$(curl -s '{{BASE}}/usage') && echo \"$out\" | grep -q 'Usage'"
+   "title": "retired /api/work/tasks is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks')\" = \"404\" ]"
   },
   {
-   "id": "pg-003",
+   "id": "pg-404-api-work-fleet",
    "group": "pages",
-   "title": "Logs unified",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/logs')\" = \"200\" ] && out=$(curl -s '{{BASE}}/logs') && echo \"$out\" | grep -q 'Conversations' && out=$(curl -s '{{BASE}}/logs') && echo \"$out\" | grep -q 'Requests' && out=$(curl -s '{{BASE}}/logs') && echo \"$out\" | grep -q 'Provider decisions' && out=$(curl -s '{{BASE}}/logs') && echo \"$out\" | grep -q 'Board decisions'"
+   "title": "retired /api/work/fleet is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/fleet')\" = \"404\" ]"
   },
   {
-   "id": "pg-004",
+   "id": "pg-404-api-work-status",
    "group": "pages",
-   "title": "Logs conversations tab",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/logs?view=conversations')\" = \"200\" ] && out=$(curl -s '{{BASE}}/logs?view=conversations') && echo \"$out\" | grep -q 'tab-btn'"
+   "title": "retired /api/work/status is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/status')\" = \"404\" ]"
   },
   {
-   "id": "pg-005",
+   "id": "pg-404-api-work-cron",
    "group": "pages",
-   "title": "Logs requests tab",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/logs?view=requests')\" = \"200\" ] && out=$(curl -s '{{BASE}}/logs?view=requests') && echo \"$out\" | grep -q 'tab-btn'"
+   "title": "retired /api/work/cron is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/cron')\" = \"404\" ]"
   },
   {
-   "id": "pg-006",
+   "id": "pg-404-api-work-cron-ops",
    "group": "pages",
-   "title": "Logs providers tab",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/logs?view=providers')\" = \"200\" ] && out=$(curl -s '{{BASE}}/logs?view=providers') && echo \"$out\" | grep -q 'tab-btn'"
+   "title": "retired /api/work/cron/ops is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/cron/ops')\" = \"404\" ]"
   },
   {
-   "id": "pg-007",
+   "id": "pg-404-api-work-sources",
    "group": "pages",
-   "title": "Logs decisions tab",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/logs?view=decisions')\" = \"200\" ] && out=$(curl -s '{{BASE}}/logs?view=decisions') && echo \"$out\" | grep -q 'tab-btn'"
+   "title": "retired /api/work/sources is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/sources')\" = \"404\" ]"
   },
   {
-   "id": "pg-008",
+   "id": "pg-404-api-work-decisions",
    "group": "pages",
-   "title": "Alerts page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/alerts')\" = \"200\" ] && out=$(curl -s '{{BASE}}/alerts') && echo \"$out\" | grep -q 'Alerts'"
+   "title": "retired /api/work/decisions is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/decisions')\" = \"404\" ]"
   },
   {
-   "id": "pg-009",
+   "id": "pg-404-api-work-conversations",
    "group": "pages",
-   "title": "Providers page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/providers')\" = \"200\" ] && out=$(curl -s '{{BASE}}/providers') && echo \"$out\" | grep -q 'Providers'"
+   "title": "retired /api/work/conversations is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/conversations')\" = \"404\" ]"
   },
   {
-   "id": "pg-010",
+   "id": "pg-nav-1",
    "group": "pages",
-   "title": "Models page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/models')\" = \"200\" ] && out=$(curl -s '{{BASE}}/models') && echo \"$out\" | grep -q 'Models'"
+   "title": "nav lists exactly six entries, in routing order",
+   "cmd": "curl -s '{{BASE}}/activity' | python3 -c \"import sys,re; h=sys.stdin.read(); nav=re.search(r'<nav class=\\\"sidebar-nav\\\"[^>]*>(.*?)</nav>', h, re.S).group(1); items=[re.sub(r'\\s+',' ',re.sub(r'<[^>]+>','',x)).strip().split(' ')[0] for x in re.findall(r'<a [^>]*>(.*?)</a>', nav, re.S)]; print(items); assert items==['Profiles','Models','Activity','Conversations','Usage','Alerts'], items\""
   },
   {
-   "id": "pg-011",
+   "id": "pg-nav-2",
    "group": "pages",
-   "title": "Profiles page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/profiles')\" = \"200\" ] && out=$(curl -s '{{BASE}}/profiles') && echo \"$out\" | grep -q 'Profiles'"
+   "title": "no agent-infrastructure nav entries survive",
+   "cmd": "curl -s '{{BASE}}/activity' | python3 -c \"import sys; h=sys.stdin.read(); bad=[n for n in ('>Skills<','>Memory<','>Cron<','>Tasks<','>Fleet<','>Setup<') if n in h]; assert not bad, bad\""
   },
   {
-   "id": "pg-012",
+   "id": "pg-nav-3",
    "group": "pages",
-   "title": "API Keys page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/keys')\" = \"200\" ] && out=$(curl -s '{{BASE}}/keys') && echo \"$out\" | grep -q 'API Keys'"
+   "title": "sign out is a button, not a bare link",
+   "cmd": "curl -s '{{BASE}}/activity' | python3 -c \"import sys; h=sys.stdin.read(); assert 'sb-signout' in h, 'no .sb-signout'; assert 'Sign out' in h\""
   },
   {
-   "id": "pg-013",
+   "id": "pg-prof-1",
    "group": "pages",
-   "title": "Tasks page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/work/tasks')\" = \"200\" ] && out=$(curl -s '{{BASE}}/work/tasks') && echo \"$out\" | grep -q 'task-search' && out=$(curl -s '{{BASE}}/work/tasks') && echo \"$out\" | grep -q 'task-rows'"
+   "title": "Profiles has no tab strip (Config left)",
+   "cmd": "curl -s '{{BASE}}/profiles' | python3 -c \"import sys; h=sys.stdin.read(); assert 'page-tabs' not in h, 'tab strip is back'; assert 'sources-form' not in h, 'config form is back'\""
   },
   {
-   "id": "pg-014",
+   "id": "pg-prof-2",
    "group": "pages",
-   "title": "Fleet page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/work/fleet')\" = \"200\" ] && out=$(curl -s '{{BASE}}/work/fleet') && echo \"$out\" | grep -q 'Fleet'"
+   "title": "a retired ?tab= value lands on the directory",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/profiles?tab=config')\" = \"200\" ] && curl -s '{{BASE}}/profiles?tab=config' | grep -qF 'Profiles'"
   },
   {
-   "id": "pg-015",
+   "id": "pg-model-1",
    "group": "pages",
-   "title": "Cron page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/work/cron')\" = \"200\" ] && out=$(curl -s '{{BASE}}/work/cron') && echo \"$out\" | grep -q 'cron-new-btn' && out=$(curl -s '{{BASE}}/work/cron') && echo \"$out\" | grep -q 'work-chip'"
+   "title": "Models keeps its tab strip",
+   "cmd": "curl -s '{{BASE}}/models' | python3 -c \"import sys; h=sys.stdin.read(); assert 'page-tabs' in h, 'Models lost its tabs'\""
   },
   {
-   "id": "pg-016",
-   "group": "pages",
-   "title": "Work config page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/work/config')\" = \"200\" ] && out=$(curl -s '{{BASE}}/work/config') && echo \"$out\" | grep -q 'sources-form' && out=$(curl -s '{{BASE}}/work/config') && echo \"$out\" | grep -q 'Save sources'"
+   "id": "px-200",
+   "group": "proxy",
+   "title": "a known profile answers 200",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":8}'); [ \"$c\" = \"200\" ] || [ \"$c\" = \"201\" ]"
   },
   {
-   "id": "pg-017",
-   "group": "pages",
-   "title": "Setup page",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/setup')\" = \"200\" ] && out=$(curl -s '{{BASE}}/setup') && echo \"$out\" | grep -q 'Setup'"
+   "id": "px-json",
+   "group": "proxy",
+   "title": "the reply is JSON with an OpenAI-shaped body",
+   "cmd": "curl -q -s -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":8}' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'choices' in d or 'error' in d, list(d)\""
   },
   {
-   "id": "pg-018",
-   "group": "pages",
-   "title": "Nav groups ordered Work/Gateway/Monitor/Admin",
-   "cmd": "curl -s \"{{BASE}}/work/tasks\" | python3 -c \"import sys; h=sys.stdin.read(); w=h.find('nav-label\\\">Work</div>'); g=h.find('nav-label\\\">Gateway</div>'); m=h.find('nav-label\\\">Monitor</div>'); a=h.find('nav-label\\\">Admin</div>'); assert -1 < w < g < m < a, (w,g,m,a)\""
+   "id": "px-unknown-profile",
+   "group": "proxy",
+   "title": "an authenticated unknown profile is 400, not a silent default",
+   "cmd": "c=$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/nope/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":8}'); [ \"$c\" = \"400\" ]"
   },
   {
-   "id": "api-001",
-   "group": "api",
-   "title": "/api/setup",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/setup')\" = \"200\" ]"
+   "id": "px-unknown-profile-msg",
+   "group": "proxy",
+   "title": "the 400 names the bad profile",
+   "cmd": "curl -s -X POST '{{BASE}}/nope/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":8}' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'error' in d; assert 'nope' in d['error'], d['error']\""
   },
   {
-   "id": "api-002",
-   "group": "api",
-   "title": "/api/daily-costs",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/daily-costs')\" = \"200\" ]"
+   "id": "px-unknown-anon",
+   "group": "proxy",
+   "title": "anonymous unknown profile is 302, not a profile-enumeration oracle",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/nope/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":8}'); [ \"$c\" = \"302\" ]"
   },
   {
-   "id": "api-003",
-   "group": "api",
-   "title": "/api/providers",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/providers')\" = \"200\" ]"
+   "id": "px-malformed",
+   "group": "proxy",
+   "title": "a malformed body is 400, not 500",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{bad'); [ \"$c\" = \"400\" ]"
   },
   {
-   "id": "api-004",
-   "group": "api",
-   "title": "/api/models/registry",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/models/registry')\" = \"200\" ]"
+   "id": "px-unknown-model",
+   "group": "proxy",
+   "title": "an unknown model never 5xxes (chain fallback)",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"nope/nope\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":4}'); [ \"$c\" != \"500\" ] && [ \"$c\" != \"000\" ]"
   },
   {
-   "id": "api-005",
-   "group": "api",
-   "title": "/api/profiles",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/profiles')\" = \"200\" ]"
+   "id": "px-content-type",
+   "group": "proxy",
+   "title": "a text/plain body is not accepted as JSON",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: text/plain' -d '{}'); [ \"$c\" != \"200\" ]"
   },
   {
-   "id": "api-006",
-   "group": "api",
-   "title": "/api/work/tasks?lite=1&per=5",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks?lite=1&per=5')\" = \"200\" ] && curl -s '{{BASE}}/api/work/tasks?lite=1&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('tasks') is not None, 'missing key tasks'\""
+   "id": "px-stream",
+   "group": "proxy",
+   "title": "stream=true returns SSE data frames",
+   "cmd": "out=$(curl -q -s -N -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":6}'); echo \"$out\" | grep -q 'data:'"
   },
   {
-   "id": "api-007",
-   "group": "api",
-   "title": "/api/work/tasks/detail?task=in_progress%2Flcp-pentest-fixes",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks/detail?task=in_progress%2Flcp-pentest-fixes')\" = \"200\" ] ; code=$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks/detail?task=in_progress%2Flcp-pentest-fixes'); [ \"$code\" = \"200\" ] || [ \"$code\" = \"404\" ]"
+   "id": "px-tools",
+   "group": "proxy",
+   "title": "a tools payload is accepted",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l2/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"what is 2+2\"}],\"max_tokens\":8,\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"add\",\"parameters\":{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"number\"},\"b\":{\"type\":\"number\"}}}}}]}'); [ \"$c\" = \"200\" ] || [ \"$c\" = \"201\" ]"
   },
   {
-   "id": "api-008",
-   "group": "api",
-   "title": "/api/work/tasks?states=all&per=5",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks?states=all&per=5')\" = \"200\" ] && curl -s '{{BASE}}/api/work/tasks?states=all&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('total') is not None, 'missing key total'\""
+   "id": "px-other-profile",
+   "group": "proxy",
+   "title": "a second profile routes too (l1)",
+   "cmd": "c=$(curl -q -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/l1/chat/completions' -H 'Content-Type: application/json' -d '{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":8}'); [ \"$c\" = \"200\" ] || [ \"$c\" = \"201\" ]"
   },
   {
-   "id": "api-009",
-   "group": "api",
-   "title": "/api/work/conversations?per=5",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/conversations?per=5')\" = \"200\" ] && curl -s '{{BASE}}/api/work/conversations?per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('conversations') is not None, 'missing key conversations'\""
-  },
-  {
-   "id": "api-010",
-   "group": "api",
-   "title": "/api/work/cron",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/cron')\" = \"200\" ] && curl -s '{{BASE}}/api/work/cron' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('counts') is not None, 'missing key counts'\""
-  },
-  {
-   "id": "api-011",
-   "group": "api",
-   "title": "/api/work/cron/ops",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/cron/ops')\" = \"200\" ] && curl -s '{{BASE}}/api/work/cron/ops' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('pending') is not None, 'missing key pending'\""
-  },
-  {
-   "id": "api-012",
-   "group": "api",
-   "title": "/api/work/sources",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/sources')\" = \"200\" ] && curl -s '{{BASE}}/api/work/sources' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('profiles') is not None, 'missing key profiles'\""
-  },
-  {
-   "id": "api-013",
-   "group": "api",
-   "title": "/api/work/fleet",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/fleet')\" = \"200\" ] && curl -s '{{BASE}}/api/work/fleet' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('summary') is not None, 'missing key summary'\""
-  },
-  {
-   "id": "api-014",
-   "group": "api",
-   "title": "/api/work/status",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/status')\" = \"200\" ] && curl -s '{{BASE}}/api/work/status' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('available') is not None, 'missing key available'\""
-  },
-  {
-   "id": "rs-idem-_api_work_tasks_lite_1&states_in_progres",
+   "id": "rs-idem-api-profiles",
    "group": "resilience",
-   "title": "idempotent /api/work/tasks?lite=1&states=in_progress&per=5",
-   "cmd": "a=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=5' | md5sum); [ \"$a\" = \"$b\" ]"
+   "title": "idempotent /api/profiles",
+   "cmd": "a=$(curl -s '{{BASE}}/api/profiles' | md5sum); b=$(curl -s '{{BASE}}/api/profiles' | md5sum); [ \"$a\" = \"$b\" ]"
   },
   {
-   "id": "rs-idem-_api_work_cron",
+   "id": "rs-idem-api-models-registry",
    "group": "resilience",
-   "title": "idempotent /api/work/cron",
-   "cmd": "a=$(curl -s '{{BASE}}/api/work/cron' | md5sum); b=$(curl -s '{{BASE}}/api/work/cron' | md5sum); [ \"$a\" = \"$b\" ]"
+   "title": "idempotent /api/models/registry",
+   "cmd": "a=$(curl -s '{{BASE}}/api/models/registry' | md5sum); b=$(curl -s '{{BASE}}/api/models/registry' | md5sum); [ \"$a\" = \"$b\" ]"
   },
   {
-   "id": "rs-idem-_api_work_conversations_per_5",
+   "id": "rs-idem-api-providers",
    "group": "resilience",
-   "title": "idempotent /api/work/conversations?per=5",
-   "cmd": "a=$(curl -s '{{BASE}}/api/work/conversations?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/conversations?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
+   "title": "idempotent /api/providers",
+   "cmd": "a=$(curl -s '{{BASE}}/api/providers' | md5sum); b=$(curl -s '{{BASE}}/api/providers' | md5sum); [ \"$a\" = \"$b\" ]"
   },
   {
-   "id": "rs-idem-_api_work_fleet",
+   "id": "rs-idem-api-work-requests-per-5",
    "group": "resilience",
-   "title": "idempotent /api/work/fleet",
-   "cmd": "a=$(curl -s '{{BASE}}/api/work/fleet' | md5sum); b=$(curl -s '{{BASE}}/api/work/fleet' | md5sum); [ \"$a\" = \"$b\" ]"
+   "title": "idempotent /api/work/requests?per=5",
+   "cmd": "a=$(curl -s '{{BASE}}/api/work/requests?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/requests?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
   },
   {
-   "id": "rs-idem-_api_work_sources",
+   "id": "rs-idem-api-work-provider-decisions-per-5",
    "group": "resilience",
-   "title": "idempotent /api/work/sources",
-   "cmd": "a=$(curl -s '{{BASE}}/api/work/sources' | md5sum); b=$(curl -s '{{BASE}}/api/work/sources' | md5sum); [ \"$a\" = \"$b\" ]"
+   "title": "idempotent /api/work/provider-decisions?per=5",
+   "cmd": "a=$(curl -s '{{BASE}}/api/work/provider-decisions?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/provider-decisions?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
   },
   {
-   "id": "rs-idem-_api_work_cron_ops",
+   "id": "rs-idem-api-conversations-per-5",
    "group": "resilience",
-   "title": "idempotent /api/work/cron/ops",
-   "cmd": "a=$(curl -s '{{BASE}}/api/work/cron/ops' | md5sum); b=$(curl -s '{{BASE}}/api/work/cron/ops' | md5sum); [ \"$a\" = \"$b\" ]"
+   "title": "idempotent /api/conversations?per=5",
+   "cmd": "a=$(curl -s '{{BASE}}/api/conversations?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/conversations?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
   },
   {
-   "id": "rs-clamp-1",
+   "id": "rs-idem-api-routing-status",
    "group": "resilience",
-   "title": "per=0/page=0 clamps safely (not 500)",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks?lite=1&states=all&per=0&page=0')\" != \"500\" ]"
+   "title": "idempotent /api/routing/status",
+   "cmd": "a=$(curl -s '{{BASE}}/api/routing/status' | md5sum); b=$(curl -s '{{BASE}}/api/routing/status' | md5sum); [ \"$a\" = \"$b\" ]"
   },
   {
-   "id": "rs-clamp-2",
+   "id": "rs-clamp-per0",
    "group": "resilience",
-   "title": "invalid states falls back (not 500)",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks?lite=1&states=garbage&per=5')\" != \"500\" ]"
+   "title": "per=0/page=0 clamps (not 500)",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/requests?per=0&page=0')\" != \"500\" ]"
   },
   {
-   "id": "rs-clamp-3",
+   "id": "rs-clamp-negative",
    "group": "resilience",
    "title": "negative pagination clamps (not 500)",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/conversations?per=-3&page=-2')\" != \"500\" ]"
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/requests?per=-3&page=-2')\" != \"500\" ]"
   },
   {
-   "id": "rs-clamp-4",
+   "id": "rs-clamp-huge",
    "group": "resilience",
    "title": "huge per/page clamps (not 500)",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks?lite=1&states=all&per=99999&page=99999')\" != \"500\" ]"
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/requests?per=99999&page=99999')\" != \"500\" ]"
   },
   {
-   "id": "rs-json-11",
+   "id": "rs-clamp-alpha",
    "group": "resilience",
-   "title": "JSON error body for /api/work/tasks/detail?task=in_progress%2Fmi",
-   "cmd": "code=$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fmissing-x'); [ \"$code\" != \"200\" ] && curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fmissing-x' | python3 -c 'import sys,json; json.load(sys.stdin)'"
+   "title": "non-numeric pagination degrades (not 500)",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/requests?per=abc&page=xyz')\" != \"500\" ]"
   },
   {
-   "id": "rs-json-12",
+   "id": "rs-clamp-conv-per0",
    "group": "resilience",
-   "title": "unknown conversation cid -> 200 JSON (by design)",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations/detail?cid=missing' | python3 -c 'import sys,json; d=json.load(sys.stdin); assert \"events\" in d'"
+   "title": "conversations per=0 clamps (not 500)",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations?per=0&page=0')\" != \"500\" ]"
   },
   {
-   "id": "rs-json-13",
+   "id": "rs-clamp-conv-neg",
    "group": "resilience",
-   "title": "cron op malformed body -> 400 JSON",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{bad')\" = \"400\" ]"
+   "title": "conversations negative clamps (not 500)",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations?per=-3&page=-2')\" != \"500\" ]"
   },
   {
-   "id": "rs-op-1",
+   "id": "rs-clamp-dec",
    "group": "resilience",
-   "title": "op reject: action missing",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"profile\\\": \\\"backups\\\"}')\" = \"400\" ]"
+   "title": "decisions negative clamps (not 500)",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/provider-decisions?per=-1&page=-9')\" != \"500\" ]"
   },
   {
-   "id": "rs-op-2",
+   "id": "rs-404",
    "group": "resilience",
-   "title": "op reject: profile empty",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"remove\\\", \\\"profile\\\": \\\"\\\", \\\"job_id\\\": \\\"a1b2c3d4e5f6\\\"}')\" = \"400\" ]"
+   "title": "an unknown route is 404",
+   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/definitely-not-a-route')\" = \"404\" ]"
   },
   {
-   "id": "rs-op-3",
+   "id": "rs-traversal",
    "group": "resilience",
-   "title": "op reject: job_id too long",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"remove\\\", \\\"profile\\\": \\\"backups\\\", \\\"job_id\\\": \\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}')\" = \"400\" ]"
+   "title": "a traversal path is not served",
+   "cmd": "[ \"$(curl -q -s -o /dev/null -w '%{http_code}' '{{BASE}}/..%%2fetc%%2fpasswd')\" != \"200\" ]"
   },
   {
-   "id": "rs-op-4",
+   "id": "rs-static-traversal",
    "group": "resilience",
-   "title": "op reject: repeat negative",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"repeat\\\": -1}')\" = \"400\" ]"
+   "title": "/static does not escape its root",
+   "cmd": "curl -q -s --path-as-is '{{BASE}}/static/../../etc/passwd' | grep -q 'root:x:' && exit 1; exit 0"
   },
   {
-   "id": "rs-op-5",
+   "id": "rs-api-json-errors",
    "group": "resilience",
-   "title": "op reject: prompt over 8k",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp\\\"}')\" = \"400\" ]"
+   "title": "API errors are JSON, not HTML",
+   "cmd": "curl -s '{{BASE}}/api/conversations/messages' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'error' in d\""
   },
   {
-   "id": "rs-op-6",
+   "id": "rs-evidence-key",
    "group": "resilience",
-   "title": "op reject: no-agent without script",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"no_agent\\\": true}')\" = \"400\" ]"
+   "title": "the evidence public key is a real PEM",
+   "cmd": "curl -s '{{BASE}}/api/evidence/public-key' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['public_key_pem'].startswith('-----BEGIN PUBLIC KEY-----'); assert d['fingerprint'].startswith('sha256:')\""
   },
   {
-   "id": "rs-op-7",
+   "id": "rs-parallel",
    "group": "resilience",
-   "title": "op reject: skill with slash",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"skill\\\": \\\"a/b\\\"}')\" = \"400\" ]"
+   "title": "five parallel requests all succeed",
+   "cmd": "rm -f /tmp/rs_p_*; for i in 1 2 3 4 5; do ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/requests?per=10' > /tmp/rs_p_$i ) & done; wait; for f in /tmp/rs_p_*; do [ \"$(cat \"$f\")\" = \"200\" ] || { echo \"bad $f=$(cat \"$f\")\"; exit 1; }; done; echo ok"
   },
   {
-   "id": "rs-op-8",
+   "id": "rs-parallel-mixed",
    "group": "resilience",
-   "title": "op reject: schedule empty",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"\\\", \\\"prompt\\\": \\\"p\\\"}')\" = \"400\" ]"
+   "title": "mixed parallel reads never 5xx",
+   "cmd": "rm -f /tmp/rs_m_*; for i in 1 2 3; do ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations?per=20' > /tmp/rs_m_c$i ) & ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/usage/stats' > /tmp/rs_m_u$i ) & ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/routing/status' > /tmp/rs_m_r$i ) & done; wait; for f in /tmp/rs_m_*; do case \"$(cat \"$f\")\" in 5*) echo \"5xx on $f\"; exit 1;; esac; done; echo ok"
   },
   {
-   "id": "rs-para-1",
-   "group": "resilience",
-   "title": "5 parallel lite fetches all succeed",
-   "cmd": "for i in 1 2 3 4 5; do ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=10' & ) ; done; wait 2>/dev/null; echo ok"
+   "id": "us-shape",
+   "group": "usage",
+   "title": "stats carries daily, by_model, by_profile, totals, cache",
+   "cmd": "curl -s '{{BASE}}/api/usage/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert {'daily','by_model','by_profile','totals','cache'} <= set(d)\""
   },
   {
-   "id": "ts-001",
-   "group": "tasks",
-   "title": "lite rows exist and carry keys",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=20' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])>=1; assert all(t.get('key') for t in d['tasks'])\""
+   "id": "us-totals",
+   "group": "usage",
+   "title": "totals has cost, requests, tokens",
+   "cmd": "curl -s '{{BASE}}/api/usage/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); t=d['totals']; assert {'cost','requests','tokens','prompt_tokens','completion_tokens'} <= set(t); assert t['requests']>0\""
   },
   {
-   "id": "ts-002",
-   "group": "tasks",
-   "title": "lite rows have NO plan_html",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert all('plan_html' not in t['payload'] for t in d['tasks'])\""
+   "id": "us-by-model-sums",
+   "group": "usage",
+   "title": "by_model cost sums to the total cost",
+   "cmd": "curl -s '{{BASE}}/api/usage/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); s=sum(v['cost'] for v in d['by_model'].values()); assert abs(s-d['totals']['cost'])<0.02, (s, d['totals']['cost'])\""
   },
   {
-   "id": "ts-003",
-   "group": "tasks",
-   "title": "states default = in_progress only",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['states']==['in_progress']\""
+   "id": "us-by-profile-sums",
+   "group": "usage",
+   "title": "by_profile cost sums to the total cost",
+   "cmd": "curl -s '{{BASE}}/api/usage/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); s=sum(v['cost'] for v in d['by_profile'].values()); assert abs(s-d['totals']['cost'])<0.02, (s, d['totals']['cost'])\""
   },
   {
-   "id": "ts-004",
-   "group": "tasks",
-   "title": "states=all returns more than in_progress",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>d['counts']['in_progress']\""
+   "id": "us-by-model-requests",
+   "group": "usage",
+   "title": "by_model requests sum to the total requests",
+   "cmd": "curl -s '{{BASE}}/api/usage/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); s=sum(v['requests'] for v in d['by_model'].values()); assert s==d['totals']['requests'], (s, d['totals']['requests'])\""
   },
   {
-   "id": "ts-005",
-   "group": "tasks",
-   "title": "multiselect states in_progress+completed",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress,completed&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']==d['counts']['in_progress']+d['counts']['completed']\""
+   "id": "us-daily",
+   "group": "usage",
+   "title": "daily has a cost per day, no gaps in the window",
+   "cmd": "curl -s '{{BASE}}/api/usage/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); days=d['daily']; assert len(days)>=1; assert all('date' in x and 'cost' in x for x in days); ds=[x['date'] for x in days]; assert ds==sorted(ds), 'daily not chronological'\""
   },
   {
-   "id": "ts-006",
-   "group": "tasks",
-   "title": "per=all returns every task on one page",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=all' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['pages']==1; assert len(d['tasks'])==d['total']\""
+   "id": "us-cache",
+   "group": "usage",
+   "title": "cache reports hits, misses and savings consistently",
+   "cmd": "curl -s '{{BASE}}/api/usage/stats' | python3 -c \"import sys,json; d=json.load(sys.stdin); c=d['cache']; assert {'hit_tokens','miss_tokens','savings'} <= set(c); assert c['hit_tokens']>=0 and c['miss_tokens']>=0; assert c['savings']>=0\""
   },
   {
-   "id": "ts-010",
-   "group": "tasks",
-   "title": "per=20 pages math (states=all)",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=20' | python3 -c \"import sys,json; d=json.load(sys.stdin); import math; assert d['filter']['pages']==max(1,math.ceil(d['filter']['total_filtered']/20))\""
+   "id": "us-totals-agree",
+   "group": "usage",
+   "title": "/api/usage/totals agrees with stats.totals",
+   "cmd": "curl -s '{{BASE}}/api/usage/stats' > /tmp/us1.json; curl -s '{{BASE}}/api/usage/totals' > /tmp/us2.json; python3 -c \"import json; s=json.load(open('/tmp/us1.json'))['totals']; t=json.load(open('/tmp/us2.json')); assert s['requests']==t['requests'], (s['requests'],t['requests']); assert abs(s['cost']-t['cost'])<0.01\""
   },
   {
-   "id": "ts-011",
-   "group": "tasks",
-   "title": "page clamp: page 999 -> last page",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=20&page=999' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['page']==d['filter']['pages']\""
+   "id": "us-provider-filter",
+   "group": "usage",
+   "title": "a provider filter narrows without changing shape",
+   "cmd": "curl -s '{{BASE}}/api/usage/stats?provider=deepseek' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['totals']['requests']>=0; assert {'daily','by_model','by_profile','totals'} <= set(d)\""
   },
   {
-   "id": "ts-012",
-   "group": "tasks",
-   "title": "page >= pages has rows (last page non-empty)",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=20&page=999' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])>=0\""
+   "id": "us-series",
+   "group": "usage",
+   "title": "profile-series has one value per day, per profile",
+   "cmd": "curl -s '{{BASE}}/api/usage/profile-series' | python3 -c \"import sys,json; d=json.load(sys.stdin); n=d['days']; assert len(d['dates'])==n, (len(d['dates']), n); bad=[(p, len(v.get('cost') or [])) for p,v in d['profiles'].items() if len(v.get('cost') or [])!=n]; assert not bad, bad\""
   },
   {
-   "id": "ts-013",
-   "group": "tasks",
-   "title": "page 1 and page 2 do not overlap",
-   "cmd": "p1=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=20&page=1'); p2=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=20&page=2'); a=$(echo \"$p1\"|python3 -c 'import sys,json; print(json.dumps([t[\"key\"] for t in json.load(sys.stdin)[\"tasks\"]]))'); b=$(echo \"$p2\"|python3 -c 'import sys,json; print(json.dumps([t[\"key\"] for t in json.load(sys.stdin)[\"tasks\"]]))'); python3 -c \"import sys; a=sys.argv[1]; b=sys.argv[2]; import json; A=set(json.loads(a)); B=set(json.loads(b)); assert not (A&B), 'overlap'\" \"$a\" \"$b\""
+   "id": "us-daily-costs",
+   "group": "usage",
+   "title": "daily-costs returns a non-empty series",
+   "cmd": "curl -s '{{BASE}}/api/daily-costs' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['daily_costs'])>0\""
   },
   {
-   "id": "ts-020",
-   "group": "tasks",
-   "title": "q matches plan text (full walk fallback)",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?states=all&q=searxng&per=10' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=1\""
+   "id": "us-page",
+   "group": "usage",
+   "title": "the usage page renders its tables",
+   "cmd": "curl -s '{{BASE}}/usage' | python3 -c \"import sys,re; h=sys.stdin.read(); assert 'Usage' in h; assert len(re.findall(r'<caption', h))>=1, 'no captions'\""
   },
   {
-   "id": "ts-021",
-   "group": "tasks",
-   "title": "q=zzzqqqxx returns zero",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?states=all&q=zzzqqqxx&per=10' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']==0\""
+   "id": "rt-status",
+   "group": "routing",
+   "title": "routing status reports policy, rules and decisions",
+   "cmd": "curl -s '{{BASE}}/api/routing/status' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert isinstance(d['enabled'],bool); assert isinstance(d['policy'],str) and d['policy']; assert isinstance(d['rules'],list); assert isinstance(d['recent_decisions'],list)\""
   },
   {
-   "id": "ts-022",
-   "group": "tasks",
-   "title": "empty q returns unfiltered",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?states=all&q=&per=10' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']==d['total']\""
+   "id": "rt-covers-profiles",
+   "group": "routing",
+   "title": "routing status covers every configured profile",
+   "cmd": "curl -s '{{BASE}}/api/routing/status' > /tmp/rt.json; curl -s '{{BASE}}/api/profiles' > /tmp/pf.json; python3 -c \"import json; r=set(json.load(open('/tmp/rt.json'))['per_profile']); p=set(json.load(open('/tmp/pf.json'))['profiles']); assert not (p-r), sorted(p-r)\""
   },
   {
-   "id": "ts-023",
-   "group": "tasks",
-   "title": "search + tag combined",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?states=all&q=searxng&tag=infrastructure&per=10' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=0\""
+   "id": "rt-providers-subset",
+   "group": "routing",
+   "title": "every routed provider is a configured provider",
+   "cmd": "curl -s '{{BASE}}/api/routing/status' > /tmp/rt.json; curl -s '{{BASE}}/api/providers' > /tmp/pv.json; python3 -c \"import json; r=set(json.load(open('/tmp/rt.json'))['providers']); p=set(json.load(open('/tmp/pv.json'))['providers']); assert not (r-p), sorted(r-p)\""
   },
   {
-   "id": "ts-030",
-   "group": "tasks",
-   "title": "tag=infrastructure count equals by_label",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?states=all&tag=infrastructure&per=200' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']==d['by_label'].get('infrastructure',0)\""
+   "id": "rt-decisions-in-log",
+   "group": "routing",
+   "title": "recent decisions also appear in the decision log",
+   "cmd": "curl -s '{{BASE}}/api/routing/status' > /tmp/rt.json; curl -s '{{BASE}}/api/work/provider-decisions?per=50' > /tmp/dl.json; python3 -c \"import json; r=json.load(open('/tmp/rt.json'))['recent_decisions']; l=json.load(open('/tmp/dl.json'))['rows']; assert len(r)>0 and len(l)>0; assert {x.get('provider') for x in r} <= {x.get('provider') for x in l}\""
   },
   {
-   "id": "ts-031",
-   "group": "tasks",
-   "title": "unknown tag returns zero",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?states=all&tag=nonexistent-tag&per=10' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']==0\""
+   "id": "rt-health-summary",
+   "group": "routing",
+   "title": "provider health summary counts match its own provider list",
+   "cmd": "curl -s '{{BASE}}/api/providers/health' | python3 -c \"import sys,json; d=json.load(sys.stdin); s=d['summary']; n=len(d['providers']); assert s['total']==n, (s['total'], n); assert s['healthy']+s['degraded']+s['dead']==n, s\""
   },
   {
-   "id": "ts-032",
-   "group": "tasks",
-   "title": "all 10 known labels present in by_label",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['by_label'])>=8\""
+   "id": "rt-failovers",
+   "group": "routing",
+   "title": "failover rows carry from/to/provider",
+   "cmd": "curl -s '{{BASE}}/api/providers/failovers' | python3 -c \"import sys,json; d=json.load(sys.stdin); rows=d['failovers']; assert isinstance(rows,list); assert all(isinstance(x,dict) and x for x in rows[:5])\""
   },
   {
-   "id": "ts-040",
-   "group": "tasks",
-   "title": "detail returns full heavy payload (dynamic key)",
-   "cmd": "k=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"tasks\"][0][\"key\"])'); curl -s \"{{BASE}}/api/work/tasks/detail?task=$k\" | python3 -c 'import sys,json; d=json.load(sys.stdin); p=d[\"payload\"]; assert p.get(\"plan_html\") is not None or p.get(\"has_plan\") is not None'"
-  },
-  {
-   "id": "ts-041",
-   "group": "tasks",
-   "title": "detail invalid key -> 400",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks/detail?task=..%2Fetc%2Fpasswd')\" = \"400\" ]"
-  },
-  {
-   "id": "ts-042",
-   "group": "tasks",
-   "title": "detail missing key -> 404",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fdoes-not-exist-xyz')\" = \"404\" ]"
-  },
-  {
-   "id": "ts-043",
-   "group": "tasks",
-   "title": "detail missing task param -> 400",
-   "cmd": "[ \"$(curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/tasks/detail')\" = \"400\" ]"
-  },
-  {
-   "id": "ts-044",
-   "group": "tasks",
-   "title": "detail key round-trips with lite key",
-   "cmd": "k=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=1' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"tasks\"][0][\"key\"])'); curl -s \"{{BASE}}/api/work/tasks/detail?task=$k\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-01",
-   "group": "workload",
-   "title": "detail new/netbox-inventory-expansion",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fnetbox-inventory-expansion' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-02",
-   "group": "workload",
-   "title": "detail new/infisical-deploy",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Finfisical-deploy' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-03",
-   "group": "workload",
-   "title": "detail completed/37signals-book-half-summaries",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2F37signals-book-half-summaries' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-04",
-   "group": "workload",
-   "title": "detail in_progress/simplify-lcp",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fsimplify-lcp' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-05",
-   "group": "workload",
-   "title": "detail new/l2-gateway-patch-reload-failure",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fl2-gateway-patch-reload-failure' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-06",
-   "group": "workload",
-   "title": "detail new/container-fleet-management-research",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fcontainer-fleet-management-research' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-07",
-   "group": "workload",
-   "title": "detail new/migrate-password-management-to-1password",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fmigrate-password-management-to-1password' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-08",
-   "group": "workload",
-   "title": "detail new/naptune-perf-optimization-k6",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fnaptune-perf-optimization-k6' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-09",
-   "group": "workload",
-   "title": "detail completed/opencode-credits-scraping-fix",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fopencode-credits-scraping-fix' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-10",
-   "group": "workload",
-   "title": "detail in_progress/naptune",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fnaptune' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-11",
-   "group": "workload",
-   "title": "detail completed/runboard-console-token-state",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Frunboard-console-token-state' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-12",
-   "group": "workload",
-   "title": "detail completed/runboard-live-run-throughput",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Frunboard-live-run-throughput' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-13",
-   "group": "workload",
-   "title": "detail completed/runboard-console-unified-chrome",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Frunboard-console-unified-chrome' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-14",
-   "group": "workload",
-   "title": "detail completed/migrate-legacy-hermes-profiles",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fmigrate-legacy-hermes-profiles' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-15",
-   "group": "workload",
-   "title": "detail new/services-homepage-and-dns-registry",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=new%2Fservices-homepage-and-dns-registry' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-closed-01",
-   "group": "workload",
-   "title": "detail completed/daily-journal",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fdaily-journal' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-closed-02",
-   "group": "workload",
-   "title": "detail completed/google-tasks-automation",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fgoogle-tasks-automation' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-closed-03",
-   "group": "workload",
-   "title": "detail completed/reddit-daily-digest",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Freddit-daily-digest' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-closed-04",
-   "group": "workload",
-   "title": "detail completed/ezb-weekly-expense-report",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=completed%2Fezb-weekly-expense-report' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-closed-05",
-   "group": "workload",
-   "title": "detail cancelled/pve03-transplant-x99",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=cancelled%2Fpve03-transplant-x99' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-detail-closed-06",
-   "group": "workload",
-   "title": "detail cancelled/pi-agent-setup",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks/detail?task=cancelled%2Fpi-agent-setup' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('subject')\""
-  },
-  {
-   "id": "wl-convo-01",
-   "group": "workload",
-   "title": "conversation detail c3588dccb07",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations/detail?cid=c3588dccb07' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'events' in d\""
-  },
-  {
-   "id": "wl-convo-02",
-   "group": "workload",
-   "title": "conversation detail c935866f471",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations/detail?cid=c935866f471' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'events' in d\""
-  },
-  {
-   "id": "wl-convo-03",
-   "group": "workload",
-   "title": "conversation detail c6c7d242917",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations/detail?cid=c6c7d242917' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'events' in d\""
-  },
-  {
-   "id": "wl-cov-pg-5-1",
-   "group": "workload",
-   "title": "conversations per=5 page=1",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=5&page=1' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['conversations'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-cov-pg-5-2",
-   "group": "workload",
-   "title": "conversations per=5 page=2",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=5&page=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['conversations'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-cov-pg-10-1",
-   "group": "workload",
-   "title": "conversations per=10 page=1",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=10&page=1' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['conversations'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-cov-pg-10-2",
-   "group": "workload",
-   "title": "conversations per=10 page=2",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=10&page=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['conversations'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-cov-pg-25-1",
-   "group": "workload",
-   "title": "conversations per=25 page=1",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=25&page=1' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['conversations'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-cov-pg-25-2",
-   "group": "workload",
-   "title": "conversations per=25 page=2",
-   "cmd": "curl -s '{{BASE}}/api/work/conversations?per=25&page=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['conversations'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-task-pg-10-1",
-   "group": "workload",
-   "title": "tasks litep=1 per=10 page=1",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=10&page=1' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-task-pg-10-2",
-   "group": "workload",
-   "title": "tasks litep=1 per=10 page=2",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=10&page=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-task-pg-10-3",
-   "group": "workload",
-   "title": "tasks litep=1 per=10 page=3",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=10&page=3' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-task-pg-20-1",
-   "group": "workload",
-   "title": "tasks litep=1 per=20 page=1",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=20&page=1' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-task-pg-20-2",
-   "group": "workload",
-   "title": "tasks litep=1 per=20 page=2",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=20&page=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-task-pg-20-3",
-   "group": "workload",
-   "title": "tasks litep=1 per=20 page=3",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=20&page=3' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-task-pg-50-1",
-   "group": "workload",
-   "title": "tasks litep=1 per=50 page=1",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=50&page=1' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-task-pg-50-2",
-   "group": "workload",
-   "title": "tasks litep=1 per=50 page=2",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=50&page=2' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-task-pg-50-3",
-   "group": "workload",
-   "title": "tasks litep=1 per=50 page=3",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=all&per=50&page=3' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert len(d['tasks'])<=int(d['filter']['per'])\""
-  },
-  {
-   "id": "wl-state-new",
-   "group": "workload",
-   "title": "states=new",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=new&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); expected=sum(d['counts'].get(s,0) for s in d['filter']['states']); assert d['filter']['total_filtered']==expected\""
-  },
-  {
-   "id": "wl-state-in_progress-new",
-   "group": "workload",
-   "title": "states=in_progress,new",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress,new&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); expected=sum(d['counts'].get(s,0) for s in d['filter']['states']); assert d['filter']['total_filtered']==expected\""
-  },
-  {
-   "id": "wl-state-new-completed-cancelled",
-   "group": "workload",
-   "title": "states=new,completed,cancelled",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=new,completed,cancelled&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); expected=sum(d['counts'].get(s,0) for s in d['filter']['states']); assert d['filter']['total_filtered']==expected\""
-  },
-  {
-   "id": "wl-state-in_progress-new-completed",
-   "group": "workload",
-   "title": "states=in_progress,new,completed",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress,new,completed&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); expected=sum(d['counts'].get(s,0) for s in d['filter']['states']); assert d['filter']['total_filtered']==expected\""
-  },
-  {
-   "id": "wl-state-cancelled",
-   "group": "workload",
-   "title": "states=cancelled",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=cancelled&per=5' | python3 -c \"import sys,json; d=json.load(sys.stdin); expected=sum(d['counts'].get(s,0) for s in d['filter']['states']); assert d['filter']['total_filtered']==expected\""
-  },
-  {
-   "id": "wl-tag-infrastructure-in_progress",
-   "group": "workload",
-   "title": "tag=infrastructure states=in_progress",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&tag=infrastructure&per=200' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=0\""
-  },
-  {
-   "id": "wl-tag-infrastructure-completed",
-   "group": "workload",
-   "title": "tag=infrastructure states=completed",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=completed&tag=infrastructure&per=200' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=0\""
-  },
-  {
-   "id": "wl-tag-automation-in_progress",
-   "group": "workload",
-   "title": "tag=automation states=in_progress",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&tag=automation&per=200' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=0\""
-  },
-  {
-   "id": "wl-tag-automation-completed",
-   "group": "workload",
-   "title": "tag=automation states=completed",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=completed&tag=automation&per=200' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=0\""
-  },
-  {
-   "id": "wl-tag-research-in_progress",
-   "group": "workload",
-   "title": "tag=research states=in_progress",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&tag=research&per=200' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=0\""
-  },
-  {
-   "id": "wl-tag-research-completed",
-   "group": "workload",
-   "title": "tag=research states=completed",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=completed&tag=research&per=200' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=0\""
-  },
-  {
-   "id": "wl-tag-dashboard-ui-in_progress",
-   "group": "workload",
-   "title": "tag=dashboard-ui states=in_progress",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&tag=dashboard-ui&per=200' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=0\""
-  },
-  {
-   "id": "wl-tag-dashboard-ui-completed",
-   "group": "workload",
-   "title": "tag=dashboard-ui states=completed",
-   "cmd": "curl -s '{{BASE}}/api/work/tasks?lite=1&states=completed&tag=dashboard-ui&per=200' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['filter']['total_filtered']>=0\""
+   "id": "rt-presets",
+   "group": "routing",
+   "title": "provider presets are non-empty and shaped",
+   "cmd": "curl -s '{{BASE}}/api/providers/presets' | python3 -c \"import sys,json; d=json.load(sys.stdin); pr=d['presets']; assert isinstance(pr,dict) and pr, 'no presets'; assert all(isinstance(v,dict) for v in pr.values())\""
   }
  ]
 }

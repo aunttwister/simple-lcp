@@ -13,7 +13,7 @@
    `agent_profile`, or a suggestion derived from the Hermes side and flagged as such)
    plus the LCP-only ones. Both are LCP profiles: editable, routable, key-bearing.
    The LCP-only card says "profile without an agent" and nothing more — having no
-   skills directory is a property of that kind, not a gap. #}
+   agent behind it is a property of that kind, not a gap. #}
 {% if profile_cards %}
 <div class="profile-grid">
   {% for c in profile_cards %}
@@ -47,8 +47,19 @@
     <div class="pc-agent pc-agent-none">No agent behind it &mdash; this profile routes for other things.</div>
     {% endif %}
     {% if c.routed_by %}<div class="pc-routed">Also routed here by {{ c.routed_by|join(', ') }}</div>{% endif %}
+    {# 30-day cost trend as a braille sparkline. Filled by sec_profiles_script
+       from /api/usage/profile-series; empty until that lands, and explicitly
+       labelled as "no data" rather than left blank. #}
+    <pre class="spark spark-braille pc-spark" id="pc-spark-{{ c.name }}"
+         aria-label="30-day cost trend for {{ c.name }}"></pre>
+    <div class="pc-spark-sum" id="pc-spark-sum-{{ c.name }}"></div>
     <div class="pc-foot">
-      <span class="pc-url mono" title="Gateway URL">/{{ c.name }}/chat/completions</span>
+      <span class="pc-url-wrap">
+        <span class="pc-url mono" title="Gateway URL">/{{ c.name }}/chat/completions</span>
+        <button class="copy-btn" type="button"
+                data-copy-path="/{{ c.name }}/chat/completions"
+                aria-label="Copy gateway URL for {{ c.name }}">Copy</button>
+      </span>
       <span class="pc-actions">
         <button class="btn-sm" onclick="editProfile('{{ c.name }}')">Edit</button>
         <button class="btn-sm btn-danger" onclick="deleteProfile('{{ c.name }}')">Delete</button>
@@ -112,7 +123,7 @@
         {% for a in agent_choices %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
       </select>
       <div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.125rem">
-        The Hermes profile whose skills, memory and tasks this profile presents. Declared here, not guessed from a name.
+        The Hermes profile this route serves. Declared here, not guessed from a name — the card shows the declared mapping, and flags a derived one as a suggestion.
       </div>
     </div>
     <div style="margin-bottom:0.75rem">

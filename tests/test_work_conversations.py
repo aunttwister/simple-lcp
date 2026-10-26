@@ -130,6 +130,59 @@ class TestLogTableModuleWiring:
         assert [r["timestamp"] for r in v["rows"]] == [
             "2026-09-19T10:00:00+00:00", "2026-09-19T10:01:00+00:00"]
 
+    def test_requests_column_sorts_are_offered(self, rows):
+        """The three numeric columns are sortable, and the client is told so.
+
+        Without these keys a header could not become a sort button: the module
+        only offers a sort the server advertises.
+        """
+        keys = [s["key"] for s in wc.requests_view({})["filter"]["sorts"]]
+        assert keys == ["newest", "oldest", "cost", "tokens", "latency"]
+
+    def test_requests_sort_cost_orders_by_cost_not_by_time(self, rows):
+        rows.execute("UPDATE requests SET cost=0.50 WHERE id=1")   # oldest row
+        rows.execute("UPDATE requests SET cost=0.90 WHERE id=3")   # middle row
+        rows.commit()
+        v = wc.requests_view({"per": "3", "sort": "cost"})
+        assert [r["id"] for r in v["rows"]] == [3, 1, 5]
+        assert v["filter"]["sort"] == "cost"
+        assert v["filter"]["sort_label"] == "Costliest first"
+
+    def test_requests_sort_tokens_sums_prompt_and_completion(self, rows):
+        # id=2 is the biggest by the SUM of the two token columns, but the
+        # smallest by prompt tokens alone — so this pins the sum, not one column.
+        rows.execute("UPDATE requests SET prompt_tokens=1, completion_tokens=900 WHERE id=2")
+        rows.execute("UPDATE requests SET prompt_tokens=800, completion_tokens=0 WHERE id=4")
+        rows.commit()
+        v = wc.requests_view({"per": "2", "sort": "tokens"})
+        assert [r["id"] for r in v["rows"]] == [2, 4]
+
+    def test_requests_sort_latency_is_slowest_first(self, rows):
+        rows.execute("UPDATE requests SET latency_ms=9000 WHERE id=2")
+        rows.commit()
+        v = wc.requests_view({"per": "1", "sort": "latency"})
+        assert v["rows"][0]["id"] == 2
+
+    def test_requests_column_sort_survives_paging(self, rows):
+        """Sorting must be the server's, not per-page."""
+        rows.execute("UPDATE requests SET cost=0.90 WHERE id=1")   # oldest, costliest
+        rows.commit()
+        p1 = wc.requests_view({"per": "2", "page": "1", "sort": "cost"})
+        p2 = wc.requests_view({"per": "2", "page": "2", "sort": "cost"})
+        # The costliest row is the oldest one, so a client-side sort of page 1
+        # would have left it on page 2 entirely.
+        assert [r["id"] for r in p1["rows"]] == [1, 5]
+        assert [r["id"] for r in p2["rows"]] == [4, 3]
+        ids = [r["id"] for r in p1["rows"] + p2["rows"]]
+        assert len(set(ids)) == 4          # no duplicates across the window
+
+    def test_profile_filter_list_is_not_limited_to_conversations(self, rows):
+        """A profile whose calls never joined a conversation must still be
+        filterable — the filter narrows the log, it does not narrow history."""
+        _req(rows, "2026-09-19T12:00:00+00:00", profile="noconv")
+        rows.commit()
+        assert "noconv" in wc.requests_view({})["filter"]["profiles"]
+
     def test_requests_unknown_sort_falls_back_to_newest(self, rows):
         v = wc.requests_view({"per": "1", "sort": "'; DROP TABLE requests--"})
         assert v["filter"]["sort"] == "newest"

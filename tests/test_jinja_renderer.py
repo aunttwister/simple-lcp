@@ -118,10 +118,11 @@ class TestRenderPage:
         from src.ui.render import render_page
         html = render_page("pages/keys.html", mock_config, active_page="profiles")
         # M2c: keys are per profile, so the legacy keys page aliases onto the
-        # profile directory — the Profiles nav entry is active and its tab strip
-        # offers the directory and Config.
+        # profile directory. The Profiles nav entry is active. Config left on
+        # 2026-10-25, so the page carries no tab strip at all.
         assert 'class="active"' in html
-        assert 'href="/profiles?tab=config"' in html
+        assert 'href="/profiles"' in html
+        assert 'href="/profiles?tab=' not in html
 
     def test_active_page_defaults_empty(self, mock_config):
         from src.ui.render import render_page

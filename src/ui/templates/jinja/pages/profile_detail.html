@@ -2,15 +2,16 @@
 {% block title %}{{ profile.name }} · {{ tab_label }} — LCP{% endblock %}
 
 {#
-  M2c — level 3: one profile, everything about it.
+  M2c — level 3: one profile's routing surface.
 
-  Reached from a card on /profiles. The five tabs are the artefacts a profile
-  owns: the skills it can load, the memory it carries, the tasks in its tree, the
-  cron jobs it runs, and the API keys that call it. All five are read from the
-  profile's own directory (mounted at /app/profiles) or from the host snapshot —
-  the gateway renders them, it does not own them.
+  Reached from a card on /profiles. Three tabs, all routing artefacts: how the
+  profile routes, the models it may choose from, and the keys that call it.
 
-  Each section self-guards on `tab`, so including all five costs nothing: only
+  Skills, memory and cron are gone (2026-10-24). They belong to a Hermes agent,
+  not to a route, and the Hermes dashboard owns them — a second read-only copy
+  here made this page look like an agent console.
+
+  Each section self-guards on `tab`, so including all three costs nothing: only
   the active one emits markup and only its script is shipped.
 #}
 
@@ -27,8 +28,9 @@
 <div class="empty" style="margin-bottom:1rem">
   <b>Agent profile <span class="mono">{{ profile.name }}</span></b>
   <div style="margin-top:0.25rem">
-    Skills, memory, tasks and cron jobs come from this profile's own directory.
-    {% if profile.lane %}Its requests are routed by <a class="mono" href="/profiles/{{ profile.lane }}">{{ profile.lane }}</a>, which holds the API keys it calls with.{% else %}Its requests are not pointed at a gateway profile, so no chain serves it yet.{% endif %}
+    This is a Hermes agent profile, not a route.
+    {% if profile.lane %}Its traffic is served by <a class="mono" href="/profiles/{{ profile.lane }}">{{ profile.lane }}</a>, which holds the chain and the keys it calls with.{% else %}Its traffic is not pointed at a gateway profile, so no chain serves it yet.{% endif %}
+    Its skills, memory and cron jobs are managed in the Hermes dashboard.
   </div>
 </div>
 {% endif %}
@@ -55,7 +57,7 @@
       {% if profile.routing_label %}<span class="pd-sep">·</span><span>{{ profile.routing_label }} routing</span>{% endif %}
       <span class="pd-sep">·</span><span class="mono">/{{ profile.name }}/chat/completions</span>
       {% elif profile.kind == 'profile' %}
-      {% if profile.agent %}<span class="pd-sep">·</span><span>artefacts: <a class="mono" href="/profiles/{{ profile.agent }}">{{ profile.agent }}</a></span>{% endif %}
+      {% if profile.agent %}<span class="pd-sep">·</span><span>agent profile: <a class="mono" href="/profiles/{{ profile.agent }}">{{ profile.agent }}</a></span>{% endif %}
       {% if profile.mapping_source == 'suggested' %}<span class="pd-sep">·</span><span class="pc-suggest">mapping read from that profile's config &mdash; confirm in Edit</span>{% endif %}
       <span class="pd-sep">·</span><span>{{ profile.auth_label }}</span>
       {% if profile.budget_label %}<span class="pd-sep">·</span><span>{{ profile.budget_label }}</span>{% endif %}
@@ -90,15 +92,20 @@
 {# The tab strip. Every tab is a URL, so a tab is linkable, bookmarkable and
    survives a reload — the same reason the merged pages use server-side tabs. #}
 <div class="page-tabs pd-tabs">
-  {% for t in tabs %}<a href="{{ t.href }}" class="tab-btn {% if t.active %}active{% endif %}">{{ t.label }}{% if t.count is not none %} <span class="tab-count">{{ t.count }}</span>{% endif %}</a>{% endfor %}
+  {% for t in tabs %}<a href="{{ t.href }}" class="tab-btn {% if t.active %}active{% endif %}"{% if t.active %} aria-current="page"{% endif %}>{{ t.label }}{% if t.count is not none %} <span class="tab-count">{{ t.count }}</span>{% endif %}</a>{% endfor %}
 </div>
 
-{% include "sections/sec_skills.html" %}
-{% include "sections/sec_memory.html" %}
-{% include "sections/sec_cron.html" %}
-{% include "sections/sec_keys.html" %}
+{# Says what this page deliberately does not show, next to the strip that is
+   missing those tabs — at the bottom of the page it answered a question nobody
+   had asked yet. #}
+<p class="pd-scope-note">
+  Skills, memory and cron belong to a Hermes agent, not to a route — they are
+  managed in the Hermes dashboard, so they are not shown here.
+</p>
+
 {% include "sections/sec_prouting.html" %}
 {% include "sections/sec_pmodels.html" %}
+{% include "sections/sec_keys.html" %}
 {% endblock %}
 
 {% block scripts %}
@@ -107,7 +114,6 @@
     from the declared values, and anything else on the page that needs to know how
     this profile behaves has it without a round trip. -#}
 <script id="profile-config" type="application/json">{{ profile_config | tojson }}</script>
-{% include "sections/sec_cron_script.html" %}
 {% include "sections/sec_keys_script.html" %}
 {% include "sections/sec_prouting_script.html" %}
 {% include "sections/sec_pmodels_script.html" %}

@@ -240,6 +240,16 @@ def dashboard_context(config, engine, headers, profile_filter=None):
                 pp_data["profiles"][p]["lats"] = [0.0] * len(pp_data["dates"])
             for r in pp_rows:
                 idx = date_to_idx[r.date]
+                # History outlives config: a profile can be dropped from
+                # config.profiles while its requests stay in the DB, and
+                # `pp_data["profiles"][r.profile]` would then raise KeyError and
+                # 500 the whole /activity page. Create the series on demand so the
+                # page shows the retired profile's spend instead of dying.
+                if r.profile not in pp_data["profiles"]:
+                    pp_data["profiles"][r.profile] = {
+                        "costs": [0.0] * len(pp_data["dates"]),
+                        "lats": [0.0] * len(pp_data["dates"]),
+                    }
                 pp_data["profiles"][r.profile]["costs"][idx] = float(r.cost)
                 pp_data["profiles"][r.profile]["lats"][idx] = float(r.avg_lat)
 

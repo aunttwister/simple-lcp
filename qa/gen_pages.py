@@ -1,78 +1,90 @@
-# QA case generator 1: pages, nav groups, core API endpoints.
+# QA case generator 2: pages.
+#
+# The console is six pages plus a set of legacy URLs that must redirect rather than
+# 404. Every retired surface must stay retired — those are asserted 404 on purpose,
+# because a page quietly coming back is how an agent console grows back into a router.
 import json
 import os
 
 CASES = []
+G = "pages"
 
-# ── Pages: every route answers 200 with expected markers ──
+# ── live pages: 200 and a marker that proves the right template rendered ──
 PAGES = [
-    ("pg-001", "Dashboard", "/dashboard", ["Monitor", "Providers"]),
-    ("pg-002", "Usage page", "/usage", ["Usage"]),
-    ("pg-003", "Logs unified", "/logs", ["Conversations", "Requests", "Provider decisions", "Board decisions"]),
-    ("pg-004", "Logs conversations tab", "/logs?view=conversations", ["tab-btn"]),
-    ("pg-005", "Logs requests tab", "/logs?view=requests", ["tab-btn"]),
-    ("pg-006", "Logs providers tab", "/logs?view=providers", ["tab-btn"]),
-    ("pg-007", "Logs decisions tab", "/logs?view=decisions", ["tab-btn"]),
-    ("pg-008", "Alerts page", "/alerts", ["Alerts"]),
-    ("pg-009", "Providers page", "/providers", ["Providers"]),
-    ("pg-010", "Models page", "/models", ["Models"]),
-    ("pg-011", "Profiles page", "/profiles", ["Profiles"]),
-    ("pg-012", "API Keys page", "/keys", ["API Keys"]),
-    ("pg-013", "Tasks page", "/work/tasks", ["task-search", "task-rows"]),
-    ("pg-014", "Fleet page", "/work/fleet", ["Fleet"]),
-    ("pg-015", "Cron page", "/work/cron", ["cron-new-btn", "work-chip"]),
-    ("pg-016", "Work config page", "/work/config", ["sources-form", "Save sources"]),
-    ("pg-017", "Setup page", "/setup", ["Setup"]),
+    ("/profiles", "Profiles", "pg-profiles"),
+    ("/models", "Models", "pg-models"),
+    ("/models?tab=providers", "Providers", "pg-models-providers"),
+    ("/usage", "Usage", "pg-usage"),
+    ("/alerts", "Alerts", "pg-alerts"),
+    ("/conversations", "Conversations", "pg-conversations"),
+    ("/activity", "Activity", "pg-activity"),
+    ("/activity?tab=logs", "lg-rows", "pg-activity-logs"),
 ]
-for cid, title, path, markers in PAGES:
-    m = " && ".join("out=$(curl -s '{{BASE}}%s') && echo \"$out\" | grep -q '%s'" % (path, mk)
-                    for mk in markers)
+for path, marker, cid in PAGES:
     CASES.append({
-        "id": cid, "group": "pages", "title": title,
-        "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}%s')\" = \"200\" ] && %s" % (path, m),
+        "id": cid, "group": G, "title": "page %s renders %r" % (path, marker),
+        "cmd": ("[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}%s')\" = \"200\" ] && "
+                "curl -s '{{BASE}}%s' | grep -qF '%s'" % (path, path, marker)),
     })
 
-# ── Nav group order: Work, Gateway, Monitor, Admin in sequence ──
-CASES.append({
-    "id": "pg-018", "group": "pages", "title": "Nav groups ordered Work/Gateway/Monitor/Admin",
-    "cmd": ('curl -s "{{BASE}}/work/tasks" | python3 -c '
-            '"import sys; h=sys.stdin.read(); '
-            'w=h.find(\'nav-label\\\">Work</div>\'); g=h.find(\'nav-label\\\">Gateway</div>\'); '
-            'm=h.find(\'nav-label\\\">Monitor</div>\'); a=h.find(\'nav-label\\\">Admin</div>\'); '
-            'assert -1 < w < g < m < a, (w,g,m,a)"'),
-})
-
-# ── Core API endpoints 200 + sane JSON (real routes) ──
-API = [
-    ("api-001", "/api/setup", None),
-    ("api-002", "/api/daily-costs", None),
-    ("api-003", "/api/providers", None),
-    ("api-004", "/api/models/registry", None),
-    ("api-005", "/api/profiles", None),
-    ("api-006", "/api/work/tasks?lite=1&per=5", "tasks"),
-    ("api-007", "/api/work/tasks/detail?task=in_progress%2Flcp-pentest-fixes", None),
-    ("api-008", "/api/work/tasks?states=all&per=5", "total"),
-    ("api-009", "/api/work/conversations?per=5", "conversations"),
-    ("api-010", "/api/work/cron", "counts"),
-    ("api-011", "/api/work/cron/ops", "pending"),
-    ("api-012", "/api/work/sources", "profiles"),
-    ("api-013", "/api/work/fleet", "summary"),
-    ("api-014", "/api/work/status", "available"),
+# ── redirects: old URLs still land somewhere sensible ──
+REDIRECTS = [
+    ("/", "/activity", "pg-r-root"),
+    ("/dashboard", "/activity", "pg-r-dashboard"),
+    ("/keys", "/profiles?tab=keys", "pg-r-keys"),
+    ("/providers", "/models?tab=providers", "pg-r-providers"),
+    ("/logs", "/activity?tab=logs", "pg-r-logs"),
+    ("/work/config", "/profiles", "pg-r-work-config"),
+    ("/work/cron", "/profiles", "pg-r-work-cron"),
 ]
-for cid, path, key in API:
-    suffix = ""
-    if key:
-        suffix = (" && curl -s '{{BASE}}%s' | python3 -c \"import sys,json; d=json.load(sys.stdin); "
-                  "assert d.get('%s') is not None, 'missing key %s'\"" % (path, key, key))
-    if path.startswith("/api/work/tasks/detail"):
-        # a stale hardcoded key must NEVER 5xx — 200 (exists) or 404 (moved)
-        suffix = (" ; code=$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}%s'); "
-                  "[ \"$code\" = \"200\" ] || [ \"$code\" = \"404\" ]" % path)
+for path, want, cid in REDIRECTS:
     CASES.append({
-        "id": cid, "group": "api", "title": path,
-        "cmd": ("[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}%s')\" = \"200\" ]%s"
-                % (path, suffix)),
+        "id": cid, "group": G, "title": "%s redirects to %s" % (path, want),
+        "cmd": ("loc=$(curl -s -o /dev/null -w '%%{redirect_url}' '{{BASE}}%s'); "
+                "case \"$loc\" in *%s*) exit 0;; *) echo \"got $loc\"; exit 1;; esac"
+                % (path, want)),
     })
+
+# ── retired surfaces: gone, and staying gone ──
+RETIRED = ["/setup", "/work/tasks", "/work/fleet", "/work/decisions",
+           "/work/conversations", "/api/setup", "/api/work/tasks",
+           "/api/work/fleet", "/api/work/status", "/api/work/cron",
+           "/api/work/cron/ops", "/api/work/sources", "/api/work/decisions",
+           "/api/work/conversations"]
+for path in RETIRED:
+    cid = "pg-404-" + path.strip("/").replace("/", "-")
+    CASES.append({
+        "id": cid, "group": G, "title": "retired %s is 404" % path,
+        "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}%s')\" = \"404\" ]" % path,
+    })
+
+# ── the router's nav shape ──
+CASES += [
+    {"id": "pg-nav-1", "group": G, "title": "nav lists exactly six entries, in routing order",
+     "cmd": ("curl -s '{{BASE}}/activity' | python3 -c \"import sys,re; h=sys.stdin.read(); "
+             "nav=re.search(r'<nav class=\\\"sidebar-nav\\\"[^>]*>(.*?)</nav>', h, re.S).group(1); "
+             "items=[re.sub(r'\\s+',' ',re.sub(r'<[^>]+>','',x)).strip().split(' ')[0] "
+             "for x in re.findall(r'<a [^>]*>(.*?)</a>', nav, re.S)]; "
+             "print(items); assert items==['Profiles','Models','Activity','Conversations',"
+             "'Usage','Alerts'], items\"")},
+    {"id": "pg-nav-2", "group": G, "title": "no agent-infrastructure nav entries survive",
+     "cmd": ("curl -s '{{BASE}}/activity' | python3 -c \"import sys; h=sys.stdin.read(); "
+             "bad=[n for n in ('>Skills<','>Memory<','>Cron<','>Tasks<','>Fleet<','>Setup<') "
+             "if n in h]; assert not bad, bad\"")},
+    {"id": "pg-nav-3", "group": G, "title": "sign out is a button, not a bare link",
+     "cmd": ("curl -s '{{BASE}}/activity' | python3 -c \"import sys; h=sys.stdin.read(); "
+             "assert 'sb-signout' in h, 'no .sb-signout'; assert 'Sign out' in h\"")},
+    {"id": "pg-prof-1", "group": G, "title": "Profiles has no tab strip (Config left)",
+     "cmd": ("curl -s '{{BASE}}/profiles' | python3 -c \"import sys; h=sys.stdin.read(); "
+             "assert 'page-tabs' not in h, 'tab strip is back'; "
+             "assert 'sources-form' not in h, 'config form is back'\"")},
+    {"id": "pg-prof-2", "group": G, "title": "a retired ?tab= value lands on the directory",
+     "cmd": ("[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/profiles?tab=config')\" = \"200\" ] && "
+             "curl -s '{{BASE}}/profiles?tab=config' | grep -qF 'Profiles'")},
+    {"id": "pg-model-1", "group": G, "title": "Models keeps its tab strip",
+     "cmd": ("curl -s '{{BASE}}/models' | python3 -c \"import sys; h=sys.stdin.read(); "
+             "assert 'page-tabs' in h, 'Models lost its tabs'\"")},
+]
 
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.pages.json"), "w") as fh:
     json.dump(CASES, fh, indent=1)

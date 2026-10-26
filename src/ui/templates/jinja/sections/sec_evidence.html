@@ -1,0 +1,127 @@
+{#- section: sec_evidence — the exportable evidence pack (rendered only on the
+    evidence tab of the activity page). Shows the change-history trail and the
+    signed-pack export controls. No hover-only affordances. -#}
+{% if tab == 'evidence' %}
+<h2>Evidence</h2>
+<p class="subtitle">
+  The exportable record: a signed, hash-chained pack of every agent action,
+  routing decision, failover and refusal — verifiable offline with
+  <code>tools/verify_evidence_pack.py</code>.
+</p>
+
+<section class="card" style="margin-bottom:1rem;">
+  <h3>Export</h3>
+  <p style="font-size:.9rem;">
+    Builds a fresh pack from the live ledger, signs it with the estate's
+    Ed25519 key, and returns its manifest. Message content is never included.
+  </p>
+  <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center;">
+    <button id="evidenceExportBtn" class="btn" type="button">Export evidence pack</button>
+    <a class="btn" href="/api/evidence/download">Download latest pack (.tar.gz)</a>
+    <a class="btn" href="/api/evidence/public-key?format=pem">Download public key (.pem)</a>
+  </div>
+  <div id="evidenceExportStatus" style="display:none;margin-top:.75rem;font-size:.9rem;"></div>
+</section>
+
+<section class="card">
+  <h3>Change history</h3>
+  <p style="font-size:.9rem;">Every control-plane mutation, newest first
+    (credentials are redacted by the server). 20 per page.</p>
+  <table style="width:100%;font-size:.85rem;border-collapse:collapse;">
+    <thead><tr>
+      <th scope="col" style="text-align:left;padding:.4rem;">When (UTC)</th>
+      <th scope="col" style="text-align:left;padding:.4rem;">Action</th>
+      <th scope="col" style="text-align:left;padding:.4rem;">Actor</th>
+      <th scope="col" style="text-align:left;padding:.4rem;">Detail</th>
+    </tr></thead>
+    <tbody id="auditRows"><tr><td colspan="4" style="padding:.6rem;">Loading…</td></tr></tbody>
+  </table>
+  <div style="display:flex;gap:.5rem;align-items:center;margin-top:.5rem;">
+    <button id="auditPrev" type="button" class="btn" disabled>&larr; Newer</button>
+    <span id="auditPageLabel" style="font-size:.85rem;">page 1</span>
+    <button id="auditNext" type="button" class="btn">Older &rarr;</button>
+    <span id="auditCount" style="font-size:.85rem;opacity:.75;"></span>
+  </div>
+</section>
+
+<script>
+(function () {
+  var btn = document.getElementById('evidenceExportBtn');
+  var status = document.getElementById('evidenceExportStatus');
+  if (btn) btn.addEventListener('click', function () {
+    btn.disabled = true;
+    status.style.display = 'block';
+    status.textContent = 'Building and signing the pack…';
+    fetch('/api/evidence/export', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btn.disabled = false;
+        if (!d || d.status !== 'ok') {
+          status.textContent = 'Export failed: ' + ((d && d.error) || 'unknown error');
+          return;
+        }
+        var m = d.manifest || {};
+        var counts = m.row_counts || {};
+        var parts = Object.keys(counts).map(function (k) {
+          return k + ': ' + counts[k].toLocaleString();
+        });
+        status.innerHTML =
+          '<strong>Pack built and signed.</strong> ' +
+          'Window: ' + (m.window && m.window.from || '?') + ' → ' +
+          (m.window && m.window.to || '?') + '<br>' + parts.join(' · ') +
+          '<br>Signature: ' + ((m.signing || {}).public_key_fingerprint || '?');
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        status.textContent = 'Export failed: ' + e;
+      });
+  });
+
+  var rows = document.getElementById('auditRows');
+  if (rows) {
+    var page = 0, SIZE = 20, total = null;
+    var prev = document.getElementById('auditPrev');
+    var next = document.getElementById('auditNext');
+    function esc(s) {
+      var d = document.createElement('div');
+      d.textContent = s == null ? '' : String(s);
+      return d.innerHTML;
+    }
+    function load() {
+      fetch('/api/audit?limit=' + SIZE + '&offset=' + (page * SIZE))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var items = d.items || d.entries || d.audit || [];
+          if (total == null) total = d.total != null ? d.total : null;
+          rows.innerHTML = '';
+          if (!items.length) {
+            rows.innerHTML = '<tr><td colspan="4" style="padding:.6rem;">No recorded changes yet.</td></tr>';
+          } else {
+            items.forEach(function (it) {
+              var tr = document.createElement('tr');
+              var detail = it.detail;
+              if (detail && typeof detail === 'object') detail = JSON.stringify(detail);
+              tr.innerHTML = '<td style="padding:.4rem;">' + esc(it.timestamp) + '</td>' +
+                '<td style="padding:.4rem;"><code>' + esc(it.action) + '</code></td>' +
+                '<td style="padding:.4rem;">' + esc(it.actor || it.user_id || '') + '</td>' +
+                '<td style="padding:.4rem;opacity:.85;">' + esc(detail) + '</td>';
+              rows.appendChild(tr);
+            });
+          }
+          document.getElementById('auditPageLabel').textContent = 'page ' + (page + 1);
+          document.getElementById('auditCount').textContent =
+            total != null ? (total + ' events') : (items.length + ' on this page');
+          prev.disabled = page === 0;
+          next.disabled = total != null && (page + 1) * SIZE >= total;
+        })
+        .catch(function () {
+          rows.innerHTML = '<tr><td colspan="4" style="padding:.6rem;">Failed to load.</td></tr>';
+        });
+    }
+    prev.addEventListener('click', function () { if (page > 0) { page--; load(); } });
+    next.addEventListener('click', function () { page++; load(); });
+    load();
+  }
+})();
+</script>
+{% endif %}

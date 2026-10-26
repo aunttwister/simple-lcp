@@ -585,7 +585,24 @@ class HealthEndpoints:
                 tripped_until = datetime.fromtimestamp(
                     h["tripped_until"], tz=timezone.utc
                 ).isoformat()
-            providers_out[f"{provider}/{profile}"] = {
+            # Two configs can share a provider name and profile with different base
+            # URLs (opencode's zen gateway and its OpenAI-compatible endpoint both
+            # serve l2). Keying only by provider/profile made the second one
+            # overwrite the first, so `summary.total` counted a provider that the
+            # payload did not contain — the page showed 10 rows under a heading
+            # claiming 11, and whichever entry lost was invisible.
+            key = f"{provider}/{profile}"
+            if key in providers_out:
+                u = urlparse(url)
+                suffix = (u.netloc + u.path).strip("/").rstrip("/")
+                if suffix.endswith("/v1"):
+                    suffix = suffix[:-3]
+                key = f"{key} ({suffix})"
+                n = 2
+                while key in providers_out:
+                    key = f"{provider}/{profile} ({suffix}) #{n}"
+                    n += 1
+            providers_out[key] = {
                 "provider": provider,
                 "profile": profile,
                 "base_url": url,
@@ -2812,6 +2829,68 @@ class UsageEndpoints:
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 
+    def _serve_usage_profile_series_api(self):
+        """Per-profile daily series, for the braille sparklines on /profiles.
+
+        One query for every profile at once (`GROUP BY profile, date`) so the
+        page can render N cards from a single request instead of N. Days with
+        no successful calls are filled with 0 so a gap in the sparkline means
+        "no traffic", not "no data" — the two must not look alike.
+        """
+        from sqlalchemy import func
+        from datetime import date, timedelta
+
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            days = max(1, min(365, int(qs.get("days", ["30"])[0])))
+        except (TypeError, ValueError):
+            days = 30
+
+        end_day = date.today()
+        start_day = end_day - timedelta(days=days - 1)
+        dates = [(start_day + timedelta(days=i)).isoformat() for i in range(days)]
+
+        try:
+            with get_session(self.engine) as session:
+                rows = (
+                    session.query(
+                        RequestModel.profile,
+                        func.substr(RequestModel.timestamp, 1, 10).label("date"),
+                        func.coalesce(func.sum(RequestModel.cost), 0).label("cost"),
+                        func.count(RequestModel.id).label("requests"),
+                    )
+                    .filter(RequestModel.success == 1)
+                    .filter(RequestModel.timestamp >= start_day.isoformat())
+                    .group_by(RequestModel.profile, func.substr(RequestModel.timestamp, 1, 10))
+                    .all()
+                )
+        except Exception as e:  # noqa: BLE001 — a sparkline must never 500 a page
+            logger.warning("usage_profile_series_failed", error=str(e))
+            self._send_json({"days": days, "dates": dates, "profiles": {}})
+            return
+
+        by_profile: dict = {}
+        for r in rows:
+            name = r.profile or "—"
+            slot = by_profile.setdefault(name, {"cost": [0.0] * days, "requests": [0] * days})
+            if r.date in dates:
+                idx = dates.index(r.date)
+                slot["cost"][idx] = float(r.cost)
+                slot["requests"][idx] = int(r.requests)
+
+        out = {}
+        for name, slot in by_profile.items():
+            out[name] = {
+                "cost": [round(v, 6) for v in slot["cost"]],
+                "requests": slot["requests"],
+                "total_cost": round(sum(slot["cost"]), 6),
+                "total_requests": sum(slot["requests"]),
+            }
+
+        self._send_json({"days": days, "start": start_day.isoformat(),
+                         "end": end_day.isoformat(), "dates": dates,
+                         "profiles": out})
+
     def _serve_usage_page(self):
         """Server-rendered Usage page (M2b) — spend and balances, outside Activity."""
         from ..ui.pages import render_usage_page
@@ -3821,93 +3900,24 @@ class WorkEndpoints:
     end_headers: Any
     wfile: Any
 
-    def _tasks_root_for(self, profile: Any) -> str:
-        """Resolved task tree for ?profile=, or "" to mean "use the default"."""
-        from ..api import work_sources
-        try:
-            return work_sources.tasks_root_for(str(profile or "").strip().lower())
-        except Exception:  # noqa: BLE001
-            return ""
-
     def _serve_work_cron_page(self):
-        """Legacy /work/cron — redirects to the Cron tab of Profiles (M2b)."""
-        target = "/profiles?tab=cron"
-        profile = (self._qs() or {}).get("profile")
-        if profile:
-            target += "&profile=" + str(profile)
-        self._redirect(target)
+        """Legacy /work/cron — the Cron tab is gone, so land on the directory.
+
+        Same reasoning as /work/config: the URL was in bookmarks, so it redirects
+        rather than 404s, but there is no cron surface left to land on. A profile
+        in the query string is dropped, because the directory has no per-profile
+        view to carry it to.
+        """
+        self._redirect("/profiles")
 
     def _serve_work_config_page(self):
-        """Legacy /work/config — redirects to the Config tab of Profiles (M2b)."""
-        self._redirect("/profiles?tab=config")
+        """Legacy /work/config — the Config tab is gone, so land on the directory.
 
-    def _serve_work_cron_api(self):
-        """GET /api/work/cron — the Cron view as JSON."""
-        from ..api import work_cron
-
-        try:
-            self._send_json(work_cron.cron_view())
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_work_cron_ops_get(self):
-        """GET /api/work/cron/ops — pending + recent executed cron ops."""
-        from ..api import work_cron
-
-        try:
-            self._send_json(work_cron.cron_ops_view())
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_work_cron_ops_post(self):
-        """POST /api/work/cron/ops — validate + spool a cron mutation intent."""
-        from ..api import work_cron
-
-        try:
-            body = self._read_body()
-        except Exception:
-            self._send_json({"error": "invalid JSON body"}, 400)
-            return
-        try:
-            op = work_cron.submit_cron_op(body)
-        except ValueError as e:
-            self._send_json({"error": str(e)}, 400)
-            return
-        except Exception as e:
-            self._send_json({"error": "internal: %s" % e}, 500)
-            return
-        self._audit("work.cron_op_submitted", op_id=op.get("id"),
-                    op=op.get("op"))
-        self._send_json(op, 201)
-
-    def _serve_work_sources_get(self):
-        """GET /api/work/sources — resolved work-layer source configuration."""
-        from ..api import work_sources
-
-        try:
-            self._send_json(work_sources.resolved_view())
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-
-    def _serve_work_sources_put(self):
-        """PUT /api/work/sources — validate + persist source configuration."""
-        from ..api import work_sources
-
-        try:
-            body = self._read_body()
-        except Exception:
-            self._send_json({"error": "invalid JSON body"}, 400)
-            return
-        try:
-            saved = work_sources.save_sources(body)
-        except ValueError as e:
-            self._send_json({"error": str(e)}, 400)
-            return
-        except Exception as e:
-            self._send_json({"error": "internal: %s" % e}, 500)
-            return
-        self._audit("work.sources_saved")
-        self._send_json({"saved": True, "sources": saved})
+        Redirecting at all is better than a 404: this URL was in bookmarks and in
+        the host-side collector's notes. It points at /profiles rather than at a
+        tab, because /profiles no longer has one.
+        """
+        self._redirect("/profiles")
 
     def _serve_work_requests_api(self):
         """GET /api/work/requests — raw request log (paginated)."""
@@ -3977,8 +3987,43 @@ class EvidenceEndpoints:
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 
+    def _serve_evidence_download(self):
+        """Stream the newest evidence pack as a tar.gz (guarded route)."""
+        import io
+        import tarfile
+        from pathlib import Path
+        try:
+            packs_root = (Path(os.environ.get("LCP_DATA_DIR", "data"))
+                          / "evidence-packs")
+            packs = sorted(packs for packs in packs_root.iterdir()
+                           if packs.is_dir()
+                           and (packs / "MANIFEST.json").is_file())
+            if not packs:
+                self._send_json({"error": "no evidence pack exported yet"}, 404)
+                return
+            latest = packs[-1]
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+                for fh in sorted(latest.rglob("*")):
+                    if fh.is_file():
+                        tf.add(fh, arcname=str(fh.relative_to(packs_root)))
+            data = buf.getvalue()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Content-Disposition",
+                             'attachment; filename="%s.tar.gz"' % latest.name)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:  # noqa: BLE001
+            self._send_json({"error": str(e)}, 500)
+
     def _serve_evidence_public_key(self):
-        """The Ed25519 public key PEM (the pack carries only its fingerprint)."""
+        """The Ed25519 public key PEM (the pack carries only its fingerprint).
+
+        ``?format=pem`` streams the raw PEM (for ``--public-key`` in
+        tools/verify_evidence_pack.py); default is a JSON envelope.
+        """
         try:
             from ..api.evidence_export import (
                 _resolve_signing_key, _public_key_pem, _public_key_fingerprint,
@@ -3986,6 +4031,19 @@ class EvidenceEndpoints:
             import os as _os
             key = _resolve_signing_key(
                 None, _os.environ.get("LCP_DATA_DIR", "data"))
+            from urllib.parse import parse_qs as _pqs
+            _qs = _pqs(self.path.split("?", 1)[1]) if "?" in (self.path or "") else {}
+            if _qs.get("format") == ["pem"]:
+                pem = _public_key_pem(key)
+                self.send_response(200)
+                self.send_header("Content-Type",
+                                 "application/x-pem-file")
+                self.send_header("Content-Disposition",
+                                 'attachment; filename="evidence_signing_pub.pem"')
+                self.send_header("Content-Length", str(len(pem)))
+                self.end_headers()
+                self.wfile.write(pem)
+                return
             self._send_json({
                 "algorithm": "Ed25519",
                 "public_key_pem": _public_key_pem(key).decode("utf-8"),

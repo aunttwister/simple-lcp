@@ -1,134 +1,128 @@
 [
  {
-  "id": "rs-idem-_api_work_tasks_lite_1&states_in_progres",
+  "id": "rs-idem-api-profiles",
   "group": "resilience",
-  "title": "idempotent /api/work/tasks?lite=1&states=in_progress&per=5",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=5' | md5sum); [ \"$a\" = \"$b\" ]"
+  "title": "idempotent /api/profiles",
+  "cmd": "a=$(curl -s '{{BASE}}/api/profiles' | md5sum); b=$(curl -s '{{BASE}}/api/profiles' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-idem-_api_work_cron",
+  "id": "rs-idem-api-models-registry",
   "group": "resilience",
-  "title": "idempotent /api/work/cron",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/cron' | md5sum); b=$(curl -s '{{BASE}}/api/work/cron' | md5sum); [ \"$a\" = \"$b\" ]"
+  "title": "idempotent /api/models/registry",
+  "cmd": "a=$(curl -s '{{BASE}}/api/models/registry' | md5sum); b=$(curl -s '{{BASE}}/api/models/registry' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-idem-_api_work_conversations_per_5",
+  "id": "rs-idem-api-providers",
   "group": "resilience",
-  "title": "idempotent /api/work/conversations?per=5",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/conversations?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/conversations?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
+  "title": "idempotent /api/providers",
+  "cmd": "a=$(curl -s '{{BASE}}/api/providers' | md5sum); b=$(curl -s '{{BASE}}/api/providers' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-idem-_api_work_fleet",
+  "id": "rs-idem-api-work-requests-per-5",
   "group": "resilience",
-  "title": "idempotent /api/work/fleet",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/fleet' | md5sum); b=$(curl -s '{{BASE}}/api/work/fleet' | md5sum); [ \"$a\" = \"$b\" ]"
+  "title": "idempotent /api/work/requests?per=5",
+  "cmd": "a=$(curl -s '{{BASE}}/api/work/requests?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/requests?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-idem-_api_work_sources",
+  "id": "rs-idem-api-work-provider-decisions-per-5",
   "group": "resilience",
-  "title": "idempotent /api/work/sources",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/sources' | md5sum); b=$(curl -s '{{BASE}}/api/work/sources' | md5sum); [ \"$a\" = \"$b\" ]"
+  "title": "idempotent /api/work/provider-decisions?per=5",
+  "cmd": "a=$(curl -s '{{BASE}}/api/work/provider-decisions?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/work/provider-decisions?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-idem-_api_work_cron_ops",
+  "id": "rs-idem-api-conversations-per-5",
   "group": "resilience",
-  "title": "idempotent /api/work/cron/ops",
-  "cmd": "a=$(curl -s '{{BASE}}/api/work/cron/ops' | md5sum); b=$(curl -s '{{BASE}}/api/work/cron/ops' | md5sum); [ \"$a\" = \"$b\" ]"
+  "title": "idempotent /api/conversations?per=5",
+  "cmd": "a=$(curl -s '{{BASE}}/api/conversations?per=5' | md5sum); b=$(curl -s '{{BASE}}/api/conversations?per=5' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-clamp-1",
+  "id": "rs-idem-api-routing-status",
   "group": "resilience",
-  "title": "per=0/page=0 clamps safely (not 500)",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/tasks?lite=1&states=all&per=0&page=0')\" != \"500\" ]"
+  "title": "idempotent /api/routing/status",
+  "cmd": "a=$(curl -s '{{BASE}}/api/routing/status' | md5sum); b=$(curl -s '{{BASE}}/api/routing/status' | md5sum); [ \"$a\" = \"$b\" ]"
  },
  {
-  "id": "rs-clamp-2",
+  "id": "rs-clamp-per0",
   "group": "resilience",
-  "title": "invalid states falls back (not 500)",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/tasks?lite=1&states=garbage&per=5')\" != \"500\" ]"
+  "title": "per=0/page=0 clamps (not 500)",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/requests?per=0&page=0')\" != \"500\" ]"
  },
  {
-  "id": "rs-clamp-3",
+  "id": "rs-clamp-negative",
   "group": "resilience",
   "title": "negative pagination clamps (not 500)",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/conversations?per=-3&page=-2')\" != \"500\" ]"
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/requests?per=-3&page=-2')\" != \"500\" ]"
  },
  {
-  "id": "rs-clamp-4",
+  "id": "rs-clamp-huge",
   "group": "resilience",
   "title": "huge per/page clamps (not 500)",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/tasks?lite=1&states=all&per=99999&page=99999')\" != \"500\" ]"
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/requests?per=99999&page=99999')\" != \"500\" ]"
  },
  {
-  "id": "rs-json-11",
+  "id": "rs-clamp-alpha",
   "group": "resilience",
-  "title": "JSON error body for /api/work/tasks/detail?task=in_progress%2Fmi",
-  "cmd": "code=$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fmissing-x'); [ \"$code\" != \"200\" ] && curl -s '{{BASE}}/api/work/tasks/detail?task=in_progress%2Fmissing-x' | python3 -c 'import sys,json; json.load(sys.stdin)'"
+  "title": "non-numeric pagination degrades (not 500)",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/requests?per=abc&page=xyz')\" != \"500\" ]"
  },
  {
-  "id": "rs-json-12",
+  "id": "rs-clamp-conv-per0",
   "group": "resilience",
-  "title": "unknown conversation cid -> 200 JSON (by design)",
-  "cmd": "curl -s '{{BASE}}/api/work/conversations/detail?cid=missing' | python3 -c 'import sys,json; d=json.load(sys.stdin); assert \"events\" in d'"
+  "title": "conversations per=0 clamps (not 500)",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/conversations?per=0&page=0')\" != \"500\" ]"
  },
  {
-  "id": "rs-json-13",
+  "id": "rs-clamp-conv-neg",
   "group": "resilience",
-  "title": "cron op malformed body -> 400 JSON",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{bad')\" = \"400\" ]"
+  "title": "conversations negative clamps (not 500)",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/conversations?per=-3&page=-2')\" != \"500\" ]"
  },
  {
-  "id": "rs-op-1",
+  "id": "rs-clamp-dec",
   "group": "resilience",
-  "title": "op reject: action missing",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"profile\\\": \\\"backups\\\"}')\" = \"400\" ]"
+  "title": "decisions negative clamps (not 500)",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/provider-decisions?per=-1&page=-9')\" != \"500\" ]"
  },
  {
-  "id": "rs-op-2",
+  "id": "rs-404",
   "group": "resilience",
-  "title": "op reject: profile empty",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"remove\\\", \\\"profile\\\": \\\"\\\", \\\"job_id\\\": \\\"a1b2c3d4e5f6\\\"}')\" = \"400\" ]"
+  "title": "an unknown route is 404",
+  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/definitely-not-a-route')\" = \"404\" ]"
  },
  {
-  "id": "rs-op-3",
+  "id": "rs-traversal",
   "group": "resilience",
-  "title": "op reject: job_id too long",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"remove\\\", \\\"profile\\\": \\\"backups\\\", \\\"job_id\\\": \\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}')\" = \"400\" ]"
+  "title": "a traversal path is not served",
+  "cmd": "[ \"$(curl -q -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/..%%2fetc%%2fpasswd')\" != \"200\" ]"
  },
  {
-  "id": "rs-op-4",
+  "id": "rs-static-traversal",
   "group": "resilience",
-  "title": "op reject: repeat negative",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"repeat\\\": -1}')\" = \"400\" ]"
+  "title": "/static does not escape its root",
+  "cmd": "curl -q -s --path-as-is '{{BASE}}/static/../../etc/passwd' | grep -q 'root:x:' && exit 1; exit 0"
  },
  {
-  "id": "rs-op-5",
+  "id": "rs-api-json-errors",
   "group": "resilience",
-  "title": "op reject: prompt over 8k",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp\\\"}')\" = \"400\" ]"
+  "title": "API errors are JSON, not HTML",
+  "cmd": "curl -s '{{BASE}}/api/conversations/messages' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'error' in d\""
  },
  {
-  "id": "rs-op-6",
+  "id": "rs-evidence-key",
   "group": "resilience",
-  "title": "op reject: no-agent without script",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"no_agent\\\": true}')\" = \"400\" ]"
+  "title": "the evidence public key is a real PEM",
+  "cmd": "curl -s '{{BASE}}/api/evidence/public-key' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['public_key_pem'].startswith('-----BEGIN PUBLIC KEY-----'); assert d['fingerprint'].startswith('sha256:')\""
  },
  {
-  "id": "rs-op-7",
+  "id": "rs-parallel",
   "group": "resilience",
-  "title": "op reject: skill with slash",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"30m\\\", \\\"prompt\\\": \\\"p\\\", \\\"skill\\\": \\\"a/b\\\"}')\" = \"400\" ]"
+  "title": "five parallel requests all succeed",
+  "cmd": "rm -f /tmp/rs_p_*; for i in 1 2 3 4 5; do ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/work/requests?per=10' > /tmp/rs_p_$i ) & done; wait; for f in /tmp/rs_p_*; do [ \"$(cat \"$f\")\" = \"200\" ] || { echo \"bad $f=$(cat \"$f\")\"; exit 1; }; done; echo ok"
  },
  {
-  "id": "rs-op-8",
+  "id": "rs-parallel-mixed",
   "group": "resilience",
-  "title": "op reject: schedule empty",
-  "cmd": "[ \"$(curl -s -o /dev/null -w '{{HTTP}}' -X POST '{{BASE}}/api/work/cron/ops' -H 'Content-Type: application/json' -d '{\\\"action\\\": \\\"create\\\", \\\"profile\\\": \\\"backups\\\", \\\"name\\\": \\\"x\\\", \\\"schedule\\\": \\\"\\\", \\\"prompt\\\": \\\"p\\\"}')\" = \"400\" ]"
- },
- {
-  "id": "rs-para-1",
-  "group": "resilience",
-  "title": "5 parallel lite fetches all succeed",
-  "cmd": "for i in 1 2 3 4 5; do ( curl -s -o /dev/null -w '{{HTTP}}' '{{BASE}}/api/work/tasks?lite=1&states=in_progress&per=10' & ) ; done; wait 2>/dev/null; echo ok"
+  "title": "mixed parallel reads never 5xx",
+  "cmd": "rm -f /tmp/rs_m_*; for i in 1 2 3; do ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/conversations?per=20' > /tmp/rs_m_c$i ) & ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/usage/stats' > /tmp/rs_m_u$i ) & ( curl -s -o /dev/null -w '%{http_code}' '{{BASE}}/api/routing/status' > /tmp/rs_m_r$i ) & done; wait; for f in /tmp/rs_m_*; do case \"$(cat \"$f\")\" in 5*) echo \"5xx on $f\"; exit 1;; esac; done; echo ok"
  }
 ]

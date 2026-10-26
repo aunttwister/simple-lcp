@@ -8,6 +8,22 @@
 // Usage is a page again, and it owns its refresh controls.
 
 // Sidebar toggle — shared across all pages.
+//
+// aria-expanded tracks whether the navigation is actually visible, which is a
+// different question on each breakpoint: on mobile the sidebar is off-canvas
+// and `open` means visible; on desktop it is a column and `collapsed` means
+// hidden. A single boolean cannot be derived from one class name, so the
+// state is computed from both.
+function syncSidebarAria() {
+  var sb = document.getElementById('sidebar');
+  var btn = document.getElementById('sidebarToggle');
+  if (!sb || !btn) return;
+  var visible = window.innerWidth <= 768
+    ? sb.classList.contains('open')
+    : !sb.classList.contains('collapsed');
+  btn.setAttribute('aria-expanded', visible ? 'true' : 'false');
+}
+
 function toggleSidebar() {
   var sb = document.getElementById('sidebar');
   var ov = document.getElementById('sidebarOverlay');
@@ -18,18 +34,21 @@ function toggleSidebar() {
     sb.classList.toggle('collapsed');
     localStorage.setItem('lcp-sidebar', sb.classList.contains('collapsed') ? 'collapsed' : 'pinned');
   }
+  syncSidebarAria();
 }
 
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebarOverlay').classList.remove('show');
+  syncSidebarAria();
 }
 
 (function () {
-  if (window.innerWidth <= 768) return;
-  if (localStorage.getItem('lcp-sidebar') === 'collapsed') {
+  if (window.innerWidth > 768 && localStorage.getItem('lcp-sidebar') === 'collapsed') {
     document.getElementById('sidebar').classList.add('collapsed');
   }
+  syncSidebarAria();
+  window.addEventListener('resize', syncSidebarAria);
 })();
 
 // Alert badge polling — updates active alert count on all pages.
@@ -52,3 +71,15 @@ function closeSidebar() {
   pollAlertBadge();
   setInterval(pollAlertBadge, 15000);
 })();
+
+// Escape closes the drawer. On a phone the sidebar is a modal surface — it covers
+// the content and traps nothing — so a keyboard user who opened it with the
+// toggle has no other way back, and the overlay's onclick is mouse-only.
+document.addEventListener('keydown', function (ev) {
+  if (ev.key !== 'Escape') return;
+  var sb = document.getElementById('sidebar');
+  if (!sb || !sb.classList.contains('open')) return;
+  closeSidebar();
+  var toggle = document.getElementById('sidebarToggle');
+  if (toggle) toggle.focus();
+});

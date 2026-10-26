@@ -52,16 +52,17 @@
 
 <div class="table-wrap">
   <table class="capability-table">
+    <caption class="sr-only">Live calls: one row per call currently in flight.</caption>
     <thead>
       <tr>
-        <th>Elapsed</th>
-        <th>Profile</th>
-        <th>Provider</th>
-        <th>Model</th>
-        <th>Conversation</th>
-        <th>Prompt tok</th>
-        <th>Tools</th>
-        <th>Mode</th>
+        <th scope="col">Elapsed</th>
+        <th scope="col">Profile</th>
+        <th scope="col">Provider</th>
+        <th scope="col">Model</th>
+        <th scope="col">Conversation</th>
+        <th scope="col">Prompt tok</th>
+        <th scope="col">Tools</th>
+        <th scope="col">Mode</th>
       </tr>
     </thead>
     <tbody id="ipRows">
@@ -100,6 +101,16 @@
   </select>
   <label for="convQ">Search</label>
   <input id="convQ" type="text" name="q" value="{{ f.q }}" placeholder="name or id">
+  {# The API advertises four sorts and this form offered none, so three of them
+     were unreachable from the UI. Options come from f.sorts — the same list the
+     server resolves the ORDER BY against — so a sort can never be offered here
+     that the endpoint would reject. #}
+  <label for="convSort">Sort</label>
+  <select id="convSort" name="sort">
+    {% for s in f.sorts %}
+      <option value="{{ s.key }}"{% if f.sort == s.key %} selected{% endif %}>{{ s.label }}</option>
+    {% endfor %}
+  </select>
   <input type="hidden" name="per" value="{{ f.per }}">
   <button type="submit" class="btn-sm">Filter</button>
   {% if f.profile or f.q %}
@@ -112,29 +123,48 @@
 {% else %}
 <div class="table-wrap">
   <table class="capability-table" id="convTable">
+    <caption class="sr-only">Conversation history: one row per stored conversation, newest first.</caption>
     <thead>
       <tr>
-        <th>Conversation</th>
-        <th>Profile</th>
-        <th>Model</th>
-        <th>Source</th>
-        <th>Messages</th>
-        <th>Tool calls</th>
-        <th>Last activity</th>
-        <th></th>
+        <th scope="col">Conversation</th>
+        <th scope="col">Profile</th>
+        <th scope="col">Model</th>
+        <th scope="col">Source</th>
+        <th scope="col">Messages</th>
+        <th scope="col">Tool calls</th>
+        <th scope="col" class="num">Tokens</th>
+        <th scope="col" class="num">Cost</th>
+        <th scope="col">Last activity</th>
+        <th scope="col"></th>
       </tr>
     </thead>
     <tbody>
       {% for c in h.conversations %}
       <tr class="conv-row" data-cid="{{ c.id }}">
-        <td>{{ c.name or c.id }}</td>
+        <td class="conv-name-cell">
+          {% if c.name %}{{ c.name }}{% else %}<span class="muted">Untitled</span>
+          <span class="mono muted">· {{ c.id }}</span>{% endif %}
+          {% if c.summary %}<span class="conv-summary">{{ c.summary }}</span>{% endif %}
+        </td>
         <td>{{ c.profile or '—' }}</td>
         <td class="mono">{{ c.model or '—' }}</td>
         <td>{{ c.source or '—' }}</td>
-        <td class="mono">{{ c.messages }}{% if c.active_messages and c.active_messages != c.messages %}
-          <span class="muted">({{ c.active_messages }} live)</span>{% endif %}</td>
-        <td class="mono">{{ c.tool_calls }}</td>
-        <td class="mono">{{ c.last_at or '—' }}</td>
+        {# `messages is none` means the rollup was never recounted — the
+           conversation was imported from the request log with no transcript
+           stored. That is "unknown", not "zero": rendering 0 beside a summary
+           that describes 16 tool calls was the table contradicting itself. #}
+        <td class="mono">{% if c.messages is none %}—{% else %}{{ c.messages }}{% endif %}
+          {% if c.messages is not none and c.active_messages is not none and c.active_messages != c.messages %}
+          <span class="muted" title="Messages still in the agent's context window; the rest were compacted">{{ c.active_messages }} active</span>{% endif %}
+          {% if c.messages is none %}<span class="muted">no transcript</span>{% endif %}</td>
+        <td class="mono">{% if c.tool_calls is none %}—{% else %}{{ c.tool_calls }}{% endif %}</td>
+        {# Right-aligned and tabular: these are compared down the column, which is
+           what an operator does with a spend column. `fmt_num` compresses 6.2B to
+           "6250.7M" — a token count this size is only useful as an order of
+           magnitude, and the exact figure is in the modal. #}
+        <td class="mono num">{% if c.measured %}{{ c.tokens | fmt_num }}{% else %}—{% endif %}</td>
+        <td class="mono num">{% if c.measured %}${% endif %}{{ '%.4f' % c.cost if c.measured else '—' }}</td>
+        <td class="mono">{{ c.last_at | fmt_iso }}</td>
         <td><button type="button" class="btn-sm conv-toggle" data-cid="{{ c.id }}"
                     data-name="{{ c.name or c.id }}">View</button></td>
       </tr>
@@ -155,18 +185,33 @@
   {% set wto = [f.pages, wfrom + 4] | min %}
   <div class="pager">
     {% if f.page > 1 %}
-      <a class="btn-sm" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;page={{ f.page - 1 }}">Prev</a>
+      <a class="btn-sm" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;sort={{ f.sort }}&amp;page={{ f.page - 1 }}">Prev</a>
     {% endif %}
     {% for n in range(wfrom, wto + 1) %}
-      <a class="btn-sm{% if n == f.page %} active{% endif %}" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;page={{ n }}">{{ n }}</a>
+      <a class="btn-sm{% if n == f.page %} active{% endif %}" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;sort={{ f.sort }}&amp;page={{ n }}">{{ n }}</a>
     {% endfor %}
     {% if f.page < f.pages %}
-      <a class="btn-sm" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;page={{ f.page + 1 }}">Next</a>
+      <a class="btn-sm" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ f.per }}&amp;sort={{ f.sort }}&amp;page={{ f.page + 1 }}">Next</a>
     {% endif %}
     <span class="muted task-pager-label">per page</span>
     {% for pp in f.per_choices %}
-      <a class="btn-sm{% if f.per == pp %} active{% endif %}" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ pp }}">{{ pp }}</a>
+      <a class="btn-sm{% if f.per == pp %} active{% endif %}" href="/conversations?profile={{ f.profile }}&amp;q={{ f.q }}&amp;per={{ pp }}&amp;sort={{ f.sort }}">{{ pp }}</a>
     {% endfor %}
+    {# 5,051 conversations at 20/page is 253 pages and the window above shows five.
+       A GET form, so the jump is a URL and stays shareable — and the server clamps
+       an out-of-range page to the last one rather than returning an empty table. #}
+    <form class="task-pager-jump" method="get" action="/conversations">
+      <input type="hidden" name="profile" value="{{ f.profile }}">
+      <input type="hidden" name="q" value="{{ f.q }}">
+      <input type="hidden" name="per" value="{{ f.per }}">
+      <input type="hidden" name="sort" value="{{ f.sort }}">
+      <label class="sr-only" for="convJump">Jump to page</label>
+      <span class="muted">page</span>
+      <input id="convJump" type="number" name="page" min="1" max="{{ f.pages }}"
+             value="{{ f.page }}" inputmode="numeric">
+      <span class="muted">of {{ f.pages }}</span>
+      <button type="submit" class="btn-sm">Go</button>
+    </form>
   </div>
   {% endif %}
 

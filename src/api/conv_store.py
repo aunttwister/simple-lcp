@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
@@ -180,11 +181,23 @@ def append_messages(conversation_id: str, messages: Iterable[dict[str, Any]],
     Returns the number of rows actually written, so a caller can tell "imported"
     from "already present" without re-reading.
 
-    Dedup is positional: the incoming hashes are compared against the stored
-    sequence and only the unmatched suffix is appended, continuing the stored
-    numbering. Positional (rather than set) comparison matters because a
-    conversation legitimately repeats a message — an identical "ok" twice is two
-    turns, not one.
+    Dedup is by MULTISET, not by position. The incoming hashes are counted, the
+    stored hashes are counted, and only the surplus — ``incoming_count -
+    stored_count`` copies of each message — is appended, in incoming order.
+
+    Positional (longest-common-prefix) dedup assumed the incoming list is an
+    append-only continuation of what is stored. That holds for a re-import of an
+    unchanged session, but not for the live capture path: `capture_request` sends
+    the client's full history, and the client COMPACTS. A compaction removes
+    messages from the middle, so the incoming list diverges from the stored one
+    early, the prefix stops at the first divergence, and everything after it is
+    appended again — history that was already stored. Measured in prod: one
+    conversation held 193,930 rows for 57 distinct user messages, and a single
+    tool_call_id was stored 222 times. Total 3.55M rows for 629 live conversations.
+
+    Counting per hash is order-independent, so compaction cannot defeat it, and it
+    still preserves legitimate repeats: an identical "ok" sent twice is stored
+    twice, because the count is compared, not membership.
     """
     prepared = [_prepare(m) for m in messages]
     if not prepared:
@@ -199,22 +212,26 @@ def append_messages(conversation_id: str, messages: Iterable[dict[str, Any]],
             (conversation_id,),
         ).fetchall()
         stored_hashes = [r["msg_hash"] for r in stored]
+        stored_count = Counter(h for h in stored_hashes if h)
 
-        # Longest common prefix of stored vs incoming — the part already known.
-        matched = 0
-        limit = min(len(stored_hashes), len(prepared))
-        while matched < limit and stored_hashes[matched] == prepared[matched]["msg_hash"]:
-            matched += 1
+        seen: Counter = Counter()
+        surplus: list = []
+        for m in prepared:
+            h = m["msg_hash"]
+            seen[h] += 1
+            if h and seen[h] <= stored_count.get(h, 0):
+                continue          # already stored, this many times
+            surplus.append(m)
 
-        if matched == len(prepared):
-            return 0  # nothing new (identical re-run)
+        if not surplus:
+            return 0  # nothing new (identical re-run, or a compacted prefix)
 
         next_seq = len(stored_hashes)
         rows = [
             (conversation_id, next_seq + i, m["role"], m["content"], m["content_len"],
              m["truncated"], m["tool_name"], m["tool_call_id"], m["tool_calls"],
              m["reasoning"], m["ts"], m["active"], m["compacted"], m["msg_hash"], origin)
-            for i, m in enumerate(prepared[matched:])
+            for i, m in enumerate(surplus)
         ]
         con.executemany(
             "INSERT OR REPLACE INTO conv_messages "
@@ -282,15 +299,26 @@ def list_conversations(params: Optional[dict[str, Any]] = None) -> dict[str, Any
             "profile": r["profile"],
             "model": r["model"],
             "source": r["source"],
-            "messages": r["message_count"] or 0,
-            "active_messages": r["active_message_count"] or 0,
-            "tool_calls": r["tool_call_count"] or 0,
+            # These three are NULL, not zero, on a rollup-only conversation — one
+            # imported from the request log with no transcript stored (1,383 of
+            # 5,051 here). `or 0` turned "we never counted" into "there were none",
+            # so the table said 0 messages beside a summary describing 16 tool
+            # calls. Unknown and zero are different facts; only the template may
+            # collapse them, and it renders unknown as an em dash.
+            "messages": r["message_count"],
+            "active_messages": r["active_message_count"],
+            "tool_calls": r["tool_call_count"],
             "started_at": r["first_seen"] or r["started_at"],
             "last_at": r["last_seen"] or r["ended_at"],
             "calls": r["calls"] or 0,
             "tokens": r["tokens"] or 0,
             "cost": round(r["cost"] or 0.0, 6),
             "errors": r["errors"] or 0,
+            # A conversation whose requests were never stamped has calls/tokens/
+            # cost all at 0 — 3,666 of 5,051 here, all `source='hermes'`. Those
+            # zeros are "not measured", not "nothing spent": one of them has 5,874
+            # messages. `measured` lets the view say "—" instead of "$0.0000".
+            "measured": (r["calls"] or 0) > 0,
         } for r in rows]
     finally:
         con.close()
@@ -355,7 +383,8 @@ def conversation_audit(conversation_id: str) -> dict[str, Any]:
             "profile": rollup["profile"] if "profile" in keys else None,
             "model": rollup["model"] if "model" in keys else None,
             "source": rollup["source"] if "source" in keys else None,
-            "messages": rollup["message_count"] if "message_count" in keys else None,
+            "messages": (rollup["message_count"]
+                         if "message_count" in keys else None),
             "active_messages": (rollup["active_message_count"]
                                 if "active_message_count" in keys else None),
             "started_at": (rollup["first_seen"] if "first_seen" in keys else None)
@@ -367,7 +396,11 @@ def conversation_audit(conversation_id: str) -> dict[str, Any]:
             "errors": rollup["errors"] if "errors" in keys else None,
             "user_turns": users,
             "assistant_turns": assistants,
-            "tool_calls": sum(t["count"] for t in tools),
+            # The rollup's tool count is NULL when the conversation was never
+            # recounted; summing an empty tool list would report 0 instead.
+            "tool_calls": (rollup["tool_call_count"]
+                           if "tool_call_count" in keys and rollup["tool_call_count"] is not None
+                           else (sum(t["count"] for t in tools) if tools else None)),
             "tools": tools,
             "first_ask": (first_ask["content"] if first_ask else None),
         }

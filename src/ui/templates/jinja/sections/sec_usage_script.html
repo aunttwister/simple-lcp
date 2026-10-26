@@ -257,6 +257,37 @@ setInterval(loadCacheSettings, 15000);
 var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 window._tabState = {};
 var INITIAL_DAYS = 7;
+// Series stashed by the panel builder and drawn after the panels are in the
+// DOM. A <pre> or <canvas> cannot be filled while it is still a string.
+var _sparkSeries = {};
+var _gaugeSeries = {};
+
+// Draw the trend sparklines and the subscription gauges for every provider
+// panel. Called once after panelsDiv.innerHTML, and again on a range change so
+// a 7d -> 30d switch redraws the trend rather than leaving the 7d picture up.
+function renderTrendAndGauges() {
+  if (!window.LCPSpark) return;   // vendored module absent: leave the text empty
+  Object.keys(_sparkSeries).forEach(function (prov) {
+    var el = document.getElementById('spark-trend-' + prov);
+    if (!el) return;
+    var series = _sparkSeries[prov];
+    var info = LCPSpark.mount(el, series, { mode: 'ascii', width: 46 });
+    var sumEl = document.getElementById('spark-sum-' + prov);
+    if (!sumEl) return;
+    if (!info) { sumEl.textContent = ''; return; }
+    var isLocal = prov === 'llamacpp';
+    var fmt = isLocal
+      ? function (n) { return Math.round(n).toLocaleString() + ' tok'; }
+      : function (n) { return '$' + n.toFixed(n < 1 ? 4 : 2); };
+    sumEl.textContent = 'min ' + fmt(info.min) + ' · max ' + fmt(info.max) +
+      ' · last ' + fmt(info.last) + ' · ' + info.points + ' points';
+  });
+  Object.keys(_gaugeSeries).forEach(function (canvasId) {
+    var c = document.getElementById(canvasId);
+    if (!c) return;
+    LCPSpark.gauge(c, _gaugeSeries[canvasId], { size: 88, sub: 'used' });
+  });
+}
 document.getElementById('genTime').textContent = new Date().toISOString().replace('T',' ').slice(0,19) + ' UTC';
 
 function formatTokens(n) {
@@ -324,9 +355,9 @@ function renderBreakdownTable(containerId, data, labelKey, metric) {
         var v = isTokens ? (data[k].completion_tokens + data[k].prompt_tokens) : data[k].cost;
         if (v > maxVal) maxVal = v;
     });
-    var html = '<table class="breakdown-table"><thead><tr><th>' + labelKey + '</th>' +
-        (isTokens ? '' : '<th class="cost-col">Cost</th>') +
-        '<th class="cost-col">Requests</th><th class="cost-col">Tokens</th><th>Share</th></tr></thead><tbody>';
+    var html = '<table class="breakdown-table"><thead><tr><th scope="col">' + labelKey + '</th>' +
+        (isTokens ? '' : '<th scope="col" class="cost-col">Cost</th>') +
+        '<th scope="col" class="cost-col">Requests</th><th scope="col" class="cost-col">Tokens</th><th scope="col">Share</th></tr></thead><tbody>';
     keys.forEach(function(k) {
         var d = data[k];
         var v = isTokens ? (d.completion_tokens + d.prompt_tokens) : d.cost;
@@ -577,6 +608,27 @@ function buildPage(providers) {
 
             panelsHtml += '<div class="tab-panel' + activeClass + '" id="' + panelId + '">';
 
+            // ── Trend card ──
+            // Every provider panel gets its daily series as a text sparkline.
+            // It is built from `stats.daily`, which this page already fetched,
+            // so it costs no extra request and no new dependency. The series is
+            // stashed in _sparkSeries and mounted after innerHTML, because a
+            // canvas/pre cannot be drawn into a string.
+            var isLocalProv = prov === 'llamacpp';
+            var trendSeries = (stats.daily || []).map(function (d) {
+                return isLocalProv ? (d.tokens || 0) : (d.cost || 0);
+            });
+            _sparkSeries[prov] = trendSeries;
+            var trendUnit = isLocalProv ? 'tokens/day' : 'USD/day';
+            var trendName = isLocalProv ? 'Daily tokens' : 'Daily spend';
+            panelsHtml += '<div class="stat-cards" style="margin-bottom:1rem">' +
+                '<div class="stat-card" style="grid-column:1/-1">' +
+                  '<div class="label">' + trendName + ' · last ' + trendSeries.length + ' days</div>' +
+                  '<pre class="spark" id="spark-trend-' + prov + '" aria-label="' + trendName + ' trend, ' + trendSeries.length + ' days"></pre>' +
+                  '<div class="spark-sum" id="spark-sum-' + prov + '"></div>' +
+                '</div>' +
+              '</div>';
+
             if (prov === 'deepseek') {
                 var bal = (sum && sum.balance) ? sum.balance : {};
                 var available = bal.available || 0;
@@ -675,16 +727,38 @@ function buildPage(providers) {
                     panelsHtml += '<div class="stat-card" style="border-left:3px solid #f97316;margin-bottom:1rem"><div class="label" style="color:#f97316">Go plan quota exhausted</div><div class="value" style="font-size:0.85rem;font-weight:400">OpenCode Go is refusing calls on ' + esc(ocLimited.join(', ')) + ' — on the /zen/go/v1 route only. LCP calls /inference/openai/v1, which still answers, so this is not blocking gateway traffic.</div></div>';
                 }
 
+                // ── Subscription windows ──
+                // A radial gauge per window instead of a flat fill bar: the
+                // percentage is a share of a fixed allowance, which is exactly
+                // what a dial communicates. The numeric percentage stays as
+                // text beside the canvas, so nothing depends on the canvas
+                // rendering (aria-hidden on the canvas, value in .bar-pct).
                 var barsHtml = '';
-                if (sub.rolling_pct != null) {
-                    barsHtml += '<div class="usage-bar-item"><div class="bar-header"><span class="bar-label">Rolling (5h)</span><span class="bar-pct">' + sub.rolling_pct.toFixed(0) + '%</span></div><div class="bar-track"><div class="bar-fill ' + barColor(sub.rolling_pct) + '" style="width:' + sub.rolling_pct + '%"></div></div><div class="bar-sub"><span>' + fmtCountdown(sub.rolling_reset_sec) + '</span><span>' + fmtResetAt(sub.rolling_reset_sec) + '</span></div></div>';
-                }
-                if (sub.weekly_pct != null) {
-                    barsHtml += '<div class="usage-bar-item"><div class="bar-header"><span class="bar-label">Weekly</span><span class="bar-pct">' + sub.weekly_pct.toFixed(0) + '%</span></div><div class="bar-track"><div class="bar-fill ' + barColor(sub.weekly_pct) + '" style="width:' + sub.weekly_pct + '%"></div></div><div class="bar-sub"><span>' + fmtCountdown(sub.weekly_reset_sec) + '</span><span>' + fmtResetAt(sub.weekly_reset_sec) + '</span></div></div>';
-                }
-                if (sub.monthly_pct != null) {
-                    barsHtml += '<div class="usage-bar-item"><div class="bar-header"><span class="bar-label">Monthly</span><span class="bar-pct">' + sub.monthly_pct.toFixed(0) + '%</span></div><div class="bar-track"><div class="bar-fill ' + barColor(sub.monthly_pct) + '" style="width:' + sub.monthly_pct + '%"></div></div><div class="bar-sub"><span>' + fmtCountdown(sub.monthly_reset_sec) + '</span><span>' + fmtResetAt(sub.monthly_reset_sec) + '</span></div></div>';
-                }
+                var gaugeWindows = [
+                    { key: 'rolling', label: 'Rolling (5h)' },
+                    { key: 'weekly', label: 'Weekly' },
+                    { key: 'monthly', label: 'Monthly' }
+                ];
+                gaugeWindows.forEach(function (w) {
+                    if (sub[w.key + '_pct'] == null) return;
+                    var pct = sub[w.key + '_pct'];
+                    var resetSec = sub[w.key + '_reset_sec'];
+                    var canvasId = 'gauge-' + w.key;
+                    _gaugeSeries[canvasId] = pct;
+                    var legend = fmtCountdown(resetSec)
+                        ? 'resets in <b>' + fmtCountdown(resetSec) + '</b>'
+                        : 'no reset reported';
+                    var at = fmtResetAt(resetSec);
+                    if (at) legend += '<br>at <b>' + at + '</b>';
+                    barsHtml += '<div class="usage-bar-item usage-gauge-item">' +
+                        '<div class="gauge-head"><span class="bar-label">' + w.label + '</span>' +
+                        '<span class="bar-pct">' + pct.toFixed(0) + '%</span></div>' +
+                        '<div class="gauge-body">' +
+                          '<canvas id="' + canvasId + '" aria-hidden="true"></canvas>' +
+                          '<div class="gauge-legend">' + legend + '</div>' +
+                        '</div>' +
+                      '</div>';
+                });
                 if (barsHtml) {
                     panelsHtml += '<div class="usage-bars">' + barsHtml + '</div>';
                 }
@@ -758,15 +832,39 @@ function buildPage(providers) {
                     }
 
                     var ccBars = '';
-                    if (ccsub.five_hour_pct != null) {
-                        ccBars += '<div class="usage-bar-item"><div class="bar-header"><span class="bar-label">Rolling (5h)</span><span class="bar-pct">' + ccsub.five_hour_pct.toFixed(0) + '%</span></div><div class="bar-track"><div class="bar-fill ' + barColor(ccsub.five_hour_pct) + '" style="width:' + ccsub.five_hour_pct + '%"></div></div><div class="bar-sub"><span>' + fmtCountdown(ccsub.five_hour_reset_sec) + '</span><span>' + fmtResetAt(ccsub.five_hour_reset_sec) + '</span></div></div>';
-                    }
-                    if (ccsub.weekly_pct != null) {
-                        ccBars += '<div class="usage-bar-item"><div class="bar-header"><span class="bar-label">Weekly</span><span class="bar-pct">' + ccsub.weekly_pct.toFixed(0) + '%</span></div><div class="bar-track"><div class="bar-fill ' + barColor(ccsub.weekly_pct) + '" style="width:' + ccsub.weekly_pct + '%"></div></div><div class="bar-sub"><span>' + fmtCountdown(ccsub.weekly_reset_sec) + '</span><span>' + fmtResetAt(ccsub.weekly_reset_sec) + '</span></div></div>';
-                    }
-                    if (ccsub.monthly_pct != null && ccsub.monthly_pct > 0) {
-                        ccBars += '<div class="usage-bar-item"><div class="bar-header"><span class="bar-label">Monthly</span><span class="bar-pct">' + ccsub.monthly_pct.toFixed(0) + '%</span></div><div class="bar-track"><div class="bar-fill ' + barColor(ccsub.monthly_pct) + '" style="width:' + ccsub.monthly_pct + '%"></div></div><div class="bar-sub"><span>' + fmtCountdown(ccsub.monthly_reset_sec) + '</span><span>' + fmtResetAt(ccsub.monthly_reset_sec) + '</span></div></div>';
-                    }
+                    // Same radial-gauge treatment as the OpenCode panel, driven
+                    // by Command Code's own five-hour / weekly / monthly caps.
+                    // `> 0` on monthly is kept from the old bar: a plan with no
+                    // monthly cap configured must not draw a 0% dial.
+                    var ccWindows = [
+                        { key: 'five_hour', label: 'Rolling (5h)', pct: ccsub.five_hour_pct, reset: ccsub.five_hour_reset_sec, always: false },
+                        { key: 'weekly', label: 'Weekly', pct: ccsub.weekly_pct, reset: ccsub.weekly_reset_sec, always: false },
+                        { key: 'monthly', label: 'Monthly', pct: ccsub.monthly_pct, reset: ccsub.monthly_reset_sec, always: true }
+                    ];
+                    ccWindows.forEach(function (w) {
+                        if (w.pct == null) return;
+                        if (w.key === 'monthly' && !(w.pct > 0)) return;
+                        var canvasId = 'gauge-cc-' + w.key;
+                        _gaugeSeries[canvasId] = w.pct;
+                        var legend = fmtCountdown(w.reset)
+                            ? 'resets in <b>' + fmtCountdown(w.reset) + '</b>'
+                            : 'no reset reported';
+                        var at = fmtResetAt(w.reset);
+                        if (at) legend += '<br>at <b>' + at + '</b>';
+                        var used = w.key === 'monthly' ? ccsub.monthly_used : (w.key === 'weekly' ? ccsub.weekly_used : ccsub.five_hour_used);
+                        var cap = w.key === 'monthly' ? ccsub.monthly_cap : (w.key === 'weekly' ? ccsub.weekly_cap : ccsub.five_hour_cap);
+                        if (used != null && cap != null) {
+                            legend += '<br>$<b>' + Number(used).toFixed(2) + '</b> of $<b>' + Number(cap).toFixed(2) + '</b>';
+                        }
+                        ccBars += '<div class="usage-bar-item usage-gauge-item">' +
+                            '<div class="gauge-head"><span class="bar-label">' + w.label + '</span>' +
+                            '<span class="bar-pct">' + w.pct.toFixed(0) + '%</span></div>' +
+                            '<div class="gauge-body">' +
+                              '<canvas id="' + canvasId + '" aria-hidden="true"></canvas>' +
+                              '<div class="gauge-legend">' + legend + '</div>' +
+                            '</div>' +
+                          '</div>';
+                    });
                     if (ccBars) {
                         panelsHtml += '<div class="usage-bars">' + ccBars + '</div>';
                     }
@@ -817,6 +915,7 @@ function buildPage(providers) {
             renderBreakdownTable('table-model-' + prov, stats.by_model, 'Model', isLocal ? 'tokens' : 'cost');
             renderBreakdownTable('table-profile-' + prov, stats.by_profile, 'Profile', isLocal ? 'tokens' : 'cost');
         });
+        renderTrendAndGauges();
         if (typeof loadOcCredStatus === 'function') loadOcCredStatus();
         if (typeof loadCcCredStatus === 'function') loadCcCredStatus();
     });
@@ -898,6 +997,12 @@ window.applyDateRange = function(btnEl, provider, range) {
             renderDailyChart(canvasKey, stats.daily || [], isLocal ? 'tokens' : 'cost');
             renderBreakdownTable('table-model-' + provider, stats.by_model || {}, 'Model', isLocal ? 'tokens' : 'cost');
             renderBreakdownTable('table-profile-' + provider, stats.by_profile || {}, 'Profile', isLocal ? 'tokens' : 'cost');
+            // Redraw the trend sparkline for this provider: the range just
+            // changed, so the 7d picture must not stay up next to a 30d chart.
+            _sparkSeries[provider] = (stats.daily || []).map(function (d) {
+                return isLocal ? (d.tokens || 0) : (d.cost || 0);
+            });
+            renderTrendAndGauges();
         })
         .catch(function(e) {
             console.error('Date filter fetch failed', e);

@@ -49,6 +49,13 @@ CUT_ROUTES = {
     "api.setup.progress",
     "api.setup.skip",
     "api.setup.install",
+    # C7 — agent-infrastructure surface (2026-10-25)
+    # Cron and Config left the UI in two waves; these five routes had no caller
+    # left. Two of them were writes: POST spooled cron mutation intents, PUT
+    # repointed every profile's task-tree root, cron store and op spool.
+    "api.work.cron",
+    "api.work.cron.ops",
+    "api.work.sources",
 }
 
 # Modules deleted outright. Re-adding any of them restores the surface even if
@@ -59,6 +66,10 @@ CUT_MODULES = [
     "src.api.workspace",
     "src.api.work",
     "src.api.setup",
+    # C7 — with the five routes above gone, these had no live root:
+    #   work_cron.tasks_dir <- _snapshot_path <- cron_view <- resolved_view
+    "src.api.work_cron",
+    "src.api.work_sources",
 ]
 
 
@@ -98,8 +109,9 @@ class TestSurvivorsAreIntact:
         "src.api.key_manager",
         "src.api.alert_manager",
         "src.api.seed_capabilities",
-        "src.api.work_cron",       # Profiles Cron tab
-        "src.api.work_sources",    # Profiles Config tab
+        # src.api.work_cron and src.api.work_sources are NOT here any more: they
+        # were kept when the Cron and Config tabs existed, and deleted with them on
+        # 2026-10-25. Their names moved into CUT_MODULES instead.
     ]
 
     @pytest.mark.parametrize("mod", KEEP_MODULES)

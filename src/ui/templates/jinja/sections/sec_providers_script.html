@@ -269,7 +269,7 @@ function loadFailovers(){
 
 // ── Profile-grouped provider health (lcp-stack pattern, like Keys page) ────
 var PROV_COLS = '<colgroup><col style="width:16%"><col style="width:10%"><col style="width:12%"><col style="width:12%"><col style="width:12%"><col style="width:7%"><col style="width:17%"><col style="width:14%"></colgroup>';
-var PROV_HDR = '<tr class="lcp-stack-header"><th>Provider</th><th>Status</th><th>Uptime 24h</th><th>Uptime 7d</th><th>Uptime 30d</th><th style="text-align:center">Failures</th><th>Last Error</th><th></th></tr>';
+var PROV_HDR = '<tr class="lcp-stack-header"><th scope="col">Provider</th><th scope="col">Status</th><th scope="col">Uptime 24h</th><th scope="col">Uptime 7d</th><th scope="col">Uptime 30d</th><th scope="col" style="text-align:center">Failures</th><th scope="col">Last Error</th><th scope="col"></th></tr>';
 
 function provBadge(st){
   var cls = st === 'healthy' ? 'badge-success' : st === 'degraded' ? 'badge-warning' : 'badge-error';
@@ -343,10 +343,15 @@ function loadProviderHealth(){
       // Group by profile.
       var groups = {};
       keys.forEach(function(k){
-        var parts = k.split('/');
-        var prov = parts[0], prof = parts.slice(1).join('/') || prov;
+        var h = ps[k];
+        // Read provider/profile from the entry, not from the dict key. Two configs
+        // can share a provider+profile with different base URLs, and the key then
+        // carries a discriminator ("opencode/l2 (opencode.ai/inference/openai)")
+        // that is not part of the profile name.
+        var prov = h.provider || k.split('/')[0];
+        var prof = h.profile || k.split('/')[1] || prov;
         if(!groups[prof]) groups[prof] = [];
-        groups[prof].push({prov:prov, prof:prof, h:ps[k]});
+        groups[prof].push({prov:prov, prof:prof, h:h});
       });
       Object.keys(groups).sort().forEach(function(prof){
         var entries = groups[prof];

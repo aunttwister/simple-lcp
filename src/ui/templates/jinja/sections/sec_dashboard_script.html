@@ -83,23 +83,74 @@ document.addEventListener('click', function(e) {
 /* ── Charts ── */
 var currentView = 'aggregate';
 var costChart = null, latChart = null;
-var profileColors = {
-  'l2': {bg: 'hsla(142.1, 70.6%, 45.3%, 0.4)', border: 'hsl(142.1, 70.6%, 45.3%)'},
-  'l1': {bg: 'hsla(190, 80%, 50%, 0.4)', border: 'hsl(190, 80%, 50%)'},
-  'career': {bg: 'hsla(43.3, 96.4%, 56.3%, 0.4)', border: 'hsl(43.3, 96.4%, 56.3%)'},
-  'cron': {bg: 'hsla(0, 83.2%, 60.2%, 0.4)', border: 'hsl(0, 83.2%, 60.2%)'}
+/* ── Chart palette ──
+   Colours are assigned from the NAME, never from the array position, so a
+   series keeps its colour when other series appear or disappear.
+
+   The four original entries are pinned: l2 green, l1 cyan, career amber, cron
+   red, so every chart already in the ledger keeps its identity. `coder` and
+   `naptune-admin` used to fall through to a shared grey — two lines, same colour,
+   one of them the largest spender on the page.
+
+   Everything else hashes to a slot in a twelve-hue ring. Same name, same hue, in
+   every session and on every page. A collision with an already-taken hue steps
+   forward until it finds a free one, so two profiles on one chart are never the
+   same colour. */
+var CHART_HUES = [142.1, 190, 43.3, 0, 280, 30, 210, 320, 160, 60, 250, 100];
+var PROFILE_HUE = {
+  'l2': 142.1, 'l1': 190, 'career': 43.3, 'cron': 0,
+  'coder': 280, 'naptune-admin': 210, 'blog': 30
 };
+
+function _hashHue(name) {
+  var h = 2166136261;                       // FNV-1a: cheap, well spread
+  for (var i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = (h * 16777619) >>> 0;
+  }
+  return CHART_HUES[h % CHART_HUES.length];
+}
+
+function _hueFor(name, taken) {
+  var hue = PROFILE_HUE[name] !== undefined ? PROFILE_HUE[name] : _hashHue(name);
+  var guard = 0;
+  while (taken.indexOf(hue) !== -1 && guard < CHART_HUES.length) {
+    hue = CHART_HUES[(CHART_HUES.indexOf(hue) + 1) % CHART_HUES.length];
+    guard++;
+  }
+  taken.push(hue);
+  return hue;
+}
+
+function chartColor(hue, fillAlpha) {
+  return {
+    bg: 'hsla(' + hue + ', 70%, 50%, ' + (fillAlpha === undefined ? 0.4 : fillAlpha) + ')',
+    border: 'hsl(' + hue + ', 70%, 50%)'
+  };
+}
 
 function buildCharts(view) {
   if (costChart) { costChart.destroy(); costChart = null; }
   if (latChart) { latChart.destroy(); latChart = null; }
 
+  // Canvas text has to be a concrete colour, so read the theme token off the
+  // document instead of hardcoding a hex that silently drifts from the CSS.
+  var muted = (getComputedStyle(document.documentElement)
+               .getPropertyValue('--muted-foreground') || '').trim();
+  var axisColor = muted ? 'hsl(' + muted + ')' : '#a1a1aa';
+
   var darkOpts = {
     responsive: true,
-    plugins: { legend: { labels: { color: '#a1a1aa' } } },
+    plugins: { legend: { labels: { color: axisColor } } },
     scales: {
-      x: { ticks: { color: '#a1a1aa', maxTicksLimit: 10 } },
-      y: { ticks: { color: '#a1a1aa' } }
+      // `grid` belongs INSIDE each scale. As a sibling of x/y Chart.js treats it
+      // as a scale named "grid" with no axis, and throws
+      // "Cannot read properties of undefined (reading 'axis')" — which broke
+      // switchView('per-profile') and left both charts unbuilt.
+      x: { ticks: { color: axisColor, maxTicksLimit: 10 },
+           grid: { color: 'hsl(var(--card-border) / 0.35)' } },
+      y: { ticks: { color: axisColor },
+           grid: { color: 'hsl(var(--card-border) / 0.35)' } }
     }
   };
 
@@ -126,9 +177,10 @@ function buildCharts(view) {
     costDatasets = [];
     latDatasets = [];
     var profs = Object.keys(ppData.profiles);
+    var taken = [];
     for (var i = 0; i < profs.length; i++) {
       var p = profs[i];
-      var c = profileColors[p] || {bg: 'hsla(0,0%,50%,0.4)', border: 'hsl(0,0%,50%)'};
+      var c = chartColor(_hueFor(p, taken));
       costDatasets.push({
         label: p.toUpperCase() + ' Cost ($)',
         data: ppData.profiles[p].costs,
@@ -148,11 +200,14 @@ function buildCharts(view) {
     labels = pmData.dates;
     costDatasets = [];
     latDatasets = [];
-    var modelHues = ['142.1', '190', '43.3', '0', '280', '30'];
     var models = Object.keys(pmData.models);
+    var takenM = [];
     for (var i = 0; i < models.length; i++) {
       var m = models[i];
-      var hue = modelHues[i % modelHues.length];
+      // Keyed by model name, not by position: the six-hue ring indexed by `i`
+      // repainted every model whenever the model list changed, so the same model
+      // was green one day and violet the next.
+      var hue = _hueFor(m, takenM);
       costDatasets.push({
         label: m + ' Cost ($)',
         data: pmData.models[m].costs,

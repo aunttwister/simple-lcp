@@ -313,10 +313,10 @@ def test_every_level_two_page_has_a_breadcrumb(cfg, engine):
 def test_the_profile_page_trail_is_three_deep(cfg, engine):
     """Profiles › <name> › <tab> — the shape the whole change exists for."""
     from src.ui import pages
-    html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": "skills"})
+    html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": "routing"})
     assert 'href="/profiles"' in html
     assert 'href="/profiles/l2"' in html
-    assert 'class="crumb-current" aria-current="page">Skills<' in html
+    assert 'class="crumb-current" aria-current="page">Routing<' in html
 
 
 def test_the_directory_crumb_has_no_link(cfg, engine):
@@ -325,20 +325,18 @@ def test_the_directory_crumb_has_no_link(cfg, engine):
     assert '<span class="crumb-current" aria-current="page">Profiles</span>' in html
 
 
-@pytest.mark.parametrize("tab", ["skills", "memory", "cron", "keys"])
-def test_each_profile_tab_renders_only_its_own_section(cfg, engine, tab, cron_snapshot):
-    """Section isolation across the five new tabs."""
+@pytest.mark.parametrize("tab", ["routing", "models", "keys"])
+def test_each_profile_tab_renders_only_its_own_section(cfg, engine, tab):
+    """Section isolation across the three routing tabs."""
     from src.ui import pages
     html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": tab})
     markers = {}
-    for name in ("sec_skills", "sec_memory", "sec_cron", "sec_keys"):
+    for name in ("sec_prouting", "sec_pmodels", "sec_keys"):
         txt = open(os.path.join(SEC, name + ".html")).read()
-        if name == "sec_skills":
-            markers["skills"] = "profileSkills"
-        elif name == "sec_memory":
-            markers["memory"] = "profileMemory"
-        elif name == "sec_cron":
-            markers["cron"] = "cron-modal"
+        if name == "sec_prouting":
+            markers["routing"] = "profileRouting"
+        elif name == "sec_pmodels":
+            markers["models"] = "ppChain"
         else:
             markers["keys"] = "keyStacks"
     for name, marker in markers.items():
@@ -349,19 +347,23 @@ def test_each_profile_tab_renders_only_its_own_section(cfg, engine, tab, cron_sn
 
 
 def test_the_profile_page_offers_all_its_tabs(cfg, engine):
-    """Six tabs: skills, memory, cron, keys, routing, models.
+    """Three tabs, all routing artefacts: routing, models, keys.
 
-    The tasks tab is gone with the work surface — the task tree is not part of
-    a router's job, and it was the only tab reading another process's tree.
+    The tasks tab went with the work surface. Skills, memory and cron went on
+    2026-10-24: they describe a Hermes agent, not a route, and the Hermes
+    dashboard owns them. Routing is the default tab and comes first.
     """
     from src.ui import pages
     html = pages.render_profile_detail_page(cfg, engine, "l2", {})
-    for href in ("/profiles/l2?tab=skills", "/profiles/l2?tab=memory",
-                 "/profiles/l2?tab=cron", "/profiles/l2?tab=keys",
-                 "/profiles/l2?tab=routing", "/profiles/l2?tab=models"):
+    for href in ("/profiles/l2?tab=routing", "/profiles/l2?tab=models",
+                 "/profiles/l2?tab=keys"):
         assert 'href="%s"' % href in html, href
-    assert 'href="/profiles/l2?tab=tasks"' not in html
-    assert 'class="tab-btn active"' in html
+    for gone in ("skills", "memory", "cron", "tasks"):
+        assert 'href="/profiles/l2?tab=%s"' % gone not in html, gone
+    # Routing is the landing tab.
+    assert 'class="tab-btn active" aria-current="page">Routing' in html
+    # ...and the page says where that infrastructure lives instead.
+    assert "managed in the Hermes dashboard" in html
 
 
 def test_an_unknown_profile_renders_a_page_not_a_traceback(cfg, engine):
@@ -414,75 +416,6 @@ def test_a_profile_name_is_escaped_in_the_page(cfg, engine):
 
 
 # ── the per-profile task tree ────────────────────────────────────────────────
-
-def test_tasks_root_for_returns_empty_for_no_profile(monkeypatch):
-    from src.api import work_sources
-    assert work_sources.tasks_root_for("") == ""
-
-
-def test_tasks_root_for_reads_the_profile_override(monkeypatch, tmp_path):
-    from src.api import work_sources
-    tree = tmp_path / "custom-l2-tree"
-    tree.mkdir()
-    monkeypatch.setattr(work_sources, "resolved_view",
-                        lambda: {"profiles": {"l2": {"tasks_root": str(tree)}}})
-    assert work_sources.tasks_root_for("l2") == str(tree)
-
-
-def test_a_host_path_is_rebased_onto_this_containers_mount(monkeypatch, tmp_path):
-    """The sources file names HOST paths; LCP mounts the profiles dir elsewhere.
-
-    Without this, every profile's tree is empty inside the gateway while sitting
-    right there outside it — and the tab would render another profile's rows.
-    """
-    from src.api import work_sources
-    local = tmp_path / "app" / "profiles"
-    (local / "l2" / "work" / "tasks" / "new" / "t").mkdir(parents=True)
-    monkeypatch.setenv("LCP_PROFILES_DIR", str(local))
-    monkeypatch.setattr(work_sources, "resolved_view", lambda: {
-        "hermes_profiles_dir": "/root/.hermes/profiles",
-        "profiles": {"l2": {"tasks_root": "/root/.hermes/profiles/l2/work/tasks"}}})
-    assert work_sources.tasks_root_for("l2") == str(local / "l2" / "work" / "tasks")
-
-
-def test_a_path_that_exists_here_is_left_alone(monkeypatch, tmp_path):
-    """On the host the file's own path is the right one — no rebasing."""
-    from src.api import work_sources
-    tree = tmp_path / "tasks"
-    tree.mkdir()
-    monkeypatch.setattr(work_sources, "resolved_view", lambda: {
-        "hermes_profiles_dir": "/root/.hermes/profiles",
-        "profiles": {"l2": {"tasks_root": str(tree)}}})
-    assert work_sources.tasks_root_for("l2") == str(tree)
-
-
-def test_a_profile_with_no_entry_gets_the_conventional_path(monkeypatch, tmp_path):
-    """A gateway profile with no cron jobs is still not another profile's tree."""
-    from src.api import work_sources
-    local = tmp_path / "app" / "profiles"
-    local.mkdir(parents=True)
-    monkeypatch.setenv("LCP_PROFILES_DIR", str(local))
-    monkeypatch.setattr(work_sources, "resolved_view", lambda: {
-        "hermes_profiles_dir": "/root/.hermes/profiles", "profiles": {}})
-    assert work_sources.tasks_root_for("fresh") == str(local / "fresh" / "work" / "tasks")
-
-
-@pytest.mark.parametrize("bad", ["..", "../etc", "a/b", "", "  ", "x" * 65])
-def test_a_dangerous_profile_name_never_becomes_a_task_path(bad, monkeypatch):
-    from src.api import work_sources
-    monkeypatch.setattr(work_sources, "resolved_view",
-                        lambda: {"hermes_profiles_dir": "/root/.hermes/profiles",
-                                 "profiles": {}})
-    assert work_sources.tasks_root_for(bad) == ""
-
-
-def test_tasks_root_for_survives_a_broken_sources_file(monkeypatch):
-    from src.api import work_sources
-    def boom():
-        raise ValueError("bad sources")
-    monkeypatch.setattr(work_sources, "resolved_view", boom)
-    assert work_sources.tasks_root_for("l2") == ""
-
 
 # ── the lane / agent-profile split ───────────────────────────────────────────
 #
@@ -542,23 +475,31 @@ def test_a_legacy_capitalised_copy_does_not_win_over_the_real_profile(agent_root
     assert profile_data.primary_agent_for_lane("l2", agents) == "homelab-expert-l2"
 
 
-def test_the_lane_card_shows_its_agents_artefacts(cfg, engine, agent_root):
+def test_the_lane_card_names_the_agent_it_maps_to(cfg, engine, agent_root):
+    """The lane→agent mapping is still routing information worth showing.
+
+    It used to be labelled "artefacts:" because the page then rendered that
+    agent's skills. Those are gone, so the fact is named for what it is.
+    """
     from src.ui import pages
-    html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": "skills"})
-    assert html.count('class="skill-row"') == 1
-    assert "homelab-expert-l2-skill" in html
-    assert "artefacts:" in html and "homelab-expert-l2" in html
+    html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": "routing"})
+    assert "agent profile:" in html and "homelab-expert-l2" in html
+    assert 'class="skill-row"' not in html
 
 
-def test_an_agent_profile_is_reachable_and_shows_its_own_artefacts(cfg, engine, agent_root):
+def test_an_agent_profile_is_reachable_and_described_by_where_its_traffic_goes(cfg, engine, agent_root):
+    """An agent profile still resolves to a page — but not to an agent console.
+
+    The banner used to lead with its skills tree; now it says what the reader
+    actually needs from LCP, which is where that profile's traffic is served,
+    and it points the agent's own artefacts at the Hermes dashboard.
+    """
     from src.ui import pages
-    html = pages.render_profile_detail_page(cfg, engine, "blog-writer", {"tab": "skills"})
-    assert html.count('class="skill-row"') == 1
-    assert "blog-writer-skill" in html
-    # M2d: the banner describes the profile by what it does. It used to lead with
-    # "Agent profile, not a gateway lane", which framed it by what it lacks.
+    html = pages.render_profile_detail_page(cfg, engine, "blog-writer", {"tab": "routing"})
+    assert 'class="skill-row"' not in html
     assert "Agent profile <span class=\"mono\">blog-writer</span>" in html
-    assert "come from this profile's own directory" in html
+    assert "This is a Hermes agent profile, not a route." in html
+    assert "managed in the Hermes dashboard" in html
     assert "not a gateway lane" not in html
 
 

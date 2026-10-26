@@ -52,7 +52,7 @@
 </div>
 <div class="table-wrap">
 <table><thead><tr>
-  <th>Time</th><th>Profile</th><th>From</th><th>To</th><th>Reason</th><th>Error</th>
+  <th scope="col">Time</th><th scope="col">Profile</th><th scope="col">From</th><th scope="col">To</th><th scope="col">Reason</th><th scope="col">Error</th>
 </tr></thead><tbody id="failoverBody">
 <tr><td colspan="6" class="empty">Loading…</td></tr>
 </tbody></table></div>
@@ -93,7 +93,7 @@
 </div>
 
 <div class="table-wrap"><table><thead><tr>
-  <th>Name</th><th>Base URL</th><th>Key</th><th>Models</th><th>Actions</th>
+  <th scope="col">Name</th><th scope="col">Base URL</th><th scope="col">Key</th><th scope="col">Models</th><th scope="col">Actions</th>
 </tr></thead><tbody id="providersBody">
 {% if providers %}{% for name, pdata in providers.items() %}
 <tr><td><b>{{ name }}</b></td><td class="mono" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ pdata.get('api_base', '—') }}</td><td>{% if provider_has_keys.get(name) %}<span class="badge badge-success">stored</span>{% else %}<span style="font-size:0.75rem;color:hsl(var(--muted-foreground))">—</span>{% endif %}</td><td>{{ pdata.get('models', []) | join(', ') or '—' }}</td>
@@ -181,7 +181,7 @@
     </p>
     <div class="table-wrap">
       <table class="capability-table"><thead><tr>
-        <th>Task</th><th>Profile</th><th>Action</th><th>Provider</th><th>Model</th><th>Min</th><th></th>
+        <th scope="col">Task</th><th scope="col">Profile</th><th scope="col">Action</th><th scope="col">Provider</th><th scope="col">Model</th><th scope="col">Min</th><th scope="col"></th>
       </tr></thead><tbody id="routingRulesRows">
         <tr><td colspan="7" class="empty">Loading…</td></tr>
       </tbody></table>
@@ -193,7 +193,7 @@
     <h3 style="font-size:0.9rem;margin:0 0 0.75rem">Recommended model per task</h3>
     <div class="table-wrap">
       <table class="capability-table"><thead><tr>
-        <th>Task</th><th>Top model</th><th>Score</th>
+        <th scope="col">Task</th><th scope="col">Top model</th><th scope="col">Score</th>
       </tr></thead><tbody id="routingTaskRows">
         <tr><td colspan="3" class="empty">Loading…</td></tr>
       </tbody></table>
@@ -204,7 +204,7 @@
     <h3 style="font-size:0.9rem;margin:0 0 0.75rem">Recent routing decisions</h3>
     <div class="table-wrap">
       <table class="capability-table"><thead><tr>
-        <th>Time</th><th>Profile</th><th>Task</th><th>Policy</th><th>Action</th><th>Chosen</th><th>Score</th><th>Rules</th>
+        <th scope="col">Time</th><th scope="col">Profile</th><th scope="col">Task</th><th scope="col">Policy</th><th scope="col">Action</th><th scope="col">Chosen</th><th scope="col">Score</th><th scope="col">Rules</th>
       </tr></thead><tbody id="routingDecRows">
         <tr><td colspan="8" class="empty">No decisions yet — routing only logs decisions once requests flow through.</td></tr>
       </tbody></table>

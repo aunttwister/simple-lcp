@@ -67,13 +67,14 @@
 
 <div class="table-wrap" style="overflow-x:auto">
 <table class="alerts-table">
+<caption class="sr-only">Alerts: one row per triggered alert, newest first.</caption>
 <thead>
 <tr>
-  <th>Time</th><th>Severity</th><th>Rule</th><th>Title</th>
-  <th>Status</th><th>Acknowledged</th><th></th>
+  <th scope="col">Time</th><th scope="col">Severity</th><th scope="col">Rule</th><th scope="col">Title</th>
+  <th scope="col">Status</th><th scope="col">Acknowledged</th><th scope="col"><span class="sr-only">Actions</span></th>
 </tr>
 </thead>
-<tbody id="alertBody">
+<tbody id="alertBody" aria-busy="true">
 <tr><td colspan="7" class="empty-state"><h3>Loading…</h3></td></tr>
 </tbody>
 </table>
@@ -124,11 +125,14 @@ function renderAlerts() {
   if (currentRule !== 'all') filtered = filtered.filter(function(a) { return a.rule === currentRule; });
 
   var body = document.getElementById('alertBody');
+  if (window.LCPUI) LCPUI.busy(body, false);
   if (filtered.length === 0) {
     var span = allAlerts.length === 0 ? 7 : 7;
     body.innerHTML = '<tr><td colspan="' + span + '" class="empty-state"><h3>No alerts found</h3><p>Alerts will appear here when triggered by config changes, provider failures, or budget thresholds.</p></td></tr>';
+    if (window.LCPUI) LCPUI.announce('No alerts found');
     return;
   }
+  if (window.LCPUI) LCPUI.announce(filtered.length + ' alerts shown');
 
   body.innerHTML = filtered.map(function(a) {
     var sevClass = 'badge-' + a.severity;

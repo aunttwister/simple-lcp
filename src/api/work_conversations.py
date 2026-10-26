@@ -50,6 +50,14 @@ CONVERSATION_SORTS: Tuple[tables.SortSpec, ...] = (
 REQUEST_SORTS: Tuple[tables.SortSpec, ...] = (
     ("newest", "Newest first", "id DESC"),
     ("oldest", "Oldest first", "id ASC"),
+    # Column sorts. The three numeric columns are the ones a spend console is
+    # read for — "what cost the most", "what burned the most tokens", "what was
+    # slowest" — and none of them can be answered by scanning one page of a
+    # newest-first window. Each is a static fragment authored here; the client
+    # only ever sends the key.
+    ("cost", "Costliest first", "cost DESC, id DESC"),
+    ("tokens", "Most tokens first", "(prompt_tokens + completion_tokens) DESC, id DESC"),
+    ("latency", "Slowest first", "latency_ms DESC, id DESC"),
 )
 ROUTING_SORTS: Tuple[tables.SortSpec, ...] = (
     ("newest", "Newest first", "id DESC"),
@@ -139,12 +147,16 @@ def stamp_new(request_id: int, conversation_id: str, profile: str,
 
 
 def _profiles() -> List[str]:
-    """The profiles that appear in the log's profile filter."""
+    """Every profile that appears in the request log.
+
+    Deliberately NOT limited to rows with a conversation id: the filter exists
+    to narrow the log, and a profile whose calls never joined a conversation
+    still has rows worth filtering to.
+    """
     con = _connect()
     try:
         return [r[0] for r in con.execute(
-            "SELECT DISTINCT profile FROM requests WHERE conversation_id IS NOT NULL "
-            "ORDER BY profile")]
+            "SELECT DISTINCT profile FROM requests ORDER BY profile")]
     finally:
         con.close()
 

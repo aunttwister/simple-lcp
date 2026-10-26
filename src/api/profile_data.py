@@ -540,16 +540,3 @@ def _rel_time(ts: float) -> str:
     return "%dd" % (delta // 86400)
 
 
-def profile_paths(name: str) -> Dict[str, Any]:
-    """The work-layer paths for one profile (its overrides over the defaults)."""
-    from . import work_sources
-    try:
-        view = work_sources.resolved_view()
-    except Exception as e:  # noqa: BLE001
-        return {"available": False, "reason": "%s: %s" % (type(e).__name__, e)}
-    entry = (view.get("profiles") or {}).get(name)
-    if not entry:
-        return {"available": False, "reason": "profile not in the work sources view"}
-    return {"available": True, "paths": entry,
-            "profiles_dir": view.get("hermes_profiles_dir", ""),
-            "ops_dir": view.get("ops_dir", "")}

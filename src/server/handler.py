@@ -275,16 +275,22 @@ class LCPHandler(
     # ── admin authentication ────────────────────────────────────────────
     # ── Phase 5: change-history trail (guarded by the admin guard) ──────────
     def _serve_audit_trail(self) -> None:
-        """GET /api/audit — newest-first change history (last 200)."""
-        limit = 200
+        """GET /api/audit — newest-first change history (paged)."""
+        limit, offset, total = 200, 0, None
         try:
             from urllib.parse import parse_qs
             qs = parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
             limit = max(1, min(1000, int((qs.get("limit") or ["200"])[0])))
+            offset = max(0, int((qs.get("offset") or ["0"])[0]))
         except (ValueError, IndexError):
             pass
-        rows = audit_log.recent(limit=limit)
-        self._send_json({"ok": True, "count": len(rows), "entries": rows})
+        rows = audit_log.recent(limit=limit, offset=offset)
+        try:
+            total = audit_log.count()
+        except Exception:  # noqa: BLE001 — total is a nicety, never fail the page
+            total = None
+        self._send_json({"ok": True, "count": len(rows), "total": total,
+                         "entries": rows})
 
 
     def _admin_guard(self) -> bool:
@@ -826,8 +832,6 @@ class LCPHandler(
             self._serve_profile_update(profile)
         elif self.path == "/api/alerts/config":
             self._serve_alerts_config_update()
-        elif self.path == "/api/work/sources":
-            self._serve_work_sources_put()
         elif self.path.startswith("/api/budgets/") and len(self.path.split("/")) == 4:
             budget_id = self.path.split("/")[3]
             self._serve_budget_update(budget_id)
@@ -1087,6 +1091,8 @@ def _build_routes() -> RouteTable:
            lambda h, p: h._serve_evidence_export())
     t.get("api.evidence.public_key", exact("/api/evidence/public-key"),
           lambda h, p: h._serve_evidence_public_key())
+    t.get("api.evidence.download", exact("/api/evidence/download"),
+          lambda h, p: h._serve_evidence_download())
 
     # ── settings / routing ──
     t.get("api.settings", exact("/api/settings"),
@@ -1094,16 +1100,10 @@ def _build_routes() -> RouteTable:
     t.get("api.routing.status", exact("/api/routing/status"),
           lambda h, p: h._serve_routing_status_api())
     # ── Work layer ──
-    t.get("api.work.cron", exact("/api/work/cron"),
-          lambda h, p: h._serve_work_cron_api())
-    t.get("api.work.cron.ops", exact("/api/work/cron/ops"),
-          lambda h, p: h._serve_work_cron_ops_get())
-    t.post("api.work.cron.ops", exact("/api/work/cron/ops"),
-           lambda h, p: h._serve_work_cron_ops_post())
-    t.get("api.work.sources", exact("/api/work/sources"),
-          lambda h, p: h._serve_work_sources_get())
-    t.put("api.work.sources", exact("/api/work/sources"),
-          lambda h, p: h._serve_work_sources_put())
+    # The cron and sources APIs are gone (2026-10-25): their only caller was the
+    # Cron and Config tabs, both decommissioned. The host-side collector reads and
+    # writes work-sources.json directly from the shared ops mount, so nothing
+    # outside this process depended on them.
     t.get("api.work.requests", exact("/api/work/requests"),
           lambda h, p: h._serve_work_requests_api())
     t.get("api.work.provider-decisions", exact("/api/work/provider-decisions"),
@@ -1119,6 +1119,8 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_usage_stats_api())
     t.get("api.usage.totals", exact("/api/usage/totals"),
           lambda h, p: h._serve_usage_totals_api())
+    t.get("api.usage.profile-series", exact("/api/usage/profile-series"),
+          lambda h, p: h._serve_usage_profile_series_api())
 
     # ── providers (presets before the bare list) ──
     t.get("api.providers.presets", exact("/api/providers/presets"),
