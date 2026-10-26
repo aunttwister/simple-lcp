@@ -39,13 +39,13 @@
   "id": "cv-sort-messages",
   "group": "conv",
   "title": "sort=messages is monotonic descending",
-  "cmd": "curl -s '{{BASE}}/api/conversations?per=10&sort=messages' | python3 -c \"import sys,json; d=json.load(sys.stdin); m=[c['messages'] or 0 for c in d['history']['conversations']]; assert m==sorted(m, reverse=True), m\""
+  "cmd": "curl -s '{{BASE}}/api/conversations?per=100&sort=messages' | python3 -c \"import sys,json; d=json.load(sys.stdin); m=[c['messages'] for c in d['history']['conversations']]; known=[x for x in m if x is not None]; assert known==sorted(known, reverse=True), known[:6]; assert all(x is None for x in m[len(known):]), m[:12]\""
  },
  {
   "id": "cv-sort-calls",
   "group": "conv",
   "title": "sort=calls is monotonic descending",
-  "cmd": "curl -s '{{BASE}}/api/conversations?per=10&sort=calls' | python3 -c \"import sys,json; d=json.load(sys.stdin); c=[x['calls'] or 0 for x in d['history']['conversations']]; assert c==sorted(c, reverse=True), c\""
+  "cmd": "curl -s '{{BASE}}/api/conversations?per=100&sort=calls' | python3 -c \"import sys,json; d=json.load(sys.stdin); c=[x['tool_calls'] for x in d['history']['conversations']]; known=[x for x in c if x is not None]; assert known==sorted(known, reverse=True), known[:6]; assert all(x is None for x in c[len(known):]), c[:12]\""
  },
  {
   "id": "cv-sorts-advertised",
