@@ -57,8 +57,10 @@ _CLOCK_SKEW = 60
 #   /admin/*                 — the login/logout routes themselves
 #   /static/*                — css/js for the login page
 #   /{profile}/*             — the proxy surface; it authenticates by API key
-PUBLIC_EXACT = frozenset({"/health", "/metrics"})
-PUBLIC_PREFIXES = ("/admin/", "/static/")
+PUBLIC_EXACT = frozenset({"/health", "/metrics", "/welcome"})
+# /welcome/ carries the landing page's own assets (css, js, fonts, favicon).
+# It is a marketing surface, deliberately outside the admin session.
+PUBLIC_PREFIXES = ("/admin/", "/static/", "/welcome/")
 
 # Model-listing paths are configured (LCP_MODELS_PATHS) and are consumed by
 # OpenAI-compatible clients that send a bearer key, not a cookie. They are

@@ -255,6 +255,87 @@ class LCPHandler(
 
     # ── Routes ────────────────────────────────────────────────────────────
 
+    def _serve_landing(self, index: bool = False):
+        """Serve the public marketing landing page from ``<repo>/landing``.
+
+        Public by design (``admin_auth.PUBLIC_EXACT`` / ``PUBLIC_PREFIXES``):
+        it is the only surface a visitor without an admin session should see.
+        Assets are referenced RELATIVE in index.html, so the page must be
+        reached at ``/welcome/`` — ``/welcome`` redirects rather than serving
+        HTML whose ``styles.css`` would resolve to the site root.
+        """
+        from pathlib import Path
+
+        landing_dir = (Path(__file__).resolve().parent.parent.parent / "landing").resolve()
+
+        if index:
+            relative = "index.html"
+        else:
+            from urllib.parse import unquote
+
+            # Decode BEFORE the traversal check: a percent-encoded `..%2f` would
+            # otherwise be treated as a literal (harmless but answered 404
+            # instead of 403, which reads as "no such file" rather than "refused").
+            relative = unquote(self.path.split("?", 1)[0][len("/welcome/"):])
+            if not relative:
+                relative = "index.html"
+
+        if ".." in relative or relative.startswith("/"):
+            self._send_json({"error": "forbidden"}, 403)
+            return
+
+        file_path = (landing_dir / relative).resolve()
+        if not str(file_path).startswith(str(landing_dir)):
+            self._send_json({"error": "forbidden"}, 403)
+            return
+
+        if not file_path.is_file():
+            # A branded 404, not a JSON blob: this is a public page.
+            fallback = landing_dir / "404.html"
+            if fallback.is_file():
+                data = fallback.read_bytes()
+                self.send_response(404)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            self._send_json({"error": "not found"}, 404)
+            return
+
+        content_type = {
+            ".js": "application/javascript; charset=utf-8",
+            ".css": "text/css; charset=utf-8",
+            ".html": "text/html; charset=utf-8",
+            ".svg": "image/svg+xml",
+            ".png": "image/png",
+            ".woff2": "font/woff2",
+            ".ico": "image/x-icon",
+        }.get(file_path.suffix, "application/octet-stream")
+
+        data = file_path.read_bytes()
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            # The landing is versioned by the container build, so a short cache
+            # is correct here; the hashed-font/asset names are not content-hashed,
+            # so a long max-age would pin a stale stylesheet across deploys.
+            self.send_header("Cache-Control", "public, max-age=300")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            logger.debug("client_disconnected", path=self.path, landing_file=relative)
+
+    def _redirect_welcome(self):
+        """``/welcome`` -> ``/welcome/`` so relative asset URLs resolve."""
+        self.send_response(301)
+        self.send_header("Location", "/welcome/")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+
     # Configurable models endpoint paths (env: LCP_MODELS_PATHS, default: /v1/models,/models)
     _models_paths = set(
         p.strip() for p in os.environ.get("LCP_MODELS_PATHS", "/v1/models,/models").split(",") if p.strip()
@@ -1024,6 +1105,14 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_logs_page())
     t.get("page.alerts", exact("/alerts"),
           lambda h, p: h._serve_alerts_page())
+
+    # ── public marketing landing (no admin session required) ──
+    # /welcome is PUBLIC_EXACT in admin_auth; /welcome/ serves its assets.
+    # The bare path redirects so the page's relative URLs resolve.
+    t.get("page.welcome.redirect", exact("/welcome"),
+          lambda h, p: h._redirect_welcome())
+    t.get("page.welcome", prefix("/welcome/"),
+          lambda h, p: h._serve_landing())
 
     # ── per-profile dashboard: /{profile}/dashboard ──
     def _dashboard(h, p):
