@@ -575,16 +575,15 @@ class TestDegradedProbeWindow:
 
     def test_open_window_keeps_serving(self, cb):
         real_now = self._to_probe_slot(cb)
-        # The real clock is well inside the 2s window the promotion armed.
-        assert cb.is_available("p", "https://x", "l2") is True
-        assert cb.is_available("p", "https://x", "l2") is True
+        with patch("time.time", return_value=real_now + 101):
+            assert cb.is_available("p", "https://x", "l2") is True
+            assert cb.is_available("p", "https://x", "l2") is True
         assert cb.status_of("p", "https://x", "l2") == "degraded"
 
     def test_expired_window_without_outcome_promotes_healthy(self, cb):
         """The latch killer: no request recorded anything, yet the entry recovers."""
-        self._to_probe_slot(cb)
-        h = cb.get_health("p", "https://x", "l2")
-        with patch("time.time", return_value=h["_probe_deadline"] + 1):
+        real_now = self._to_probe_slot(cb)
+        with patch("time.time", return_value=real_now + 103):  # past the 2s window
             assert cb.is_available("p", "https://x", "l2") is True
         assert cb.status_of("p", "https://x", "l2") == "healthy"
 
@@ -593,6 +592,7 @@ class TestDegradedProbeWindow:
         h = cb.get_health("legacy", "https://x", "l2")
         h["status"] = "degraded"
         h["tripped_until"] = None
+        h["_probe_deadline"] = None
         assert cb.is_available("legacy", "https://x", "l2") is True
         assert h["_probe_deadline"] is not None
 

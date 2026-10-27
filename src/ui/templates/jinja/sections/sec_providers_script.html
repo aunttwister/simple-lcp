@@ -9,7 +9,7 @@ var _editingProvider=null; // original provider name when editing (rename source
 var _discoverPlan=null; // {id, status, error} from /api/providers/discover for commandcode
 
 function switchProvTab(tab, btn){
-  document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active')});
+  document.querySelectorAll('.tab-panel').forEach(function(p){if (tab === 'capabilities') loadCaps();p.classList.remove('active')});
   document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active')});
   document.getElementById('tab-'+tab).classList.add('active');
   btn.classList.add('active');
@@ -869,6 +869,116 @@ setInterval(function () { loadRouting(); }, 15000);
 // (a new benchmark key, a new provider mapping) reaches the rule picker
 // without a page reload.
 setInterval(function () { loadRuleRegistry(); }, 60000);
+applyHashTab();
+// ── Capabilities / model-limits table (prod feature, kept in the union) ──
+var _caps = [];
+
+function capsEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+function capsCtx(n) {
+  if (n == null) return '—';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return Math.round(n / 1000) + 'k';
+  return String(n);
+}
+
+async function loadCaps() {
+  var rows = document.getElementById('capsRows');
+  if (!rows) return;
+  try {
+    var d = await api('GET', '/api/models/limits');
+    _caps = d.models || [];
+    renderCaps();
+  } catch (e) {
+    rows.innerHTML = '<tr><td colspan="6" class="empty">Failed to load: ' + capsEsc(e.message) + '</td></tr>';
+  }
+}
+
+function renderCaps() {
+  var rows = document.getElementById('capsRows');
+  if (!rows) return;
+  if (!_caps.length) {
+    rows.innerHTML = '<tr><td colspan="6" class="empty">No model limits declared.</td></tr>';
+    return;
+  }
+  rows.innerHTML = _caps.map(function (m, i) {
+    var used = (m.providers || []).map(function (p) {
+      return '<span class="badge">' + capsEsc(p) + '</span>';
+    }).join(' ');
+    if (m.lanes && m.lanes.length) {
+      used += ' <span style="font-size:0.625rem;color:hsl(var(--muted-foreground))">' + capsEsc(m.lanes.join(', ')) + '</span>';
+    }
+    return '<tr>' +
+      '<td class="mono" title="' + capsEsc(m.description || '') + '">' + capsEsc(m.model) + '</td>' +
+      '<td><label class="toggle" title="may this step serve an image?">' +
+        '<input type="checkbox" ' + (m.supports_vision ? 'checked' : '') + ' onchange="setVision(' + i + ', this.checked)">' +
+        '<span class="toggle-track" aria-hidden="true"></span>' +
+      '</label></td>' +
+      '<td>' + (m.supports_thinking ? '<span class="badge badge-success">yes</span>' : '<span class="badge">no</span>') + '</td>' +
+      '<td class="mono">' + capsCtx(m.context_window) + '</td>' +
+      '<td>' + (used || '<span style="color:hsl(var(--muted-foreground))">—</span>') + '</td>' +
+      '<td><button class="btn-sm" onclick="probeCap(' + i + ')">Probe</button></td>' +
+      '</tr>';
+  }).join('');
+}
+
+function _capsMsg(kind, text) {
+  var err = document.getElementById('capsError');
+  var st = document.getElementById('capsStatus');
+  if (kind === 'error') { if (err) err.textContent = text; if (st) st.textContent = ''; }
+  else { if (st) st.textContent = text; if (err) err.textContent = ''; }
+}
+
+async function setVision(i, on) {
+  var m = _caps[i];
+  if (!m) return;
+  var d = await api('POST', '/api/models/limits', { model: m.model, supports_vision: on });
+  if (d.error) {
+    _capsMsg('error', d.error);
+    m.supports_vision = !on;   // roll the checkbox back to the truth
+    renderCaps();
+    return;
+  }
+  m.supports_vision = on;
+  _capsMsg('ok', m.model + ': vision ' + (on ? 'enabled' : 'disabled') + ' — in force for the next request.');
+}
+
+async function probeCap(i) {
+  var m = _caps[i];
+  if (!m) return;
+  _capsMsg('ok', 'Probing ' + m.model + '…');
+  var d = await api('POST', '/api/models/limits/probe', { model: m.model, apply: true });
+  if (d.status === 'vision') {
+    _capsMsg('ok', m.model + ' → vision CONFIRMED — read the fixture in ' + (d.duration_ms != null ? d.duration_ms : '?') + 'ms; flag set true.');
+  } else if (d.status === 'no_vision') {
+    _capsMsg('ok', m.model + ' → did NOT read the fixture; flag set false.');
+  } else {
+    _capsMsg('error', m.model + ' → probe could not complete: ' + (d.error || d.error || 'unknown'));
+    return;
+  }
+  await loadCaps();
+}
+
+async function probeAllCaps() {
+  if (!_caps.length) return;
+  for (var i = 0; i < _caps.length; i++) {
+    var m = _caps[i];
+    if (!m.providers || !m.providers.length) continue;   // nothing serves it
+    _capsMsg('ok', 'Probing ' + m.model + ' (' + (i + 1) + '/' + _caps.length + ')…');
+    var d = await api('POST', '/api/models/limits/probe', { model: m.model, apply: true });
+    if (d.status === 'vision' || d.status === 'no_vision') {
+      m.supports_vision = (d.status === 'vision');
+    }
+  }
+  _capsMsg('ok', 'Probed every lane model — flags written from the results.');
+  await loadCaps();
+}
+
+loadCaps();
 applyHashTab();
 {% endraw %}</script>
 {% endif %}

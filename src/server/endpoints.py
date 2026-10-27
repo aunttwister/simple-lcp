@@ -412,6 +412,25 @@ def _parse_multipart_upload(body: bytes, content_type: str) -> tuple[bytes, str,
 
 # ── Health / Monitoring Endpoints ────────────────────────────────────────────
 
+def _health_entry(h):
+    """Shape one provider's health for /health, with the disclosure guard applied."""
+    tripped_until = None
+    if h.get("tripped_until"):
+        tripped_until = datetime.fromtimestamp(h["tripped_until"], tz=timezone.utc).isoformat()
+    return {
+        "status": h["status"],
+        "failures": h["consecutive_failures"],
+        "last_success": h["last_success"],
+        "last_failure": h["last_failure"],
+        "tripped_until": tripped_until,
+        # base_url / last_failure_reason are intentionally REDACTED:
+        # /health is served unauthenticated (uptime checks, link
+        # checkers). The private provider endpoint map was disclosed
+        # through this route (CWE-200, Strix 09-10); status/failure
+        # counters are all the health consumers need.
+    }
+
+
 class HealthEndpoints:
     """Health, models, errors, cache stats, metrics, export."""
 
@@ -426,23 +445,52 @@ class HealthEndpoints:
     def _serve_health(self):
         provider_status = {}
         cb = resolve_service("circuit_breaker", fallback=get_circuit_breaker)
+
+        # One provider+profile pair can hold several rows, because the health map is keyed by
+        # (provider, base_url, profile) and a provider may be configured with more than one
+        # base_url over time. The payload key is only "provider/profile", so those rows collapse
+        # into one key — and which one wins used to depend on dict iteration order, which is
+        # insertion order of an in-memory dict seeded from the DB. Measured on prod 2026-10-24:
+        # 20 rows collapsed to 17 keys; `opencode/l2` had a stale `degraded/6` row and a live
+        # `dead/117` row, and the live one won by luck, not by rule.
+        #
+        # Rule now: the freshest row wins, judged by the most recent of last_success,
+        # last_failure and tripped_until. Ties go to the worse status, so a dead lane is never
+        # masked by a healthy one with the same timestamp.
+        candidates = {}
+        malformed = []
         for key, h in cb.get_all_health().items():
             provider, url, profile = key
-            tripped_until = None
+            # The payload key is "provider/profile". A row with an empty component would render
+            # as "/" or "/l1" or "provider/" — a phantom key that names no provider. Nothing
+            # legitimate creates one; skip it rather than publish it. (This is the "/" key that
+            # Phase 1 flagged: it is not load-bearing, it is a malformed row, and the right
+            # answer is to not emit it.)
+            if not provider or not profile:
+                malformed.append(key)
+                continue
+            slot = candidates.setdefault(f"{provider}/{profile}", [])
+            slot.append(h)
+
+        if malformed:
+            logger.warning(
+                "health: skipped %d malformed provider_health row(s) with an empty "
+                "provider or profile: %s", len(malformed), malformed,
+            )
+
+        severity = {"healthy": 0, "degraded": 1, "dead": 2}
+
+        def _freshness(h):
+            stamps = [h.get("last_success"), h.get("last_failure")]
             if h.get("tripped_until"):
-                tripped_until = datetime.fromtimestamp(h["tripped_until"], tz=timezone.utc).isoformat()
-            provider_status[f"{provider}/{profile}"] = {
-                "status": h["status"],
-                "failures": h["consecutive_failures"],
-                "last_success": h["last_success"],
-                "last_failure": h["last_failure"],
-                "tripped_until": tripped_until,
-                # base_url / last_failure_reason are intentionally REDACTED:
-                # /health is served unauthenticated (uptime checks, link
-                # checkers). The private provider endpoint map was disclosed
-                # through this route (CWE-200, Strix 09-10); status/failure
-                # counters are all the health consumers need.
-            }
+                stamps.append(
+                    datetime.fromtimestamp(h["tripped_until"], tz=timezone.utc).isoformat()
+                )
+            return max([s for s in stamps if s] or [""])
+
+        for name, rows in candidates.items():
+            chosen = max(rows, key=lambda h: (_freshness(h), severity.get(h.get("status"), 0)))
+            provider_status[name] = _health_entry(chosen)
         self._send_json({
             "status": "ok",
             "profiles": list(self.config.profiles.keys()),
@@ -895,6 +943,91 @@ class HealthEndpoints:
 
 # ── Provider Configuration Endpoints ─────────────────────────────────────────
 
+def _fire_alert(rule: str, severity: str, title: str, message: str,
+                dedup_key: str = "") -> None:
+    """Best-effort alert. Alerting must never fail the operation that raised it."""
+    try:
+        from ..api.alert_manager import get_alert_manager
+        am = resolve_service("alert_manager", fallback=get_alert_manager)
+        if am is not None:
+            am.fire(rule=rule, severity=severity, title=title, message=message,
+                    dedup_key=dedup_key)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("alert_fire_failed", rule=rule, error=str(exc))
+
+
+def _strip_provider_from_registry(engine: Any, provider: str) -> tuple[int, int]:
+    """Remove *provider* from every model_registry provider mapping.
+
+    Returns ``(rows_changed, models_left_unserved)``. A logical model whose
+    mappings become empty is KEPT — its benchmark identity and capability scores
+    still mean something, it simply has no provider serving it right now. Deleting
+    the row would throw away the scoring history and force a re-seed later.
+    """
+    import json as _json
+    from ..api.models import ModelRegistryEntry, get_session
+
+    rows_changed = 0
+    unserved = 0
+    try:
+        with get_session(engine) as session:
+            for entry in session.query(ModelRegistryEntry).all():
+                try:
+                    mappings = _json.loads(entry.provider_mappings_json or "{}")
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(mappings, dict) or provider not in mappings:
+                    continue
+                mappings.pop(provider, None)
+                entry.provider_mappings_json = _json.dumps(mappings, sort_keys=True)
+                rows_changed += 1
+                if not mappings:
+                    unserved += 1
+            if rows_changed:
+                session.commit()
+    except Exception as exc:  # noqa: BLE001 — never fail a delete on registry cleanup
+        logger.warning("registry_strip_failed", provider=provider, error=str(exc))
+    return rows_changed, unserved
+
+
+def _rekey_provider_in_registry(engine: Any, old: str, new: str) -> int:
+    """Re-point model_registry mappings and persisted health from *old* to *new*.
+
+    A rename is a graph rewrite: every reference to the provider name has to move
+    with it. The delete path already cascades health rows; rename did not, which is
+    how `local-zgx` kept showing `degraded / 6 failures` in /health months after the
+    provider had been renamed to `local-sparks`.
+    """
+    import json as _json
+    from ..api.models import ModelRegistryEntry, ProviderHealth, get_session
+
+    changed = 0
+    try:
+        with get_session(engine) as session:
+            for entry in session.query(ModelRegistryEntry).all():
+                try:
+                    mappings = _json.loads(entry.provider_mappings_json or "{}")
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(mappings, dict) or old not in mappings:
+                    continue
+                mappings[new] = mappings.pop(old)
+                entry.provider_mappings_json = _json.dumps(mappings, sort_keys=True)
+                changed += 1
+            health_moved = 0
+            for row in session.query(ProviderHealth).filter(
+                    ProviderHealth.provider == old).all():
+                row.provider = new
+                health_moved += 1
+            if changed or health_moved:
+                session.commit()
+            logger.info("provider_rename_cascade", old=old, new=new,
+                        registry_rows=changed, health_rows=health_moved)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("registry_rekey_failed", old=old, new=new, error=str(exc))
+    return changed
+
+
 class ProviderEndpoints:
     """Provider CRUD, testing, chain reorder."""
 
@@ -999,6 +1132,28 @@ class ProviderEndpoints:
         if name not in cfg.providers:
             self._send_json({"error": f"provider '{name}' not found"}, 404)
             return
+        # ── Dependency check: which profiles would be left with NOTHING to try? ──
+        # Removing a provider from a chain is safe while another step remains.
+        # Emptying a chain is not: the config loader refuses an empty chain, and a
+        # request for that profile has no route at all. Refuse by default so a human
+        # can re-point the profile first; `?force=1` proceeds into the invalidated
+        # state, which is recorded and surfaced rather than silently wiped.
+        force = "force=1" in (self.path or "") or "force=true" in (self.path or "")
+        emptied = [
+            pname for pname, pcfg in (cfg.raw.get("profiles") or {}).items()
+            if (pcfg.get("chain") or [])
+            and all((step or {}).get("provider") == name for step in pcfg["chain"])
+        ]
+        if emptied and not force:
+            self._send_json({
+                "error": (f"provider '{name}' is the only route for profile(s) "
+                          f"{', '.join(sorted(emptied))}; deleting it would leave them "
+                          f"with no chain. Re-point the profile first, or retry with "
+                          f"?force=1 to delete and mark them invalid."),
+                "code": "provider_in_use",
+                "profiles_emptied": sorted(emptied),
+            }, 409)
+            return
         del cfg.raw["providers"][name]
         for pname, pcfg in cfg.raw["profiles"].items():
             pcfg["chain"] = [c for c in pcfg.get("chain", []) if c.get("provider") != name]
@@ -1018,10 +1173,30 @@ class ProviderEndpoints:
         except Exception as exc:  # noqa: BLE001 — never fail a delete on health bookkeeping
             logger.warning("provider_delete_health_cascade_failed",
                            provider=name, error=str(exc))
+        # Cascade: the model registry names this provider inside every logical
+        # model's provider_mappings. Left behind, the UI keeps advertising the
+        # deleted provider as serving those models and routing can resolve a
+        # mapping to a provider that no longer exists.
+        mappings_updated, models_unserved = _strip_provider_from_registry(self.engine, name)
+        if emptied:
+            logger.warning("provider_delete_invalidated_profiles",
+                           provider=name, profiles=sorted(emptied))
+            _fire_alert("profile_invalid", "critical",
+                        f"Profile(s) {', '.join(sorted(emptied))} left without a route",
+                        (f"Deleting provider '{name}' emptied the chain of "
+                         f"{', '.join(sorted(emptied))}. Those profiles now return "
+                         f"503 profile_invalid until a step is added."),
+                        dedup_key=f"profile_invalid:{name}")
         self._audit("provider.delete", provider=name,
-                    health_rows_removed=health_rows_removed)
+                    health_rows_removed=health_rows_removed,
+                    registry_mappings_updated=mappings_updated,
+                    models_unserved=models_unserved,
+                    profiles_emptied=sorted(emptied))
         self._send_json({"ok": True, "deleted": name,
-                         "health_rows_removed": health_rows_removed})
+                         "health_rows_removed": health_rows_removed,
+                         "registry_mappings_updated": mappings_updated,
+                         "models_unserved": models_unserved,
+                         "profiles_emptied": sorted(emptied)})
 
     def _serve_provider_rename(self, name: str):
         """POST /api/providers/{name}/rename  {new_name: "..."} — rename a provider.
@@ -1085,12 +1260,21 @@ class ProviderEndpoints:
         if refresher is not None:
             refresher.request_refresh(provider=new_name)
 
+        # Cascade the rename through the tables that key on the provider NAME:
+        # registry mappings and persisted circuit-breaker health. Without this the
+        # old name survives as a ghost provider in /health and keeps being listed
+        # as serving models that the new provider actually serves.
+        registry_rows = _rekey_provider_in_registry(self.engine, name, new_name)
+
         logger.info("provider_renamed", provider=name, new_name=new_name,
-                    chain_steps_updated=steps_updated)
+                    chain_steps_updated=steps_updated,
+                    registry_rows=registry_rows)
         self._audit("provider.rename", provider=name, new_name=new_name,
-                    chain_steps_updated=steps_updated)
+                    chain_steps_updated=steps_updated,
+                    registry_rows=registry_rows)
         self._send_json({"ok": True, "provider": new_name, "renamed": True,
-                         "chain_steps_updated": steps_updated})
+                         "chain_steps_updated": steps_updated,
+                         "registry_rows": registry_rows})
 
     def _serve_provider_test(self):
         import urllib.request
@@ -2847,6 +3031,158 @@ class DashboardEndpoints:
         """Server-rendered Models page (?tab=matrix|providers) — M2."""
         from ..ui.pages import render_models_page
         self._send_html(render_models_page(self.config, self.engine, self._qs()))
+
+    def _serve_model_limits_api(self):
+        """GET /api/models/limits — the capability flags the vision gate reads.
+
+        One row per ``model_limits`` entry: what the model may do (vision,
+        thinking), its context window, and which providers and profile lanes use
+        it — so a flag that closes a lane is visible where the lane is defined.
+        """
+        cfg = self.config
+        limits = cfg.model_limits or {}
+
+        model_providers: dict[str, list[str]] = {}
+        model_lanes: dict[str, list[str]] = {}
+        for lane, pcfg in (cfg.profiles or {}).items():
+            for step in pcfg.get("chain", []):
+                mid = step.get("model")
+                if not mid:
+                    continue
+                prov = step.get("provider")
+                if prov and prov not in model_providers.setdefault(mid, []):
+                    model_providers[mid].append(prov)
+                if lane not in model_lanes.setdefault(mid, []):
+                    model_lanes[mid].append(lane)
+
+        rows = []
+        for mid, entry in limits.items():
+            if not isinstance(entry, dict):
+                continue
+            rows.append({
+                "model": mid,
+                "context_window": entry.get("context_window"),
+                "max_output_tokens": entry.get("max_output_tokens"),
+                "supports_vision": bool(entry.get("supports_vision", False)),
+                "supports_thinking": bool(entry.get("supports_thinking", False)),
+                "description": entry.get("description", ""),
+                "providers": model_providers.get(mid, []),
+                "lanes": model_lanes.get(mid, []),
+            })
+        rows.sort(key=lambda r: str(r["model"]).lower())
+        self._send_json({
+            "models": rows,
+            "providers": sorted((cfg.providers or {}).keys()),
+        })
+
+    def _serve_model_limits_update_api(self):
+        """POST /api/models/limits {model, supports_vision?, …} — set a flag.
+
+        Writes through the live Config object, so the change is in force for the
+        very next request (no restart): the vision gate reads
+        ``config.model_limits`` directly.
+        """
+        try:
+            body = self._read_body()
+        except Exception:
+            self._send_json({"error": "invalid JSON body"}, 400)
+            return
+        model = str(body.get("model") or "").strip()
+        if not model:
+            self._send_json({"error": "missing 'model'"}, 400)
+            return
+        cfg = self.config
+        limits = cfg.raw.setdefault("model_limits", {})
+        entry = limits.setdefault(model, {})
+        changed = []
+        for key in ("supports_vision", "supports_thinking"):
+            if key in body:
+                entry[key] = bool(body[key])
+                changed.append(key)
+        for key in ("context_window", "max_output_tokens"):
+            if key in body and body[key] is not None:
+                try:
+                    entry[key] = int(body[key])
+                    changed.append(key)
+                except (TypeError, ValueError):
+                    self._send_json({"error": f"{key} must be an integer"}, 400)
+                    return
+        if "description" in body:
+            entry["description"] = str(body["description"])
+            changed.append("description")
+        cfg.save()
+        logger.info("model_limits_updated", model=model, fields=sorted(changed))
+        self._send_json({"ok": True, "model": model, "changed": sorted(changed),
+                         "entry": entry})
+
+    def _serve_model_limits_probe_api(self):
+        """POST /api/models/limits/probe {model, provider?, apply?}
+
+        Send the fixture image to the model and report whether it read it back.
+        With ``apply=true`` the verified answer is written to the flag — that is
+        how a capability stops being an assumption (CUR-144).
+        """
+        try:
+            body = self._read_body()
+        except Exception:
+            self._send_json({"error": "invalid JSON body"}, 400)
+            return
+        model = str(body.get("model") or "").strip()
+        if not model:
+            self._send_json({"error": "missing 'model'"}, 400)
+            return
+        cfg = self.config
+        provider = str(body.get("provider") or "").strip()
+        if not provider:
+            # Default: the first provider in any lane chain that serves it.
+            for _lane, pcfg in (cfg.profiles or {}).items():
+                for step in pcfg.get("chain", []):
+                    if step.get("model") == model:
+                        provider = step.get("provider")
+                        break
+                if provider:
+                    break
+        if not provider:
+            self._send_json(
+                {"error": f"no provider serves {model} — pass 'provider'"},
+                400)
+            return
+        pdata = (cfg.providers or {}).get(provider)
+        if not pdata:
+            self._send_json({"error": f"unknown provider {provider}"}, 400)
+            return
+        api_base = (pdata.get("api_base") or "").rstrip("/")
+        ssrf = _validate_api_base_destination(api_base)
+        if ssrf:
+            self._send_json({"error": f"api_base not allowed: {ssrf}"}, 400)
+            return
+        store = _credential_store_for(self)
+        api_key = None
+        if store is not None:
+            api_key = store.get(provider) or None
+        from ..api.model_capabilities import probe_vision
+        result = probe_vision(api_base, api_key, model, timeout=60,
+                              browser_headers=_browser_headers(api_base))
+        vision = result.get("status") == "vision"
+        applied = False
+        if body.get("apply") and result.get("status") in ("vision", "no_vision"):
+            limits = cfg.raw.setdefault("model_limits", {})
+            entry = limits.setdefault(model, {})
+            entry["supports_vision"] = vision
+            cfg.save()
+            applied = True
+            logger.info("model_vision_probed", model=model, provider=provider,
+                        supports_vision=vision, applied=True)
+        self._send_json({
+            "model": model,
+            "provider": provider,
+            "status": result.get("status"),
+            "supports_vision": vision,
+            "applied": applied,
+            "snippet": result.get("snippet", ""),
+            "duration_ms": result.get("duration_ms"),
+            "error": result.get("error"),
+        })
 
     def _serve_capability_api(self):
         """GET /api/models/capability — return the capability matrix as JSON.

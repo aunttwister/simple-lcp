@@ -40,6 +40,14 @@ jobs:
         run: |
           pytest --cov=src --cov-report=term-missing -q
 
+      - name: Validate the gateway config against the same rule prod uses
+        # CI builds its config from SEED_CONFIG; prod runs the settings table. A chain step
+        # naming an undeclared provider is structurally valid per-section, so before this step
+        # a config that breaks prod could pass green. scripts/config-parity.py runs the same
+        # validator against the live DB (--db) on the host, so both sides share one rule.
+        run: |
+          python scripts/config-parity.py --seed
+
       - name: Upload coverage artifact
         if: always()
         uses: actions/upload-artifact@v4

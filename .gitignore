@@ -51,3 +51,7 @@ data/.lcp_secret_key
 data/*.json
 *.db
 *.sqlite
+
+# Secret-bearing backups of .env (untracked, must never be committed)
+.env.bak*
+.env.*.bak*
