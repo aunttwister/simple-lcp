@@ -9,6 +9,7 @@
   <button class="tab-btn active" data-tab="health" onclick="switchProvTab('health', this)">Health</button>
   <button class="tab-btn" data-tab="config" onclick="switchProvTab('config', this)">Configuration</button>
   <button class="tab-btn" data-tab="routing" onclick="switchProvTab('routing', this)">Routing</button>
+  <button class="tab-btn" data-tab="capabilities" onclick="switchProvTab('capabilities', this)">Capabilities</button>
 </div>
 
 <!-- ═══ HEALTH TAB ═══ -->
@@ -209,5 +210,42 @@
       </tbody></table>
     </div>
   </div>
+</div>
+<!-- prod: capabilities tab panel (union keep) -->
+<div id="tab-capabilities" class="tab-panel">
+  <div style="background:hsl(var(--card));border:1px solid hsl(var(--card-border));border-radius:var(--radius);padding:1rem;margin-bottom:1rem">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+      <div>
+        <h3 style="font-size:0.9rem;margin-bottom:0.25rem">Model capabilities</h3>
+        <p style="font-size:0.75rem;color:hsl(var(--muted-foreground));margin:0">
+          These flags are what the gateway checks before it lets a chain step take
+          a request. <b>Vision</b> decides whether a step may serve an image &mdash;
+          a model flagged text-only is skipped for images even when it can see,
+          which is how a lane goes blind while text keeps flowing.
+        </p>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <button class="btn-sm" onclick="loadCaps()">Refresh</button>
+        <button class="btn-sm btn-success" onclick="probeAllCaps()" title="Send the fixture image to every model a lane uses">Probe all</button>
+      </div>
+    </div>
+    <div class="form-error" id="capsError"></div>
+    <div class="form-help routing-status-msg" id="capsStatus"></div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="capability-table"><thead><tr>
+      <th>Model</th><th>Vision</th><th>Thinking</th><th>Context</th><th>Used by</th><th>Actions</th>
+    </tr></thead><tbody id="capsRows">
+      <tr><td colspan="6" class="empty">Loading…</td></tr>
+    </tbody></table>
+  </div>
+
+  <p class="form-help" style="margin-top:0.5rem">
+    <b>Probe</b> sends a fixture image (<span class="mono">ZEBRA 7291</span>) to the
+    provider and writes the flag from what actually comes back &mdash; a capability
+    verified, not assumed. A model whose provider cannot be reached is left
+    unchanged. Toggling a flag applies to the next request, no restart.
+  </p>
 </div>
 {% endif %}

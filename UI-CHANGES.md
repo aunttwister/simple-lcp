@@ -2,8 +2,10 @@
 
 Every user-visible change made to the LCP console, one line each, with the commit
 that carries it and how to undo it. Staging repo `simple-lcp`, branch `main`.
-Prod (`/your/data/docker-apps/lcp`, `:8734`) has **none** of this — it is still at
-`3be4362` and serves neither `ui.js` nor `sparkline.js` (both 404 there).
+Prod (`/your/data/docker-apps/lcp`, `:8734`) carried none of this until
+2026-10-26, when staging `main` was merged into it and cut over (see
+"Wave 7 promotion" at the end of this file). Prod now serves `ui.js` and
+`sparkline.js`, and both trees are at the same tree.
 
 Baseline for "before all of this" is `78c9e23^` — the commit before the first UI
 wave. Everything below sits on top of it; `git rev-list --count 78c9e23^..HEAD`
@@ -548,3 +550,84 @@ cases, 182 passing, with the runner authenticating through a throwaway `HOME/.cu
   reproduce at `1452f7f`; the five UI-facing files are clean.
 - `vision_analyze` times out on full-page screenshots in this environment; crops and
   CDP geometry are the reliable read-back.
+
+
+## Wave 7 promotion — staging merged into prod, 2026-10-26
+
+Staging had 89 unpushed commits and prod was five commits ahead of the merge base
+(`fd53302`, the deepseek `json_object` capability fix, prod-only). The promotion is
+a real merge, not a reset: prod keeps its own pipeline commits, staging brings the
+UI, QA harness and the backend removals.
+
+**Commits**
+
+| What | Commit | Where |
+|---|---|---|
+| Merge staging `main` into prod `main` (`--no-ff`) | `6a2bc4c` | prod, and `main` was fast-forwarded to it |
+| QA sort cases assert the field the `ORDER BY` uses | `71abec8` | prod |
+| Same QA fix, cherry-picked onto the staging line | `11cd62f` | staging |
+
+The merge had exactly one conflict, in `dashboard.css`: both sides had independently
+declared the same `--ring` value with different comments. Resolved by keeping the
+staging comment; the value `217.2 91.2% 59.8%` is identical on both sides, so the
+resolution cannot change rendering.
+
+**Safety net taken before the rebuild**
+
+- Running image pinned: `lcp-lcp:rollback-20261025-pre-wave7` → `43d1e765de7c`
+  (asserted equal to the container's live `{{.Image}}` at pin time, not assumed).
+- Prod HEAD preserved on branch `backup-prod-before-wave7` (`fd53302`).
+- No DB migration: both trees carry alembic `025`, and the live DB reports `025`.
+  Nothing was written to `costs.db`; all prod DB reads in this section were
+  `mode=ro`.
+
+**Rollback (whole promotion)**
+
+```
+cd /your/data/docker-apps/lcp
+git checkout main && git reset --hard fd53302        # backup-prod-before-wave7
+docker tag lcp-lcp:rollback-20261025-pre-wave7 lcp-lcp:latest
+docker compose --env-file host-paths.env -p lcp -f docker-compose.yml up -d lcp
+```
+
+**Rollback (the QA fix only)** — `git revert --no-edit 71abec8`; it changes three
+files under `qa/` and touches no runtime code.
+
+**Cutover mechanics.** `docker compose … up -d lcp` (never `down`), so the recreate
+is the only interruption. Measured: container recreated 13:37:38Z → started
+13:37:48Z, `/health` 200 two seconds later, `RestartCount=0` afterwards. Traffic
+resumed immediately — the request log shows a completed `l2` request at 13:39:26Z,
+164 ms, attributed to a conversation id.
+
+**What was verified on prod after the rebuild**
+
+| Check | Result |
+|---|---|
+| `/health` | 200, 1.3 ms |
+| Console routes (authed) | `/profiles`, `/models`, `/usage`, `/alerts`, `/conversations`, `/activity` all 200 |
+| Legacy routes | `/providers`→`/models?tab=providers`, `/logs`→`/activity?tab=logs`, `/in-progress`→`/conversations`, `/keys`→`/profiles?tab=keys`, `/work/cron` and `/work/config`→`/profiles`, `/dashboard`→`/activity`; `/setup` and `/work/tasks` 404 |
+| Static assets that were 404 before | `/static/js/ui.js` 200 (3,528 B), `/static/js/sparkline.js` 200 (7,430 B) |
+| `/api/providers/health` | `summary.total` 19, providers listed 19 — the two colliding `opencode/l2` entries both survive (`opencode/l2` degraded, `opencode/l2 (opencode.ai/inference/openai)` dead) |
+| Conversations history table | columns Conversation / Profile / Model / Source / Messages / Tool calls / Tokens / Cost / Last activity / View; sort control in the filter bar; both tables carry an `sr-only` `<caption>`; unmeasured rows render `—` for Tokens and Cost |
+| Chart views | aggregate 1 dataset × 14 points; per-profile 7 datasets × 74 points, 7 distinct colours; per-model 10 datasets × 129 points, 10 distinct colours; `switchView` throws nothing, zero `window.onerror` events |
+| QA sweep against prod | **182 / 182**, groups api 35, auth 9, conv 26, logs 26, pages 35, proxy 11, resilience 21, routing 7, usage 12 |
+| QA sweep against staging | 182 / 182 (re-run with the fixed sort cases) |
+| Full pytest suite | 38 failed + 44 errors = **82**, identical to the `1452f7f` baseline; 2,733 passed |
+| Transcript growth | **362 rows/min before the cutover → 0.8 rows/min after** — measured with two `conv_messages` counts a minute apart on either side of the rebuild. The multiset dedupe (`80f08c7`) is now the code path prod runs |
+
+**One QA case was wrong, and prod data proved it.** `cv-sort-calls` asserted that
+`calls` was monotonic under `sort=calls`, but the server orders by `tool_call_count`;
+`calls` is the request-derived column and is not sorted at all. On staging every
+`calls` value is 0, so the assertion passed vacuously and stayed green for a whole
+wave. Against prod it returned `[0, 3, 282, 0, 17, 35, 36, 32, 0, 0]`. Both sort
+cases now assert the field the `ORDER BY` names, page at `per=100`, check the
+non-NULL prefix is monotonic and require the NULL tail to stay last instead of being
+coerced to 0 (`71abec8`).
+
+**Found while verifying, not fixed — the `measured` flag hides $8.76.** Prod has 230
+live conversations whose `calls`/`tokens`/`cost` rollups are NULL, so `measured` is
+false and the table renders `—`. All 230 of them *do* have attributed request rows:
+10,111 requests worth $8.76 (0.59% of the $1,484.60 request total). The honest fix is
+for `measured` to fall back to an `EXISTS` on `requests` when the rollup is NULL, but
+that puts a correlated subquery on a 7.8 GB database in the pager's hot path, so it
+needs a decision before it ships.

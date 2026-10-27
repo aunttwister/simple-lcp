@@ -172,10 +172,18 @@ class TestValidation:
         c = Config(store=db_store)
         assert c.server["port"] == 8734
 
-    def test_corrupt_profiles_falls_back_to_seed(self, db_store):
+    def test_corrupt_profile_is_quarantined_not_seeded(self, db_store):
+        # CONTRACT CHANGE 2026-10-23: a section whose profiles are all invalid used to
+        # be replaced wholesale by SEED_CONFIG. That silently swapped real profiles for
+        # defaults when ONE chain came out empty (proven: emptying `l2` made `blog`
+        # disappear). Now the stored profiles are kept and quarantined individually so
+        # the failure is visible and repairable, and requests to them return
+        # 503 profile_invalid instead of being routed to seed defaults nobody chose.
         db_store.set_config_section("profiles", {"bad": {"no_chain": True}})
         c = Config(store=db_store)
-        assert "l2" in c.profiles
+        assert "bad" in c.profiles, "the stored profile must not be discarded"
+        assert "bad" in c.invalid_profiles
+        assert "l2" not in c.profiles, "seed must not be substituted for real profiles"
 
 
 class TestSingletons:
