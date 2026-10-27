@@ -763,21 +763,6 @@ def call_with_retry(request_fn: Callable[[], T], retry_cfg=None) -> T:
     raise RuntimeError("retry loop exited unexpectedly")  # pragma: no cover
 
 
-def _has_healthy_alternative(cb, chain: list[dict], profile_name: str,
-                             start_idx: int, config) -> bool:
-    """Return True if any chain step after start_idx has a healthy provider.
-
-    Used for degraded-provider gating: if a degraded provider is next in line
-    but a healthy provider is coming up, skip the degraded one.
-    """
-    for step in chain[start_idx + 1:]:
-        p = step["provider"]
-        url = step.get("base_url") or config.providers.get(p, {}).get("api_base", "")
-        if cb.status_of(p, url, profile_name) == "healthy":
-            return True
-    return False
-
-
 def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
                warning_sink: list | None = None,
                session_id: str | None = None) -> tuple[dict, int, str, str]:
@@ -904,17 +889,18 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
             errors.append(f"{provider_name}: circuit breaker open")
             continue
 
-        # Degraded gating — prefer healthy alternatives over a degraded provider.
-        # Only route to degraded when no healthy option remains in the chain.
-        if cb.status_of(provider_name, base_url, profile_name) == "degraded" \
-                and _has_healthy_alternative(cb, chain, profile_name, i, config):
-            logger.warning(
-                "provider_degraded_skipped",
-                provider=provider_name,
-                profile=profile_name,
-            )
-            errors.append(f"{provider_name}: degraded (healthy alternative available)")
-            continue
+        # NOTE (2026-10-27): a "degraded gating" block used to sit here and skip a
+        # degraded step whenever any later step was healthy. It defeated the
+        # half-open probe it was meant to cooperate with: by this point a
+        # `degraded` status can only mean `tripped_until is None` (every other
+        # degraded state already returned False one line above), i.e. exactly the
+        # probe slot `is_available()` just granted — so the gate cancelled the
+        # probe, `record_success()` never ran, and a provider that sat early in a
+        # chain with healthy members behind it stayed degraded forever while
+        # every request routed around it (prod, 2026-10-27: six minutes of
+        # `provider_degraded_skipped` against a provider answering HTTP 200, all
+        # traffic billed on paid fallbacks). Cooldown enforcement already lives in
+        # `is_available()`; the gate was redundant with it and harmful on top.
 
         # Set model in body — translate the gateway model name to the
         # provider's API model ID when the provider's plugin overrides

@@ -240,8 +240,16 @@ class TestTryChainDegradedGating:
             assert cb.is_available("a", "https://a/v1", "l2") is True  # promoted
         assert cb.status_of("a", "https://a/v1", "l2") == "degraded"
 
-    def test_degraded_skipped_when_healthy_alternative_exists(self):
-        """A degraded provider is skipped if a healthy alternative is in the chain."""
+    def test_degraded_probe_is_attempted_despite_healthy_alternative(self):
+        """CONTRACT CHANGE 2026-10-27: a degraded step gets its half-open probe.
+
+        The old expectation — a degraded provider is skipped whenever a healthy
+        alternative exists in the chain — froze the provider out of rotation
+        permanently: by the time the gate ran, ``degraded`` could only mean the
+        probe slot ``is_available()`` had just granted, so the gate cancelled the
+        probe, ``record_success()`` never ran, and the provider stayed degraded
+        while every request billed a fallback (measured in prod 2026-10-27).
+        """
         from src.api.circuit_breaker import get_circuit_breaker
         cfg = _chain_config(providers={
             "a": {"api_key_env": "KEY", "base_url": "https://a/v1"},
@@ -266,9 +274,11 @@ class TestTryChainDegradedGating:
             m.return_value = ({"choices": []}, 200)
             resp, status, provider, model = try_chain("l2", profile_cfg, body, cfg)
 
-        assert provider == "b"
+        # The probe goes to the degraded provider first, and its success promotes it.
+        assert provider == "a"
         attempted = [c.args[0]["provider"] for c in m.call_args_list]
-        assert attempted == ["b"]
+        assert attempted == ["a"]
+        assert cb.status_of("a", "https://a/v1", "l2") == "healthy"
 
     def test_degraded_used_when_no_healthy_alternative(self):
         """A degraded provider is still used when no healthy alternative exists."""
