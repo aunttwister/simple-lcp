@@ -133,6 +133,26 @@ class AllProvidersFailedError(LCPError):
     client_message = "All configured providers failed to fulfill the request. Please try again shortly."
 
 
+class RequestUnsupportedError(LCPError):
+    """Every provider that was actually tried rejected the request body as invalid.
+
+    Distinct from ``AllProvidersFailedError``: there, providers were unavailable or broke;
+    here, every provider answered, and every one said "this request is wrong". The caller's
+    body is the problem, so the honest status is 4xx, not 502. Measured 2026-10-24: 24 of ~737
+    `l2` requests in 72h walked the whole five-step chain and were answered 502, when every
+    step had in fact returned a 400 (unsupported `reasoning_effort`, unsupported
+    `response_format`) — the operator saw "the gateway is broken" for a request no provider in
+    the chain could serve.
+    """
+    code = "LCP-3002"
+    status_code = 400
+    client_message = (
+        "Every provider in this profile rejected the request as invalid. The request body asks "
+        "for something no configured model supports (for example an unsupported "
+        "response_format or reasoning_effort). Adjust the request and retry."
+    )
+
+
 class ToolBlockedError(LCPError):
     """Requested tool is blocked by profile policy."""
     code = "LCP-4002"

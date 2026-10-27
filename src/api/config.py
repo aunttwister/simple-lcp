@@ -259,6 +259,31 @@ SEED_CONFIG: dict[str, Any] = {
             "supports_thinking": False,
             "description": "Qwen3.8-Flash-Next — local vLLM (DGX Spark 128GB, SEQS=16), vision-capable",
         },
+        # Rows previously present ONLY in the live DB (never seeded) — a rebuild
+        # re-seed dropped them and silently closed the local vision path
+        # (CUR-144). Vision flags below are engine-probed, not assumed: a real
+        # 480x320 "ZEBRA 7291" image was transcribed correctly by both.
+        "GLM-5.3-Flash-EXL3": {
+            "context_window": 1048576,
+            "max_output_tokens": 32768,
+            "supports_vision": True,
+            "supports_thinking": True,
+            "description": "GLM 5.3 Flash EXL3 (local-sparks, DGX Spark 2x, TensorFold v1.6) — 1M ctx, vision-probed 2026-10-07",
+        },
+        "deepseek-flash": {
+            "context_window": 1000000,
+            "max_output_tokens": 384000,
+            "supports_vision": True,
+            "supports_thinking": True,
+            "description": "DeepSeek V4.1 Flash — gateway logical lane (deepseek + opencode); vision-probed 2026-10-07; thinking mode REQUIRES reasoning_content echoed back",
+        },
+        "deepseek/deepseek-v4.1-flash-fast": {
+            "context_window": 128000,
+            "max_output_tokens": 16384,
+            "supports_vision": True,
+            "supports_thinking": True,
+            "description": "DeepSeek V4.1 Flash Fast (Command Code) — thinking",
+        },
     },
     "database": {
         "path": "/app/data/costs.db",
@@ -444,6 +469,71 @@ def _validate(section: str, data: Any) -> None:
     # the accessors.
 
 
+def validate_gateway_config(raw: dict) -> list[str]:
+    """Cross-section checks that `_validate` cannot make on a single section.
+
+    `_validate` sees one section at a time, so a profile chain step naming a provider that is
+    not in `providers` is structurally valid and sails through. That is exactly the shape that
+    breaks prod and not CI: CI builds its config from `SEED_CONFIG`, prod runs whatever is in
+    the `settings` table after UI edits, and nothing checked the two against the same rule.
+
+    Returns a list of human-readable problems (empty means valid). It never raises: the caller
+    decides whether a problem is fatal (boot) or a test failure (CI).
+    """
+    problems: list[str] = []
+    if not isinstance(raw, dict):
+        return ["config is not a dict"]
+
+    providers = raw.get("providers")
+    providers = providers if isinstance(providers, dict) else {}
+    profiles = raw.get("profiles")
+    profiles = profiles if isinstance(profiles, dict) else {}
+
+    if not providers:
+        problems.append("no providers declared")
+    if not profiles:
+        problems.append("no profiles declared")
+
+    for name, prof in profiles.items():
+        if not isinstance(prof, dict):
+            problems.append(f"profile '{name}' is not a dict")
+            continue
+        chain = prof.get("chain")
+        if not isinstance(chain, list) or not chain:
+            problems.append(f"profile '{name}' has no usable chain")
+            continue
+        for i, step in enumerate(chain):
+            where = f"profile '{name}' chain step {i}"
+            if not isinstance(step, dict):
+                problems.append(f"{where} is not a dict")
+                continue
+            provider = step.get("provider")
+            if not provider:
+                problems.append(f"{where} has no provider")
+            elif provider not in providers:
+                problems.append(
+                    f"{where} names provider '{provider}', which is not declared in 'providers'"
+                )
+            model = step.get("model")
+            if not isinstance(model, str) or not model.strip():
+                problems.append(f"{where} has no model")
+            base_url = step.get("base_url")
+            if not base_url and provider in providers:
+                api_base = (providers.get(provider) or {}).get("api_base")
+                if not api_base:
+                    problems.append(
+                        f"{where} has no base_url and provider '{provider}' declares no api_base"
+                    )
+
+    default_profile = (raw.get("server") or {}).get("default_profile")
+    if default_profile and default_profile not in profiles:
+        problems.append(
+            f"server.default_profile '{default_profile}' is not a declared profile"
+        )
+
+    return problems
+
+
 class Config:
     """DB-backed gateway configuration.
 
@@ -475,9 +565,16 @@ class Config:
                 self._data[section] = copy.deepcopy(self._seed[section])
             else:
                 self._data[section] = {}
-        # Validate required sections; fall back to seed on failure so boot and
-        # read paths never hard-fail from a corrupt DB section.
+        # Validate required sections. `profiles` is validated PER PROFILE and a bad
+        # profile is quarantined (kept, flagged, unroutable) instead of resetting the
+        # whole section: replacing `profiles` with SEED_CONFIG because ONE chain came
+        # out empty silently swapped every real profile for the defaults at the next
+        # restart. Proven 2026-10-23: an emptied `l2` chain made `blog` disappear.
+        self._invalid_profiles: dict[str, str] = {}
         for section in REQUIRED_SECTIONS:
+            if section == "profiles":
+                self._quarantine_invalid_profiles()
+                continue
             try:
                 _validate(section, self._data.get(section))
             except ConfigError as exc:
@@ -497,7 +594,67 @@ class Config:
                 self._data["database"]["path"] = _env_db_path()
         except Exception:  # noqa: BLE001
             pass
+        # Cross-section parity check. `_validate` sees one section at a time, so a chain step
+        # naming an undeclared provider is structurally fine and passes CI, while prod (which
+        # runs the DB config, not SEED_CONFIG) fails at request time. Boot logs the problems
+        # instead of refusing to start: an invalid config must not take the gateway down, but
+        # it must be visible in the log and in the parity script CI runs.
+        try:
+            problems = validate_gateway_config(self._data)
+            if problems:
+                logger.warning("config_cross_section_invalid", problems=problems)
+                self._config_problems = problems
+            else:
+                self._config_problems = []
+        except Exception as exc:  # noqa: BLE001 — never break boot on a check
+            logger.warning("config_cross_section_check_failed", error=str(exc))
+            self._config_problems = []
         logger.info("config_loaded", sections=sorted(self._data.keys()))
+
+    # ── Accessors ──────────────────────────────────────────────────────────
+    @property
+    def invalid_profiles(self) -> dict[str, str]:
+        """Profile name -> reason it cannot be routed. Empty when every profile is sane."""
+        return getattr(self, "_invalid_profiles", {})
+
+    def _quarantine_invalid_profiles(self) -> None:
+        """Validate each profile on its own and quarantine the broken ones.
+
+        A profile is quarantined when its chain is missing or empty, or when its
+        other fields fail validation. Quarantined profiles STAY in ``profiles`` so
+        the UI can show and repair them, but they are listed in ``invalid_profiles``
+        and refused at request time with a clear 503 — failing in routing instead
+        looks like a provider outage and hides the real cause.
+
+        Only a structurally unusable ``profiles`` section (not a dict) falls back to
+        the seed. One bad profile must never reset the whole estate.
+        """
+        profiles = self._data.get("profiles")
+        if not isinstance(profiles, dict):
+            logger.warning("config_section_invalid", section="profiles",
+                           error="'profiles' is not a mapping")
+            if "profiles" in self._seed:
+                import copy
+                self._data["profiles"] = copy.deepcopy(self._seed["profiles"])
+            return
+        for name, prof in list(profiles.items()):
+            if not isinstance(prof, dict):
+                self._invalid_profiles[name] = "profile is not a mapping"
+                continue
+            chain = prof.get("chain")
+            if not isinstance(chain, list) or not chain:
+                self._invalid_profiles[name] = (
+                    "chain is empty - every provider this profile referenced was "
+                    "removed; add a step to re-enable it")
+                continue
+            try:
+                validate_profile_fields(name, prof)
+            except ConfigError as exc:
+                self._invalid_profiles[name] = str(exc)
+        if self._invalid_profiles:
+            logger.warning("profiles_quarantined",
+                           count=len(self._invalid_profiles),
+                           profiles=sorted(self._invalid_profiles))
 
     # ── Accessors ──────────────────────────────────────────────────────────
 

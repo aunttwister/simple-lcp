@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LCP — one control plane for every LLM call your agents make</title>
+<meta name="description" content="LCP sits between your agents and their providers. Each profile carries its own provider chain, tool policy and budget. One container, one port, SQLite. No Postgres, no Redis, no cloud.">
+<link rel="canonical" href="https://lcp.curcic.cc/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="LCP — one control plane for every LLM call your agents make">
+<meta property="og:description" content="Route, meter and constrain every LLM call in your homelab. One container, one port, SQLite. AGPL-3.0.">
+<meta property="og:url" content="https://lcp.curcic.cc/">
+<meta property="og:site_name" content="LCP">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0F1115">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/geist-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav-wrap">
+  <nav class="nav" aria-label="Primary">
+    <a class="brand" href="#top" aria-label="LCP home">
+      <span class="brand-mark" aria-hidden="true">LCP</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="#why">Why</a></li>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#ledger">The ledger</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+    <a class="btn btn-primary btn-sm" href="https://github.com/aunttwister/lcp">Clone the repo</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navOverlay" aria-label="Open menu">
+      <span class="nav-toggle-bar"></span>
+      <span class="nav-toggle-bar"></span>
+      <span class="nav-toggle-bar"></span>
+    </button>
+  </nav>
+</header>
+
+<div class="overlay" id="navOverlay" hidden>
+  <ul class="overlay-links">
+    <li><a href="#why">Why</a></li>
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#ledger">The ledger</a></li>
+    <li><a href="#faq">FAQ</a></li>
+    <li><a href="https://github.com/aunttwister/lcp">Clone the repo</a></li>
+  </ul>
+</div>
+
+<main id="main">
+  <section class="hero" id="top">
+    <div class="container">
+      <div class="hero-copy">
+        <p class="eyebrow">A control plane for LLM traffic</p>
+        <h1 class="hero-title">Every LLM call your agents make, routed, metered and accounted.</h1>
+        <p class="hero-sub">LCP sits between your agents and their providers. Each profile carries its own provider chain, tool policy and budget. One container, one port, SQLite. No Postgres, no Redis, no cloud.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://github.com/aunttwister/lcp">Clone the repo</a>
+          <span class="hero-note">AGPL-3.0 · runs on hardware you own</span>
+        </div>
+        <p class="proof-line"><span class="mono">119,485</span> requests metered · <span class="mono">$1,479.68</span> accounted · <span class="mono">7</span> profiles · <span class="mono">8</span> providers, since June 2026</p>
+      </div>
+
+      <figure class="flow-card" aria-label="How one request moves through LCP">
+        <div class="flow-head">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="mono flow-path">POST /l2/v1/chat/completions</span>
+        </div>
+        <ol class="flow">
+          <li>
+            <span class="flow-step mono">01</span>
+            <div>
+              <p class="flow-title">Profile <span class="mono">l2</span> takes the call</p>
+              <p class="flow-note">Its pool, tool policy and budget apply before anything leaves the box.</p>
+            </div>
+          </li>
+          <li>
+            <span class="flow-step mono">02</span>
+            <div>
+              <p class="flow-title">The chain picks a provider</p>
+              <p class="flow-note">Static order, or semantic routing ranked by benchmark score, cost and breaker health.</p>
+            </div>
+          </li>
+          <li>
+            <span class="flow-step mono">03</span>
+            <div>
+              <p class="flow-title">The ledger writes the row</p>
+              <p class="flow-note">Tokens, cache split, latency, cost. Every response carries <span class="mono">X-Estimated-Cost</span>.</p>
+            </div>
+          </li>
+        </ol>
+        <div class="flow-row">
+          <span class="mono">l2</span>
+          <span class="mono">local-sparks</span>
+          <span class="mono">104,493 → 153 tok</span>
+          <span class="mono">322 ms</span>
+          <span class="mono">$0.00000</span>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="tagline" id="tagline">
+    <div class="container">
+      <p class="tagline-text" data-reveal-words>You cannot control what you cannot see. LCP makes every call visible before it becomes a bill.</p>
+    </div>
+  </section>
+
+  <section class="section" id="why">
+    <div class="container">
+      <div class="section-head reveal">
+        <h2>Three problems, one container</h2>
+        <p class="section-sub">LCP was built for a homelab running six agent profiles against five providers. Each problem below is the reason a piece of it exists.</p>
+      </div>
+      <div class="grid-3">
+        <article class="card reveal">
+          <h3>Spend was a black box</h3>
+          <p>Agents hit providers directly. Nobody knew what was spent, by whom, or on what task type. Now every request writes a row: provider, model, tokens, cache hits, latency, cost.</p>
+        </article>
+        <article class="card reveal">
+          <h3>Tool policy was unenforceable</h3>
+          <p>A coding agent could call <span class="mono">cronjob</span> or <span class="mono">write_file</span> against production and nothing in the loop could stop it. Now tool allow lists are applied per profile, on the request path, failing closed.</p>
+        </article>
+        <article class="card reveal">
+          <h3>Failures were manual</h3>
+          <p>A dead provider meant hand editing per profile configs and hoping nobody noticed. Now a persisted circuit breaker trips the provider and the chain moves on.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="how">
+    <div class="container">
+      <div class="section-head reveal">
+        <h2>How it works</h2>
+        <p class="section-sub">Three steps. No SDK, no client changes, no second service to run.</p>
+      </div>
+      <div class="grid-3 steps">
+        <article class="card reveal">
+          <p class="step-num mono">01</p>
+          <h3>Point the client at a profile</h3>
+          <p>Any OpenAI client calls <span class="mono">POST /&lt;profile&gt;/v1/chat/completions</span>. VS Code Copilot, curl and agent harnesses all work unchanged.</p>
+        </article>
+        <article class="card reveal">
+          <p class="step-num mono">02</p>
+          <h3>The chain decides</h3>
+          <p>Static fallback order or dynamic routing: the request is classified, then the pool is ranked by capability score, cost bias and breaker health.</p>
+        </article>
+        <article class="card reveal">
+          <p class="step-num mono">03</p>
+          <h3>The ledger records it</h3>
+          <p>One SQLite row per request, plus <span class="mono">/metrics</span> for Prometheus and a dashboard for the human.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="ledger">
+    <div class="container">
+      <div class="section-head reveal">
+        <h2>This is a real ledger</h2>
+        <p class="section-sub">Four months of one homelab, read straight out of the SQLite file. No demo data, no round numbers.</p>
+      </div>
+      <div class="ledger-grid">
+        <div class="stat reveal">
+          <p class="stat-value mono">119,485</p>
+          <p class="stat-label">requests metered</p>
+        </div>
+        <div class="stat reveal">
+          <p class="stat-value mono">$1,479.68</p>
+          <p class="stat-label">spend accounted</p>
+        </div>
+        <div class="stat reveal">
+          <p class="stat-value mono">7</p>
+          <p class="stat-label">agent profiles</p>
+        </div>
+        <div class="stat reveal">
+          <p class="stat-value mono">8</p>
+          <p class="stat-label">providers, one chain each</p>
+        </div>
+      </div>
+      <div class="table-wrap reveal">
+        <table>
+          <caption class="visually-hidden">Spend and request count per profile, from June 2026 to October 2026</caption>
+          <thead>
+            <tr><th scope="col">Profile</th><th scope="col">Requests</th><th scope="col">Spend</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">l2</td><td class="mono num">86,069</td><td class="mono num">$917.60</td></tr>
+            <tr><td class="mono">l1</td><td class="mono num">20,161</td><td class="mono num">$3.80</td></tr>
+            <tr><td class="mono">coder</td><td class="mono num">12,347</td><td class="mono num">$556.63</td></tr>
+            <tr><td class="mono">cron</td><td class="mono num">762</td><td class="mono num">$1.61</td></tr>
+            <tr><td class="mono">blog</td><td class="mono num">129</td><td class="mono num">$0.00</td></tr>
+            <tr><td class="mono">career</td><td class="mono num">57</td><td class="mono num">$0.04</td></tr>
+            <tr><td class="mono">naptune-admin</td><td class="mono num">11</td><td class="mono num">$0.01</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="ledger-note reveal">The cheapest profile spent $1.61 across four months. The most expensive spent $917.60. That difference is invisible until something writes it down.</p>
+    </div>
+  </section>
+
+  <section class="section" id="features">
+    <div class="container">
+      <div class="section-head reveal">
+        <h2>What is in the box</h2>
+        <p class="section-sub">Every item below ships in the single container. Nothing is a paid tier.</p>
+      </div>
+      <div class="grid-3">
+        <article class="card reveal">
+          <h3>Budgets that stop the call</h3>
+          <p>A key, a profile or a provider can carry a spend limit. On breach the request returns 403 before the provider is contacted.</p>
+        </article>
+        <article class="card reveal">
+          <h3>Circuit breaker, persisted</h3>
+          <p>Failures are counted per provider and the tripped state survives a restart, so a flapping provider stays out of the chain.</p>
+        </article>
+        <article class="card reveal">
+          <h3>Semantic routing</h3>
+          <p>Requests are classified against per profile intents, then ranked by benchmark score, cost bias and health. A margin gate stops coin flip decisions.</p>
+        </article>
+        <article class="card reveal">
+          <h3>Tool permissions</h3>
+          <p>Each profile gets an allow list of tools, with a global block layer on top. A new tool is blocked until you whitelist it.</p>
+        </article>
+        <article class="card reveal">
+          <h3>Speaks the OpenAI API</h3>
+          <p>Chat completions, model listing and streaming on the paths your clients already call. Local vLLM and llama.cpp are just more providers.</p>
+        </article>
+        <article class="card reveal">
+          <h3>No external services</h3>
+          <p>SQLite for state, Python for the server, one port. No Postgres, no Redis, no message broker, no build step in the dashboard.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="faq">
+    <div class="container narrow">
+      <div class="section-head reveal">
+        <h2>Questions worth asking</h2>
+      </div>
+      <div class="faq">
+        <details class="faq-item reveal">
+          <summary>Is this a hosted service?</summary>
+          <p>No. LCP is a container you run yourself, backed by SQLite. There is no account, no telemetry and no control plane outside your network.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>Do my clients need to change?</summary>
+          <p>No. The endpoints follow the OpenAI shape, so an existing client only needs its base URL pointed at <span class="mono">http://&lt;host&gt;:8734/&lt;profile&gt;</span>.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>Does it replace Postgres or Redis?</summary>
+          <p>Yes. State lives in one SQLite file. That is a deliberate constraint: it keeps the install to one container and one port.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>Can it serve local models?</summary>
+          <p>Yes. A vLLM or llama.cpp endpoint is registered as a provider like any other, so a local model sits in the same chain and writes the same cost row. Local models usually cost $0, which is itself useful data.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>What happens when a budget is exceeded?</summary>
+          <p>The request returns 403 and the provider is never called. The breach is also recorded as an alert, so you see which key or profile hit the wall.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>How is cost calculated?</summary>
+          <p>From the provider's pricing entry and its cost plugin, applied to the prompt and completion tokens of the response. Every response carries <span class="mono">X-Estimated-Cost</span>.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>Is it safe to expose to the internet?</summary>
+          <p>Not as shipped. LCP expects a LAN or VPN boundary, with TLS terminated by a reverse proxy in front of it. It is explicitly not designed to isolate untrusted tenants.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>What licence is it under?</summary>
+          <p>AGPL-3.0. The source is at <a href="https://github.com/aunttwister/lcp">github.com/aunttwister/lcp</a>.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="section cta-section" id="start">
+    <div class="container narrow">
+      <h2 class="reveal">Clone it, run one container, point a client at it.</h2>
+      <p class="section-sub reveal">The whole install is a compose file and a data directory.</p>
+      <pre class="code-block reveal"><code>git clone https://github.com/aunttwister/lcp
+cd lcp
+docker compose up -d</code></pre>
+      <div class="hero-actions reveal">
+        <a class="btn btn-primary" href="https://github.com/aunttwister/lcp">Clone the repo</a>
+        <a class="btn btn-ghost" href="https://github.com/aunttwister/lcp/blob/main/docs/DESIGN.md">Read the design doc</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <p class="footer-brand mono">LCP</p>
+    <ul class="footer-links">
+      <li><a href="https://github.com/aunttwister/lcp">Source</a></li>
+      <li><a href="https://github.com/aunttwister/lcp/blob/main/docs/DESIGN.md">Design doc</a></li>
+      <li><a href="https://github.com/aunttwister/lcp/blob/main/LICENSE">Licence</a></li>
+      <li><a href="https://github.com/aunttwister/lcp/blob/main/SECURITY.md">Security</a></li>
+    </ul>
+    <p class="footer-note">AGPL-3.0 · runs on hardware you own</p>
+  </div>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>

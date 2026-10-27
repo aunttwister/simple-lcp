@@ -32,6 +32,31 @@ _ERROR_WEIGHTS = {
 }
 
 
+def _fire_transition_alert(rule: str, severity: str, title: str, message: str,
+                           dedup_key: str) -> None:
+    """Fire an alert on a breaker state transition. Never raises.
+
+    Before 2026-10-23 the AlertManager declared ``provider_dead``,
+    ``provider_degraded``, ``circuit_breaker_trip`` and ``circuit_breaker_recovery``
+    rules but NOTHING ever called ``fire()`` for them — only ``budget_breach`` did —
+    so the ``alerts`` table stayed empty even with a provider sitting dead at 90
+    consecutive failures. The transition is the right place: it happens once per
+    state change instead of once per failed request.
+    """
+    try:
+        from .alert_manager import get_alert_manager
+        try:
+            from .runtime import resolve_service
+            am = resolve_service("alert_manager", fallback=get_alert_manager)
+        except Exception:  # noqa: BLE001
+            am = get_alert_manager()
+        if am is not None:
+            am.fire(rule=rule, severity=severity, title=title, message=message,
+                    dedup_key=dedup_key)
+    except Exception as exc:  # noqa: BLE001 — alerting must never break the breaker
+        logger.warning("breaker_alert_failed", rule=rule, error=str(exc))
+
+
 class CircuitBreaker:
     """Tracks provider health with configurable thresholds."""
 
@@ -290,6 +315,13 @@ class CircuitBreaker:
                 old_status=old_status,
                 new_status="healthy",
             )
+            _fire_transition_alert(
+                "circuit_breaker_recovery",
+                "info",
+                f"Provider {provider}/{profile} recovered",
+                f"{provider} on {base_url} recovered from {old_status} to healthy.",
+                f"provider:{provider}:{profile}:{base_url}:recovered",
+            )
         self._persist(provider, base_url, profile)
 
     def record_failure(self, provider: str, base_url: str, profile: str,
@@ -338,6 +370,15 @@ class CircuitBreaker:
                 consecutive_failures=n,
                 error_type=error_type,
                 error_reason=error_reason,
+            )
+            _fire_transition_alert(
+                "provider_dead" if new_status == "dead" else "provider_degraded",
+                "critical" if new_status == "dead" else "warning",
+                f"Provider {provider}/{profile} is {new_status}",
+                (f"{provider} on {base_url} went {old_status} -> {new_status} after "
+                 f"{n} consecutive failures"
+                 + (f": {error_reason}" if error_reason else "")),
+                f"provider:{provider}:{profile}:{base_url}:{new_status}",
             )
         self._persist(provider, base_url, profile)
 

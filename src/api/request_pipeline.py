@@ -7,12 +7,14 @@ Handles the full request flow:
 import json
 import os
 import random
+import threading
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from typing import Callable, TypeVar
 
+from .capabilities import prepare_body
 from .circuit_breaker import get_circuit_breaker
 from .cost_plugins import get_registry
 from .cost_plugins.base import select_rates
@@ -22,6 +24,7 @@ from .exceptions import (
     ConfigError,
     ProviderAuthError,
     ProviderBadRequestError,
+    RequestUnsupportedError,
     ProviderCreditsError,
     ProviderInternalError,
     ProviderRateLimitError,
@@ -339,6 +342,42 @@ def ensure_thinking_reasoning_content(messages: list[dict], model: str,
                 and "reasoning_content" not in msg:
             msg["reasoning_content"] = ""
     return messages
+
+
+# ── Per-chain bad-request memory ──────────────────────────────────────────
+#
+# A provider can reject a request as "invalid" (HTTP 400) for a reason that is
+# request-shaped rather than provider-wide — e.g. a long tool-calling history
+# whose reasoning_content a client stripped. Re-sending the *same* body to the
+# *same* provider will fail identically, so that provider is skipped for the
+# lifetime of the chain (cheap, no wasted round-trips). The next chain member
+# gets a genuinely independent chance, and the chain is NOT aborted.
+#
+# Entry count / message are bounded so logging stays legible.
+_BAD_REQUEST_MAX_ENTRIES = 256
+_BAD_REQUEST_MSG_MAXLEN = 600
+
+_bad_request_lock = threading.Lock()
+_bad_request_this_chain: dict[str, str] = {}
+
+
+def _bad_request_key(provider_name: str, base_url: str, model: str) -> str:
+    """Cache key: the model is part of it because a chain can reuse a provider
+    with different models."""
+    return f"{provider_name}|{base_url}|{model}"
+
+
+def _remember_bad_request(provider_name: str, base_url: str, model: str,
+                          err: str) -> str:
+    """Record that (provider, base_url, model) rejected THIS request body as
+    invalid, and return the (truncated) message for the final error."""
+    msg = (err or "")[:_BAD_REQUEST_MSG_MAXLEN]
+    key = _bad_request_key(provider_name, base_url, model)
+    with _bad_request_lock:
+        if len(_bad_request_this_chain) >= _BAD_REQUEST_MAX_ENTRIES:
+            _bad_request_this_chain.clear()
+        _bad_request_this_chain[key] = msg
+    return msg
 
 
 def sanitize_messages(messages: list[dict]) -> list[dict]:
@@ -783,6 +822,20 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
     chain = [dict(step) for step in profile_cfg["chain"]]
     chain_len = len(chain)
     errors = []
+    # Count what actually went over the wire, and how many of those were the provider telling us
+    # the request body is invalid. If every attempt was a body rejection, the answer is 400, not
+    # 502 — see RequestUnsupportedError.
+    attempted = 0
+    rejected = 0
+    # Steps skipped *before the wire* because the provider cannot serve this request shape at all
+    # (e.g. a json_schema response_format against a text-only provider). Like a rejection, this
+    # means "no provider here can answer this", not "the gateway is broken".
+    unservable = 0
+
+    # Per-chain memory of providers that rejected THIS request body as invalid.
+    # Cleared here (concurrent chains each track their own) so a 400 on one
+    # request never affects the next.
+    _bad_request_this_chain.clear()
 
     # ── Memory harness: auto-recall + inject relevant facts into the request ─
     # Opt-in via plugins.memory.auto_recall. No-op when memory is inactive.
@@ -866,6 +919,24 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
             chain_len=chain_len,
         )
 
+        # Skip a provider that already rejected THIS request body as invalid
+        # earlier in this same chain (e.g. the same underlying provider named
+        # twice with different models). Re-sending the identical body would
+        # fail identically, so don't waste the round-trip.
+        # NOTE: the memory key includes the model, so a same-provider step with
+        # a DIFFERENT model is still attempted.
+        if _bad_request_key(provider_name, base_url, model) in _bad_request_this_chain:
+            logger.info(
+                "chain_skip_remembered_bad_request",
+                profile=profile_name,
+                provider=provider_name,
+                model=model,
+                attempt=i + 1,
+                chain_len=chain_len,
+            )
+            errors.append(f"{provider_name}/{model}: skipped (rejected this body as invalid)")
+            continue
+
         # Check vision support — fail gracefully so user knows why
         if has_image_content(body.get("messages", [])):
             model_limits = config.model_limits.get(model, {})
@@ -902,10 +973,37 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
         # traffic billed on paid fallbacks). Cooldown enforcement already lives in
         # `is_available()`; the gate was redundant with it and harmful on top.
 
+        # Per-provider capability gate — measured 2026-10-24, 96 of 1015 chain attempts were a
+        # provider refusing the client's body verbatim. Two different treatments:
+        #   * a hint (reasoning_effort) is stripped and the step proceeds;
+        #   * a contract (response_format) is not stripped — silently downgrading changes what
+        #     comes back — so the provider is skipped, and if every provider is skipped the
+        #     request ends as RequestUnsupportedError (400) rather than a wrong-shaped 200.
+        # step_body is per-step: a parameter stripped for one provider must still reach the next.
+        step_body, stripped_params, capability_gap = prepare_body(provider_name, body, config)
+        if capability_gap:
+            unservable += 1
+            errors.append(f"{provider_name}/{model}: {capability_gap}")
+            logger.warning(
+                "provider_capability_skip",
+                profile=profile_name,
+                provider=provider_name,
+                model=model,
+                reason=capability_gap,
+            )
+            continue
+        if stripped_params:
+            logger.info(
+                "provider_params_stripped",
+                profile=profile_name,
+                provider=provider_name,
+                stripped=stripped_params,
+            )
+
         # Set model in body — translate the gateway model name to the
         # provider's API model ID when the provider's plugin overrides
         # get_api_model() (e.g. Command Code's prefixed catalog IDs).
-        body["model"] = model
+        step_body["model"] = model
         plugin = resolve_service("pricing", fallback=get_registry).for_provider(provider_name)
         if plugin is not None:
             api_model = plugin.get_api_model(model)
@@ -916,26 +1014,26 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
                     logical_model=model,
                     api_model=api_model,
                 )
-                body["model"] = api_model
+                step_body["model"] = api_model
 
         # Normalize for prefix caching — deterministic message/tool ordering
         # so repeated logical prompts hit the provider's KV-cache.
-        if "messages" in body:
-            body["messages"] = normalize_messages_for_cache(body["messages"])
-        if "tools" in body and body["tools"]:
-            body["tools"] = normalize_tools_for_cache(body["tools"])
+        if "messages" in step_body:
+            step_body["messages"] = normalize_messages_for_cache(step_body["messages"])
+        if "tools" in step_body and step_body["tools"]:
+            step_body["tools"] = normalize_tools_for_cache(step_body["tools"])
 
         # Sanitize AFTER normalization — normalization strips tool_calls from
         # assistant messages, so any tool messages left behind become orphaned.
         # Running here ensures we see the final message shape before forwarding.
-        if "messages" in body:
-            body["messages"] = sanitize_messages(body["messages"])
+        if "messages" in step_body:
+            step_body["messages"] = sanitize_messages(step_body["messages"])
 
         # Inject empty reasoning_content for thinking-mode models (DeepSeek).
         # Clients often strip it from history; DeepSeek requires presence.
-        if "messages" in body:
-            body["messages"] = ensure_thinking_reasoning_content(
-                body["messages"], model, config
+        if "messages" in step_body:
+            step_body["messages"] = ensure_thinking_reasoning_content(
+                step_body["messages"], model, config
             )
 
         # Add base_url to step config (API keys now come from credential store)
@@ -951,9 +1049,10 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
             retry_cfg = {}
 
         try:
+            attempted += 1
             t0 = time.time()
             resp, status = call_with_retry(
-                lambda: forward_request(step_with_key, body, config, session_id=session_id),
+                lambda: forward_request(step_with_key, step_body, config, session_id=session_id),
                 retry_cfg,
             )
             hop_ms = int((time.time() - t0) * 1000)
@@ -969,12 +1068,22 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
             )
             return resp, status, provider_name, model
         except ProviderBadRequestError as e:
-            # Bad request — the problem is in the body, not the provider.
-            # Falling back to another provider just wastes attempts.
-            # Re-raise immediately so the client sees the real error.
+            # Bad request. The body is (probably) the problem, so re-sending it
+            # to the SAME provider is pointless — but aborting the whole chain
+            # is worse: when the head of the chain is a fragile aggregator (e.g.
+            # Command Code returning an opaque "invalid request error"), every
+            # remaining provider — including a healthy local one at the tail —
+            # used to be skipped and the user got a hard 502.
+            #
+            # So: remember that this provider rejected this body (cheap skip if
+            # the chain names it again), then fall through to the next provider,
+            # which gets a genuinely independent chance.
             # NOTE: deliberately NOT calling cb.record_failure() — a 400 caused
             # by a bad client body is not a provider outage, and counting it
             # against provider health would falsely degrade healthy providers.
+            rejected += 1
+            reason = _remember_bad_request(provider_name, base_url, model, str(e))
+            errors.append(f"{provider_name}/{model}: rejected as invalid: {reason}")
             logger.error(
                 "chain_bad_request",
                 profile=profile_name,
@@ -982,11 +1091,9 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
                 model=model,
                 attempt=i + 1,
                 chain_len=chain_len,
-                error=str(e),
+                next=chain[i + 1]["provider"] if i + 1 < chain_len else "none",
+                error=reason,
             )
-            raise AllProvidersFailedError(
-                f"Provider {provider_name} rejected the request as invalid: {e}"
-            ) from e
         except (ProviderTimeoutError, ProviderAuthError, ProviderCreditsError,
                 ProviderRateLimitError, ProviderInternalError) as e:
             cb.record_failure(provider_name, base_url, profile_name,
@@ -1034,6 +1141,23 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
                 chain_len=chain_len,
                 error=str(e),
             )
+
+    if attempted == rejected and (attempted + unservable) > 0:
+        # Every step either answered "this body is invalid" or was skipped because the provider
+        # cannot serve this request shape at all. That is a client error, not an outage: 502
+        # tells the caller to retry a request that will fail again.
+        logger.error(
+            "all_providers_rejected_request",
+            profile=profile_name,
+            attempts=attempted,
+            rejected=rejected,
+            unservable=unservable,
+        )
+        raise RequestUnsupportedError(
+            f"All {attempted + unservable} provider(s) in profile {profile_name} could not serve "
+            f"the request ({rejected} rejected it as invalid, {unservable} cannot support it): "
+            f"{'; '.join(errors)}"
+        )
 
     raise AllProvidersFailedError(f"All providers failed for {profile_name}: {'; '.join(errors)}")
 

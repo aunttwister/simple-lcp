@@ -87,6 +87,8 @@ RUN if [ "$WITH_ROUTER" = "1" ] || [ "$WITH_MEMORY" = "1" ]; then \
 # ── Application code ──
 COPY src/ ./src/
 COPY config/ ./config/
+# Public marketing landing page (served at /welcome — see handler._serve_landing).
+COPY landing/ ./landing/
 COPY alembic.ini .
 COPY alembic/ ./alembic/
 # Dev/ops helper scripts (judge_routing, probe_intent, seed_data, ...) so they

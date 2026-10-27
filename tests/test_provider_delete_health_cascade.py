@@ -211,7 +211,14 @@ class TestProviderDeleteCascade:
         h.do_DELETE()
 
         data = _json(h)
-        assert data == {"ok": True, "deleted": "llamacpp", "health_rows_removed": 2}
+        # The delete response gained the dependency-cascade counters (2026-10-23);
+        # assert the documented fields rather than exact equality so additive
+        # fields do not break this test.
+        assert data["ok"] is True
+        assert data["deleted"] == "llamacpp"
+        assert data["health_rows_removed"] == 2
+        assert data["registry_mappings_updated"] == 0
+        assert data["profiles_emptied"] == []
         assert _rows(temp_db) == [("deepseek", "l2")]
         assert "llamacpp" not in cfg.raw["providers"]
 

@@ -280,6 +280,37 @@ class TestTryChainDegradedGating:
         assert attempted == ["a"]
         assert cb.status_of("a", "https://a/v1", "l2") == "healthy"
 
+    def test_degraded_probe_failure_falls_through_to_healthy_alternative(self):
+        """A failed probe re-trips the provider and the chain moves on."""
+        from src.api.circuit_breaker import get_circuit_breaker
+        cfg = _chain_config(providers={
+            "a": {"api_key_env": "KEY", "base_url": "https://a/v1"},
+            "b": {"api_key_env": "KEY", "base_url": "https://b/v1"},
+        })
+        cb = get_circuit_breaker(cfg)
+        self._degrade_to_dead(cb)
+
+        profile_cfg = {
+            "chain": [
+                {"provider": "a", "base_url": "https://a/v1", "model": "m"},
+                {"provider": "b", "base_url": "https://b/v1", "model": "m2"},
+            ],
+            "forbidden_tools": [],
+        }
+        body = {"messages": [{"role": "user", "content": "hi"}]}
+
+        def fake_forward(step, body, config, session_id=None):
+            if step["provider"] == "a":
+                raise ProviderInternalError("503 from a")
+            return {"choices": []}, 200
+
+        with patch("src.api.request_pipeline.forward_request", side_effect=fake_forward) as m:
+            with patch("src.api.request_pipeline.time.sleep"):
+                resp, status, provider, model = try_chain("l2", profile_cfg, body, cfg)
+
+        assert provider == "b"
+        assert cb.status_of("a", "https://a/v1", "l2") == "dead"
+
     def test_degraded_used_when_no_healthy_alternative(self):
         """A degraded provider is still used when no healthy alternative exists."""
         from src.api.circuit_breaker import get_circuit_breaker

@@ -42,6 +42,10 @@ class AlertManager:
                 "error_spike": {"enabled": False, "min_severity": "warning", "threshold": 10, "window_minutes": 5},
                 "circuit_breaker_trip": {"enabled": True, "min_severity": "warning"},
                 "circuit_breaker_recovery": {"enabled": True, "min_severity": "info"},
+                # Dependency-level rules: a profile left with no route after a
+                # provider removal, and a logical model left with no provider.
+                "profile_invalid": {"enabled": True, "min_severity": "critical"},
+                "registry_orphan": {"enabled": True, "min_severity": "warning"},
             },
         }
         self._alert_history: list[dict] = []  # in-memory cache (bounded)
