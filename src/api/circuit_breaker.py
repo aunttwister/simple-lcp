@@ -104,6 +104,7 @@ class CircuitBreaker:
                     "status": row.status or "healthy",
                     "tripped_until": row.tripped_until,
                     "manual_override": row.manual_override,
+                    "_probe_deadline": None,
                     "_key": key,
                 }
                 loaded += 1
@@ -170,6 +171,7 @@ class CircuitBreaker:
             "status": "healthy",
             "tripped_until": None,
             "manual_override": None,  # None | 'degraded' | 'dead'
+            "_probe_deadline": None,  # in-memory only: bounds a half-open probe slot
             "_key": key,  # (provider, base_url, profile) for persistence
         }
 
@@ -220,6 +222,11 @@ class CircuitBreaker:
         jumping straight back to healthy. A single success during degraded
         promotes to healthy; a single failure re-trips to dead.
 
+        Every probe slot is time-boxed (``_open_probe_window``): an entry cannot
+        sit in ``degraded`` with no deadline, because a request that records
+        neither success nor failure would otherwise pin it there indefinitely
+        (the latch measured in prod 2026-10-27).
+
         Read-only for untracked keys: an unknown provider reports available and
         stays untracked, so a routing gate cannot create health state. Promotes
         only ever mutate an entry that already exists.
@@ -232,20 +239,54 @@ class CircuitBreaker:
         if h["tripped_until"] is not None and time.time() >= h["tripped_until"]:
             # Cooldown expired — promote one level and allow a probe request.
             if h["status"] == "dead":
-                self._promote(h, "degraded")   # leaves tripped_until = None
+                self._promote(h, "degraded")   # arms a probe deadline
             else:  # degraded → healthy after a quiet cooldown
                 self._promote(h, "healthy")
             return True
         if h["status"] == "degraded" and h["tripped_until"] is None:
-            # A promoted probe provider is available for its probe request.
+            # Half-open probe slot. Permissive while the window is open — a long
+            # in-flight probe must not lock the profile out — but time-boxed, so a
+            # probe whose request records neither success nor failure cannot pin
+            # the provider here forever (see _open_probe_window).
+            deadline = h.get("_probe_deadline")
+            if deadline is None:
+                self._open_probe_window(h)
+                return True
+            if time.time() < deadline:
+                return True
+            # Window closed with no outcome recorded — climb the ladder instead of
+            # leaving the provider unavailable-but-unprobed.
+            self._promote(h, "healthy")
             return True
         return False
+
+    def _open_probe_window(self, h: dict) -> None:
+        """Time-box a half-open probe slot.
+
+        A ``degraded`` entry with ``tripped_until=None`` is a probe slot: requests
+        are let through so one of them can record success (→ healthy) or failure
+        (→ dead). Nothing guarantees such an outcome is recorded — a step can be
+        skipped later in the chain, rejected as an invalid body, or end in a config
+        error, and all three deliberately touch no health state. An un-outcomed
+        slot used to stay available forever, which latched providers in
+        ``degraded`` while every request routed around them (prod, 2026-10-27: six
+        minutes of ``provider_degraded_skipped`` against a provider answering HTTP
+        200, all traffic billed on paid fallbacks). The window is kept permissive
+        during the cooldown so normal traffic still reaches the provider; only its
+        expiry is bounded, and expiry promotes degraded → healthy up the ladder.
+        """
+        h["_probe_deadline"] = time.time() + self._config.circuit_breaker["degraded_cooldown_seconds"]
 
     def _promote(self, h: dict, new_status: str) -> None:
         """Promote a provider one step up the health ladder (half-open probe)."""
         old_status = h["status"]
         h["status"] = new_status
         h["tripped_until"] = None
+        h["_probe_deadline"] = None
+        if new_status == "degraded":
+            # Bound the probe: a slot whose request records neither outcome must
+            # still expire back into the ladder instead of latching here.
+            self._open_probe_window(h)
         # The caller only reaches here via is_available with a known key.
         self._persist(h["_key"][0], h["_key"][1], h["_key"][2])
         logger.info(
@@ -264,6 +305,7 @@ class CircuitBreaker:
         h["tripped_until"] = None
         h["last_failure_reason"] = None
         h["manual_override"] = None
+        h["_probe_deadline"] = None
         if old_status != "healthy":
             logger.info(
                 "circuit_breaker_recovered",
@@ -396,6 +438,7 @@ class CircuitBreaker:
         h["last_failure_reason"] = None
         h["tripped_until"] = None
         h["manual_override"] = None
+        h["_probe_deadline"] = None
         self._persist(provider, base_url, profile)
         logger.info(
             "circuit_breaker_reset",
@@ -421,6 +464,7 @@ class CircuitBreaker:
             h["status"] = "degraded"
             h["tripped_until"] = time.time() + cb_cfg["degraded_cooldown_seconds"]
             h["manual_override"] = "degraded"
+            h["_probe_deadline"] = None
             logger.info("circuit_breaker_manual_degrade",
                         provider=provider, base_url=base_url, profile=profile,
                         cooldown_seconds=cb_cfg["degraded_cooldown_seconds"])
@@ -428,6 +472,7 @@ class CircuitBreaker:
             h["status"] = "dead"
             h["tripped_until"] = None  # indefinite — no auto-promotion
             h["manual_override"] = "dead"
+            h["_probe_deadline"] = None
             logger.info("circuit_breaker_manual_kill",
                         provider=provider, base_url=base_url, profile=profile)
         elif action == "resume":
@@ -437,6 +482,7 @@ class CircuitBreaker:
             h["last_failure_reason"] = None
             h["tripped_until"] = None
             h["manual_override"] = None
+            h["_probe_deadline"] = None
             logger.info("circuit_breaker_manual_resume",
                         provider=provider, base_url=base_url, profile=profile)
         else:

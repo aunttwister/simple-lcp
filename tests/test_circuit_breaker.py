@@ -544,3 +544,70 @@ class TestHealthPersistence:
         assert h["status"] == "healthy"
         assert h["last_success"] is not None
 
+
+
+class TestDegradedProbeWindow:
+    """A half-open probe slot is time-boxed so it can never latch in degraded.
+
+    Prod 2026-10-27: an entry sitting at ``degraded`` with ``tripped_until=None``
+    was skipped by the chain's degraded gate forever, because no request ever got
+    through to record a success. The probe slot is now bounded: while the window
+    is open normal traffic reaches the provider, and when it closes with no
+    outcome recorded the entry climbs the ladder instead of sitting out of
+    rotation indefinitely.
+    """
+
+    def _to_probe_slot(self, cb, provider="p"):
+        """Drive a provider to dead, then past the cooldown → degraded probe slot."""
+        for _ in range(6):
+            cb.record_failure(provider, "https://x", "l2")
+        real_now = time.time()
+        with patch("time.time", return_value=real_now + 100):
+            assert cb.is_available(provider, "https://x", "l2") is True
+        assert cb.status_of(provider, "https://x", "l2") == "degraded"
+        return real_now
+
+    def test_promotion_arms_a_probe_window(self, cb):
+        self._to_probe_slot(cb)
+        h = cb.get_health("p", "https://x", "l2")
+        assert h["tripped_until"] is None          # still a half-open probe slot
+        assert h["_probe_deadline"] is not None    # ...but bounded
+
+    def test_open_window_keeps_serving(self, cb):
+        real_now = self._to_probe_slot(cb)
+        with patch("time.time", return_value=real_now + 101):
+            assert cb.is_available("p", "https://x", "l2") is True
+            assert cb.is_available("p", "https://x", "l2") is True
+        assert cb.status_of("p", "https://x", "l2") == "degraded"
+
+    def test_expired_window_without_outcome_promotes_healthy(self, cb):
+        """The latch killer: no request recorded anything, yet the entry recovers."""
+        real_now = self._to_probe_slot(cb)
+        with patch("time.time", return_value=real_now + 103):  # past the 2s window
+            assert cb.is_available("p", "https://x", "l2") is True
+        assert cb.status_of("p", "https://x", "l2") == "healthy"
+
+    def test_legacy_latched_row_gets_a_window(self, cb):
+        """A row already latched (degraded / tripped_until=None) is not stuck."""
+        h = cb.get_health("legacy", "https://x", "l2")
+        h["status"] = "degraded"
+        h["tripped_until"] = None
+        h["_probe_deadline"] = None
+        assert cb.is_available("legacy", "https://x", "l2") is True
+        assert h["_probe_deadline"] is not None
+
+    def test_probe_success_clears_the_window(self, cb):
+        self._to_probe_slot(cb)
+        cb.record_success("p", "https://x", "l2")
+        h = cb.get_health("p", "https://x", "l2")
+        assert h["status"] == "healthy"
+        assert h["_probe_deadline"] is None
+
+    def test_manual_kill_is_not_undone_by_a_stale_window(self, cb):
+        self._to_probe_slot(cb)
+        cb.force_status("p", "https://x", "l2", "kill")
+        h = cb.get_health("p", "https://x", "l2")
+        assert h["_probe_deadline"] is None
+        real_now = time.time()
+        with patch("time.time", return_value=real_now + 100000):
+            assert cb.is_available("p", "https://x", "l2") is False
