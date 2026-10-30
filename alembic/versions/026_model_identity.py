@@ -27,9 +27,11 @@ So the schema separates five things that were conflated:
                    several endpoints at different prices and contexts.
 * ``aliases``    — every accepted spelling, **per endpoint and time-windowed**,
                    with provenance. A global string->model map is impossible:
-                   `deepseek-v4-flash` on api.deepseek.com is V4.1-Flash today
-                   (the name was retired and left as a routing alias) while on
-                   other providers the same string is plausibly the real V4-Flash.
+                   `deepseek-v4-flash` was a genuine model until 2026-09-10 and is a
+                   routing alias to V4.1-Flash after it. The same string is two
+                   different models, and which one it is depends on *when* — which is
+                   why the timestamp is part of the key. The reselling endpoints carry
+                   the same legacy name, so the rule is applied there too.
 
 ``deployment_releases`` is the historical-normalisation mechanism: a name cannot
 express that a served id silently changed model underneath it, so the release in

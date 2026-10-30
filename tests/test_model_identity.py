@@ -188,6 +188,53 @@ def test_retired_provider_name_is_an_endpoint_alias(db):
     con.close()
 
 
+def test_reselling_endpoints_apply_the_same_retirement_rule(db):
+    """commandcode and opencode carry DeepSeek's legacy name: same string, two models.
+
+    Evidence: commandcode's live /provider/v1/models advertises exactly the pair DeepSeek
+    documents as routed to V4.1 (-v4-flash and -v4-flash-vision-exp) and resells at
+    underlying API rates; opencode stopped carrying the legacy name on 2026-09-29 and
+    requires the explicit -v4.1-flash spelling.
+    """
+    con = conn(db)
+    for endpoint, name in (("opencode", "deepseek-v4-flash"),
+                           ("commandcode", "deepseek/deepseek-v4-flash")):
+        before = mi.resolve(endpoint, name, at="2026-08-20T00:00:00+00:00", con=con)
+        assert before.model == "deepseek-v4-flash", (endpoint, before.as_dict())
+        assert before.release == "0731"
+
+        ga = mi.resolve(endpoint, name, at="2026-09-20T00:00:00+00:00", con=con)
+        assert ga.model == "deepseek-flash", (endpoint, ga.as_dict())
+        assert ga.release == "v4.1-ga"
+
+        after = mi.resolve(endpoint, name, at="2026-10-20T00:00:00+00:00", con=con)
+        assert after.model == "deepseek-flash", (endpoint, after.as_dict())
+        assert after.release == "1017"
+        assert after.deployment_id != before.deployment_id
+    con.close()
+
+
+def test_smaug_agentic_is_its_own_model(db):
+    """Not a task-shaped key: Abacus.AI's agentic SFT of Kimi K3, with its own identity."""
+    con = conn(db)
+    r = mi.resolve(None, "smaug-agentic", con=con)
+    assert r.model == "smaug-agentic" and r.model_id is not None
+    row = [m for m in mi.list_logical(con=con) if m["slug"] == "smaug-agentic"][0]
+    assert row["family"] == "abacus"
+    assert row["benchmark_key"] == "smaug-agentic"
+    con.close()
+
+
+def test_inactive_endpoint_is_recorded_as_such(db):
+    """opencode's subscription ended — the registry must say so, not silently stay 'active'."""
+    con = conn(db)
+    eps = {e["slug"]: e for e in mi.list_endpoints(con=con)}
+    assert eps["opencode"]["status"] == "inactive"
+    assert "2026-09-29" in (eps["opencode"]["notes"] or "")
+    assert eps["commandcode"]["status"] == "active"
+    con.close()
+
+
 def test_benchmark_import_key_resolves_to_its_model(db):
     con = conn(db)
     r = mi.resolve(None, "claude-5-opus-thinking", con=con)
@@ -294,7 +341,10 @@ def test_reconcile_reports_unverified_deployments(db):
     assert any(f["kind"] == "unverified_deployment" for f in findings)
     # the seeded notes carry the open questions rather than a guessed answer
     pend = [d for d in mi.list_deployments(con=con) if (d["notes"] or "").startswith("PENDING")]
-    assert {d["served_id"] for d in pend} >= {"deepseek-v4-flash", "ox-alpha-free"}
+    assert {d["served_id"] for d in pend} == {"ox-alpha-free"}
+    # the DeepSeek legacy name is no longer an open question: it is resolved by a release
+    # window plus a time-windowed alias, so it must NOT still be flagged PENDING
+    assert not any("deepseek-v4-flash" in d["served_id"] for d in pend)
     con.close()
 
 
