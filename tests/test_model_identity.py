@@ -413,3 +413,37 @@ def test_registry_version_advances_with_the_seed(db):
     con = conn(db)
     assert mi.registry_version(con) >= 1
     con.close()
+
+
+# ------------------------------------------------------- caller-supplied connections
+
+
+def test_public_api_works_on_a_bare_connection(db):
+    """A caller's plain `sqlite3.connect()` must work.
+
+    Every read in `model_identity` is by column name, so a connection without
+    `row_factory = sqlite3.Row` used to raise ``TypeError: tuple indices must be integers``.
+    That is precisely how an ad-hoc reconciliation script fails, and it fails at the point
+    where you need the answer, so the module normalises the connection itself.
+    """
+    con = sqlite3.connect(db)
+    assert con.row_factory is None, "this test is meaningless if the caller already rowified"
+    assert mi.registry_version(con) >= 1
+    assert mi.reconcile(con=con) is not None
+    assert mi.list_endpoints(con=con)
+    assert mi.list_logical(con=con)
+    assert mi.list_deployments(con=con)
+    assert mi.aliases("deepseek-flash", con=con)
+    assert mi.resolve("deepseek", "deepseek-v4-flash", at="2026-10-20T00:00:00+00:00", con=con).resolved
+    con.close()
+
+
+def test_rowify_switches_the_factory_once(db):
+    """Passing a connection must not flip a factory a caller deliberately set."""
+    con = sqlite3.connect(db)
+    assert con.row_factory is None
+    mi.registry_version(con)
+    assert con.row_factory is sqlite3.Row
+    mi.list_endpoints(con=con)          # already rowified: still fine
+    assert con.row_factory is sqlite3.Row
+    con.close()
