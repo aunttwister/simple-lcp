@@ -700,6 +700,32 @@ class CapabilityRouter:
             "sem_available": detail.sem_available,
         }
 
+    @staticmethod
+    def _decision_identity(decision: dict, db_path: Optional[str] = None) -> dict:
+        """Resolve both sides of a routing decision into identity ids (CUR-270).
+
+        ``from_*`` describes the model that was displaced, ``provider``/``model`` the one
+        chosen. Resolving both is what turns "the model changed" into a fact: the raw
+        strings stay as recorded, and these ids say whether the two sides are actually
+        different models. Never raises — persistence must not break routing.
+        """
+        out = {"from_deployment_id": None, "to_deployment_id": None, "registry_version": None}
+        try:
+            from .model_identity import stamp
+            at = decision.get("ts")
+            to = stamp(decision.get("provider"), decision.get("model"), at=at, path=db_path)
+            out["to_deployment_id"] = to["deployment_id"]
+            out["registry_version"] = to["registry_version"]
+            if decision.get("from_model") or decision.get("from_provider"):
+                frm = stamp(decision.get("from_provider"), decision.get("from_model"),
+                            at=at, path=db_path)
+                out["from_deployment_id"] = frm["deployment_id"]
+                if out["registry_version"] is None:
+                    out["registry_version"] = frm["registry_version"]
+        except Exception:  # noqa: BLE001 — persistence must never break routing
+            pass
+        return out
+
     def _record_decision(self, decision: dict) -> None:
         self._decisions.append(decision)
         if len(self._decisions) > 50:
@@ -710,6 +736,7 @@ class CapabilityRouter:
             from .models import RoutingDecision, get_session
             from .models import get_engine as _get_engine
             import json as _json
+            _ident = self._decision_identity(decision, self.db_path)
             with get_session(_get_engine(self.db_path)) as session:
                 session.add(RoutingDecision(
                     ts=decision.get("ts"),
@@ -732,6 +759,9 @@ class CapabilityRouter:
                     sem_available=decision.get("sem_available"),
                     l4_json=(_json.dumps(decision["l4"])
                              if decision.get("l4") else None),
+                    from_deployment_id=_ident["from_deployment_id"],
+                    to_deployment_id=_ident["to_deployment_id"],
+                    registry_version=_ident["registry_version"],
                 ))
                 session.commit()
         except Exception:  # noqa: BLE001 — persistence must never break routing
