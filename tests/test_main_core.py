@@ -225,8 +225,16 @@ class TestTryChain:
                 assert model == "good-model"
 
     def test_image_content_rejected_for_non_vision_model(self, mock_config):
-        """Chain skips provider when model doesn't support vision but body has images."""
-        from src.api.request_pipeline import try_chain, AllProvidersFailedError
+        """An image request with no vision-capable model is refused by the gate.
+
+        CONTRACT CHANGE (preflight gate, PLAN §8 / R11, CUR-103): this used to
+        walk the chain, skip every provider and end as AllProvidersFailedError
+        (an opaque 502). The gate's G0 answers "can ANY model in this chain take
+        an image?" before any provider is contacted, so the caller now gets a
+        400 that names the real problem — and nothing is billed.
+        """
+        from src.api.exceptions import PreflightRefusalError
+        from src.api.request_pipeline import try_chain
         mock_config.model_limits = {
             "blind-model": {"context_window": 100000, "supports_vision": False},
         }
@@ -252,9 +260,10 @@ class TestTryChain:
         mock_config.get_provider_key.return_value = None
 
         with _cred_patch():
-            with pytest.raises(AllProvidersFailedError) as exc:
+            with pytest.raises(PreflightRefusalError) as exc:
                 try_chain("l2", profile_cfg, body, mock_config)
-            assert "does not support vision" in str(exc.value)
+            assert exc.value.gate == "G0"
+            assert "vision" in str(exc.value).lower()
 
     def test_image_content_allowed_for_vision_model(self, mock_config):
         """Chain proceeds when model supports vision and body has images."""

@@ -24,6 +24,7 @@ import pytest
 
 from src.api.exceptions import (
     AllProvidersFailedError,
+    PreflightRefusalError,
     ProviderBadRequestError,
     ProviderInternalError,
     RequestUnsupportedError,
@@ -165,6 +166,14 @@ class TestMixedFailuresStayAnOutage:
                 try_chain("l2", _profile(2), BODY, cfg)
 
     def test_nothing_attempted_is_an_outage_not_a_rejection(self):
+        """An all-dead chain stays an OUTAGE (5xx), never a client rejection (4xx).
+
+        CONTRACT CHANGE (preflight gate, PLAN §8 / R11, CUR-103): this used to
+        walk the chain, skip every step and end as AllProvidersFailedError. The
+        gate's G1 answers "is any chain member usable?" before the walk, so the
+        refusal is now PreflightRefusalError(gate='G1') — still a 502-shaped
+        outage, still zero provider calls.
+        """
         cfg = _cfg(_providers(2))
         from src.api.circuit_breaker import get_circuit_breaker
         cb = get_circuit_breaker(cfg)
@@ -173,9 +182,12 @@ class TestMixedFailuresStayAnOutage:
                 cb.record_failure(p, f"https://{p}/v1", "l2",
                                   error_type="ProviderInternalError", error_reason="503")
         with patch("src.api.request_pipeline.forward_request") as m:
-            with pytest.raises(AllProvidersFailedError):
+            with pytest.raises(PreflightRefusalError) as ei:
                 try_chain("l2", _profile(2), BODY, cfg)
         assert m.call_count == 0
+        assert ei.value.gate == "G1"
+        assert ei.value.status_code >= 500, "an all-dead chain is an outage, not a bad request"
+        assert not isinstance(ei.value, RequestUnsupportedError)
 
 
 class TestErrorTaxonomy:

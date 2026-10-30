@@ -335,9 +335,15 @@ class TestTryChainDegradedGating:
         assert attempted == ["a"]
 
     def test_dead_provider_skipped_even_without_alternative(self):
-        """A dead provider (cooldown not elapsed) is skipped entirely."""
+        """A dead provider (cooldown not elapsed) is skipped entirely.
+
+        CONTRACT CHANGE (preflight gate, PLAN §8 / R11, CUR-103): with every
+        chain member dead the gate's G1 refuses the request BEFORE the chain is
+        walked, so the caller sees PreflightRefusalError(gate='G1', 502) instead
+        of AllProvidersFailedError. Zero provider calls either way.
+        """
         from src.api.circuit_breaker import get_circuit_breaker
-        from src.api.exceptions import AllProvidersFailedError
+        from src.api.exceptions import PreflightRefusalError
         cfg = _chain_config(providers={
             "a": {"api_key_env": "KEY", "base_url": "https://a/v1"},
         })
@@ -353,8 +359,9 @@ class TestTryChainDegradedGating:
         body = {"messages": [{"role": "user", "content": "hi"}]}
 
         with patch("src.api.request_pipeline.forward_request") as m:
-            with pytest.raises(AllProvidersFailedError):
+            with pytest.raises(PreflightRefusalError) as exc:
                 try_chain("l2", profile_cfg, body, cfg)
+        assert exc.value.gate == "G1"
         assert m.call_count == 0
 
 

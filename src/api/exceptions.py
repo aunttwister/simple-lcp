@@ -173,3 +173,32 @@ class RequestTooLargeError(LCPError):
         "Request is too large for any model in this profile's context window. "
         "Compact or shorten the conversation and retry."
     )
+
+
+class PreflightRefusalError(LCPError):
+    """The preflight gate refused a request that could not have succeeded.
+
+    Raised by ``try_chain`` when ``preflight_gate`` returns a DENY verdict —
+    i.e. before any provider is called, so a request that cannot succeed costs
+    nothing. One code (``LCP-4004``) with the failed gate id in ``details`` and
+    on the exception, so a caller can branch on the gate without parsing prose.
+    The HTTP status is set per gate (``status_code`` on the instance) because
+    the refusal reasons are not the same kind of failure: an unsupported
+    capability is a 400, a blocked budget a 429, an all-drained /
+    all-breaker-dead chain a 402/502.
+
+    See ``features/preflight-gate.md`` / PLAN §8 (R11) for the gate definitions.
+    """
+
+    code = "LCP-4004"
+    status_code = 400
+    client_message = "The request was refused before any provider was contacted."
+
+    def __init__(self, message: str = "", *, gate: str = "",
+                 status_code: int = 400, details: dict | None = None):
+        merged = dict(details or {})
+        if gate:
+            merged.setdefault("gate", gate)
+        super().__init__(message, details=merged)
+        self.gate = gate
+        self.status_code = status_code

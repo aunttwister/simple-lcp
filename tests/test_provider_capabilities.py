@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.api.capabilities import DEFAULT_CAPABILITIES, get_capabilities, prepare_body
-from src.api.exceptions import RequestUnsupportedError
+from src.api.exceptions import PreflightRefusalError, RequestUnsupportedError
 from src.api.request_pipeline import try_chain
 
 
@@ -213,14 +213,23 @@ class TestChainIntegration:
         assert seen == ["opencode"], "deepseek must not be sent a contract it cannot honour"
 
     def test_every_provider_unable_is_a_400_not_a_502(self):
+        """A request NO provider in the chain can serve is a 400, not a 502.
+
+        CONTRACT CHANGE (preflight gate, PLAN §8 / R11, CUR-103): this now lands
+        on the gate's G0 check ('does any chain member accept this
+        response_format contract?') instead of walking the chain and ending as
+        RequestUnsupportedError. Both are 400s, both send nothing over the wire —
+        the gate just answers before the chain is walked.
+        """
         cfg = _cfg(providers=_chain_providers(["deepseek", "local-sparks"]),
                    profiles={"p": _profile(["deepseek", "local-sparks"])})
         with patch("src.api.request_pipeline.forward_request") as fwd:
-            with pytest.raises(RequestUnsupportedError) as ei:
+            with pytest.raises(PreflightRefusalError) as ei:
                 try_chain("p", _profile(["deepseek", "local-sparks"]),
                            {"messages": BODY["messages"], "response_format": {"type": "json_schema"}}, cfg)
         assert fwd.call_count == 0, "nothing should have gone over the wire"
-        assert ei.value.status_code == 400 and ei.value.code == "LCP-3002"
+        assert ei.value.status_code == 400 and ei.value.code == "LCP-4004"
+        assert ei.value.gate == "G0"
 
     def test_capability_skip_does_not_trip_the_circuit_breaker(self):
         """A provider that cannot serve this *shape* is not an outage — its health must not move."""
