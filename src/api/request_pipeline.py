@@ -33,6 +33,7 @@ from .exceptions import (
 )
 from .logging_config import get_logger
 from .models import get_session, Request as RequestModel
+from .preflight import preflight_gate
 from .router import get_dynamic_router
 
 logger = get_logger("lcp.pipeline")
@@ -820,6 +821,10 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
     # the profile config in place, or every later request would use the rerouted
     # model permanently.
     chain = [dict(step) for step in profile_cfg["chain"]]
+    # The STATIC chain, frozen before the dynamic router may reorder `chain`.
+    # The preflight gate hands this back when the G4 intent gate fires ("keep
+    # the static order", PLAN §8) — the router's proposed reorder is vetoed.
+    static_chain = list(chain)
     chain_len = len(chain)
     errors = []
     # Count what actually went over the wire, and how many of those were the provider telling us
@@ -870,21 +875,53 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
         if reordered:
             chain = reordered  # apply to the local copy only
 
-    # ── Context pre-flight: never send a request bigger than ANY model in the
-    #    chain can hold. The router already excludes too-small models per
-    #    request; this is the final guarantee that a request which exceeds the
-    #    profile's largest routable context fails cleanly (413) instead of
-    #    hitting a provider 400 "exceed_context_size".
+    # ── Context pre-flight: count the request ONCE, then ask the preflight
+    #    gate whether the request can be served at all, then keep the
+    #    near-limit warning. The warning is deliberately not a hard failure —
+    #    a request inside the context window still gets served, with a signal
+    #    the caller can act on. (A request that EXCEEDS every model's window is
+    #    now refused by the gate's G0 check, before any provider is contacted.)
+    request_tokens = 0
     try:
         from .cost_estimator import count_tokens as _count_tokens
-        from .router import (
-            _CONTEXT_OUTPUT_RESERVE as _CTX_OUTPUT_RESERVE,
-            _strip_client_context_from_messages,
-        )
+        from .router import _strip_client_context_from_messages
         request_tokens = _count_tokens(
             _strip_client_context_from_messages(body.get("messages", [])),
             body.get("tools"),
         )
+    except RequestTooLargeError:
+        # A tokenizer that says "too large" is a definitive refusal of its own;
+        # re-raise it rather than hiding it behind the gate (pre-existing
+        # contract, pinned by test_batch_h_pipeline_gaps).
+        raise
+    except Exception:  # noqa: BLE001 — never let the guard break routing
+        request_tokens = 0
+
+    # ── Preflight gate (PLAN §8 / R11 — G0–G4) ───────────────────────────────
+    #    ONE choke point, immediately before the provider loop: a request that
+    #    cannot succeed is refused here, so it costs nothing. The gate also
+    #    owns the G3 re-rank (returns the lane to use) and the G4 order veto
+    #    (may hand back `static_chain`), and it records the verdict on the
+    #    request's routing_decisions row.
+    _pre = preflight_gate(
+        profile_name, profile_cfg, body, config,
+        chain=chain, static_chain=static_chain,
+        request_tokens=request_tokens,
+    )
+    chain = _pre.chain
+    _refusal = _pre.refusal
+    if _refusal is not None:
+        logger.warning(
+            "preflight_refused",
+            profile=profile_name,
+            gate=_refusal.gate,
+            code=_refusal.code,
+            reason=_refusal.details.get("reason"),
+        )
+        raise _refusal.to_error()
+
+    try:
+        from .router import _CONTEXT_OUTPUT_RESERVE as _CTX_OUTPUT_RESERVE
         if request_tokens > 0:
             max_ctx = router._max_routable_context(chain, config)
             if request_tokens + _CTX_OUTPUT_RESERVE > max_ctx:
