@@ -754,6 +754,21 @@ class Config:
             benchmark = None
         if benchmark and benchmark not in names:
             names.append(benchmark)
+        # Phase 4: the identity registry's names are added AFTER the legacy pair, so
+        # this can only resolve a name the legacy path could not — it cannot change
+        # which pricing row an already-resolvable name matches, and therefore cannot
+        # change a recorded cost.
+        try:
+            from . import model_identity as _mi
+            con = _mi.connect(db_path, ro=True)
+            try:
+                for name in _mi.canonical_names(None, model, con=con):
+                    if name not in names:
+                        names.append(name)
+            finally:
+                con.close()
+        except Exception:  # noqa: BLE001 — registry is optional
+            pass
         return names
 
     @staticmethod

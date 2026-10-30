@@ -594,3 +594,118 @@ def test_decision_identity_without_a_from_side(db):
         {"ts": "2026-10-20T00:00:00+00:00", "provider": "deepseek", "model": "deepseek-flash"}, db)
     assert ident["from_deployment_id"] is None
     assert ident["to_deployment_id"] is not None
+
+
+# ------------------------------------------------- in-force at the present moment
+
+
+def test_active_deployment_is_in_force_at_the_present_moment(db):
+    """Regression: `last_seen > at` marked every live deployment as NOT in force.
+
+    A deployment is never observed after the moment you ask about, so that rule
+    excluded layer 0 — the exact served-id match, the only layer that knows the
+    deployment — from every present-tense resolution. Resolution then fell to the
+    alias layer, and an alias row cannot name a deployment, so a chain step came back
+    as a logical model with **no deployment at all**.
+
+    Measured on production 2026-10-30 before the fix, for exactly this shape:
+
+        coder -> commandcode -> z-ai/glm-5.3-flash
+          at 07:00  -> deployment 13  (served_id)      correct
+          at 08:00  -> None           (explicit_alias) WRONG - dep 13 was active
+          at 12:00  -> None           (explicit_alias) WRONG
+          at now    -> None           (explicit_alias) WRONG
+
+    dep13's last_seen was 07:05, so every `at` after that lost the deployment.
+    """
+    con = conn(db)
+    endpoint, model_id = con.execute(
+        "SELECT e.slug, m.model_id FROM mi_endpoints e, mi_models m"
+        " ORDER BY e.endpoint_id, m.model_id LIMIT 1").fetchone()
+
+    # An active deployment with no release timeline, observed once in June and never since.
+    con.execute(
+        "INSERT INTO mi_deployments (deployment_id, model_id, endpoint_id, served_id,"
+        " quantisation, status, source, first_seen, last_seen)"
+        " VALUES (9001, ?, (SELECT endpoint_id FROM mi_endpoints WHERE slug = ?),"
+        " 'probe-served-id', 'none', 'active', 'test', '2026-01-01T00:00:00+00:00',"
+        " '2026-06-01T00:00:00+00:00')", (model_id, endpoint))
+    # A global (endpoint-less) alias for the same string, which cannot know the deployment.
+    con.execute(
+        "INSERT INTO mi_aliases (id, endpoint_id, alias, model_id, deployment_id, source,"
+        " valid_from) VALUES (9001, NULL, 'probe-served-id', ?, NULL, 'registry',"
+        " '2026-01-01')", (model_id,))
+    con.commit()
+
+    # `at` is months after last_seen; the deployment is still active, so it is in force.
+    r = mi.resolve(endpoint, "probe-served-id", at="2026-12-01T00:00:00+00:00", con=con)
+    assert r.matched_by == mi.MATCH_SERVED, (
+        "layer 0 (exact served id) must win over a global alias — it is the only layer "
+        f"that can name the deployment; got matched_by={r.matched_by}")
+    assert r.deployment_id == 9001, (
+        "an active deployment is in force at the present moment, whatever its last_seen")
+    con.close()
+
+
+def test_retired_deployment_is_known_but_not_in_force_after_it_was_last_seen(db):
+    """The flip side, so the fix cannot be confused with "ignore status or time".
+
+    A deployment with no release timeline that is NOT active must stop being *in
+    force* after its last observation — otherwise retiring a deployment would do
+    nothing. It is still *known*: layer 2 returns the same deployment at
+    ``confidence="medium"`` ("we know which deployment you mean, and it is not
+    serving"), which is weaker evidence than an in-force match, not the same thing.
+    """
+    con = conn(db)
+    endpoint, model_id = con.execute(
+        "SELECT e.slug, m.model_id FROM mi_endpoints e, mi_models m"
+        " ORDER BY e.endpoint_id, m.model_id LIMIT 1").fetchone()
+    con.execute(
+        "INSERT INTO mi_deployments (deployment_id, model_id, endpoint_id, served_id,"
+        " quantisation, status, source, first_seen, last_seen)"
+        " VALUES (9002, ?, (SELECT endpoint_id FROM mi_endpoints WHERE slug = ?),"
+        " 'probe-retired-id', 'none', 'retired', 'test', '2026-01-01T00:00:00+00:00',"
+        " '2026-06-01T00:00:00+00:00')", (model_id, endpoint))
+    con.commit()
+
+    inside = mi.resolve(endpoint, "probe-retired-id", at="2026-05-01T00:00:00+00:00", con=con)
+    after = mi.resolve(endpoint, "probe-retired-id", at="2026-12-01T00:00:00+00:00", con=con)
+
+    assert inside.deployment_id == 9002
+    assert inside.confidence == "high", "it was serving while it was still being seen"
+
+    assert after.deployment_id == 9002, "it is still known after retirement"
+    assert after.confidence == "medium", (
+        "a retired deployment is known but NOT in force — that distinction is what "
+        f"makes it dangerous; got confidence={after.confidence}")
+    con.close()
+
+
+def test_a_retired_deployment_with_no_timestamps_is_not_in_force(db):
+    """A retired deployment with no evidence at all must still not be "serving".
+
+    ``_in_force`` has no release timeline and no observation timestamps to go on in
+    that case, and it used to assume "in force". That reported a *retired* deployment
+    as serving at high confidence — on this estate three are in exactly that state
+    (deployments 22 and 24 on `local-sparks`, 27 on `llamacpp`), and deployment 24 is
+    the target of the `coder` chain step. Status is the one signal that does exist,
+    so it decides: not in force, and layer 2 still reports the deployment as *known*
+    (medium confidence) — which is why fixing this cannot change a stored id.
+    """
+    con = conn(db)
+    endpoint, model_id = con.execute(
+        "SELECT e.slug, m.model_id FROM mi_endpoints e, mi_models m"
+        " ORDER BY e.endpoint_id, m.model_id LIMIT 1").fetchone()
+    con.execute(
+        "INSERT INTO mi_deployments (deployment_id, model_id, endpoint_id, served_id,"
+        " quantisation, status, source) VALUES (9003, ?, (SELECT endpoint_id FROM"
+        " mi_endpoints WHERE slug = ?), 'probe-untimed-id', 'none', 'retired', 'test')",
+        (model_id, endpoint))
+    con.commit()
+
+    r = mi.resolve(endpoint, "probe-untimed-id", at="2026-12-01T00:00:00+00:00", con=con)
+    assert r.deployment_id == 9003, "it is still known — layer 2 reports it"
+    assert r.confidence == "medium", (
+        "a retired deployment is known but NOT in force, however little evidence "
+        f"exists; got confidence={r.confidence}")
+    con.close()

@@ -58,6 +58,8 @@ __all__ = [
     "aliases",
     "price_for",
     "capabilities_for",
+    "cost_factor_for",
+    "logical_and_benchmark",
     "reconcile",
     "connect",
     "stamp",
@@ -267,7 +269,21 @@ def _in_force(con: sqlite3.Connection, deployment_id: int, at: str) -> bool:
 
     A deployment with a release timeline is in force only inside its windows — which is
     how a *retired* deployment is distinguished from a live one whose served id was
-    re-pointed elsewhere. A deployment with no timeline is treated as always in force.
+    re-pointed elsewhere. A deployment with no timeline falls back to its status and
+    observed window.
+
+    The fallback matters more than it looks. It used to read
+    ``last_seen > at``, which is a *future* test: a deployment is never seen again
+    after the moment you ask about, so evaluating it at the present moment marked
+    every live deployment as NOT in force. Resolution then slipped off layer 0 (the
+    exact served-id match, the only layer that knows the deployment) onto the alias
+    layer, and an alias row cannot name a deployment — so a chain step came back as a
+    logical model with no deployment at all. Measured on 2026-10-30 before the fix:
+    ``coder -> commandcode -> z-ai/glm-5.3-flash`` resolved to model 4 with
+    ``deployment_id=None`` at 08:00 and 12:00, but to deployment 13 at 07:00.
+
+    A still-``active`` deployment is therefore in force from ``first_seen`` onward,
+    with no upper bound; only a non-active one is bounded by ``last_seen``.
     """
     row = con.execute(
         "SELECT COUNT(*) AS n,"
@@ -279,12 +295,21 @@ def _in_force(con: sqlite3.Connection, deployment_id: int, at: str) -> bool:
     if row["n"]:
         return bool(row["k"])
     d = con.execute(
-        "SELECT first_seen, last_seen FROM mi_deployments WHERE deployment_id = ?",
+        "SELECT first_seen, last_seen, status FROM mi_deployments WHERE deployment_id = ?",
         (deployment_id,),
     ).fetchone()
     if d and (d["first_seen"] or d["last_seen"]):
-        return ((not d["first_seen"] or d["first_seen"] <= at)
-                and (not d["last_seen"] or d["last_seen"] > at))
+        started = not d["first_seen"] or d["first_seen"] <= at
+        if (d["status"] or "").lower() == "active":
+            return bool(started)
+        return bool(started and (not d["last_seen"] or d["last_seen"] >= at))
+    # No timeline and no observation at all. Assuming "in force" here let a *retired*
+    # deployment be reported as serving at high confidence — on this estate three
+    # deployments are in exactly that state (both local-sparks ones and one llamacpp),
+    # and one of them is the target of the `coder` chain. Status is the one signal we
+    # do have, so use it: not in force, and layer 2 will still report it as *known*.
+    if d and (d["status"] or "").lower() != "active":
+        return False
     return True
 
 
@@ -631,6 +656,184 @@ def capabilities_for(model: str, *, con: Optional[sqlite3.Connection] = None) ->
     finally:
         if own:
             con.close()
+
+
+# ------------------------------------------------- price and capability (phase 4)
+#
+# `price_for` and `capabilities_for` above were phase 1's read views. Phase 4 adds
+# the two lookups the ROUTER needs, so the router stops resolving model strings
+# itself: one for the normalised cost factor that used to come from the hardcoded
+# two-entry `_MODEL_PRICES`, and one for the logical name + benchmark key that used
+# to come from an index built off `model_registry.provider_mappings_json`.
+
+
+def _price_rows(con: sqlite3.Connection) -> list[dict]:
+    """The app's real price table, from settings. Empty when absent or unparseable."""
+    import json as _json
+
+    raw = con.execute(
+        "SELECT value FROM settings WHERE key = ?", ("gateway_config:pricing",)
+    ).fetchone()
+    if not raw:
+        return []
+    try:
+        rows = _json.loads(raw["value"])
+    except Exception:
+        return []
+    return [r for r in (rows or []) if isinstance(r, dict)]
+
+
+def _price_scalar(row: Optional[dict]) -> Optional[float]:
+    """The one number a price row scores with — output price per 1M tokens.
+
+    Output is the dominant term and the only one every prod row carries (``input``
+    is NULL in all 16 rows today). Falling back through the cache columns keeps a
+    sparse row usable instead of silently unpriced.
+    """
+    if not row:
+        return None
+    for key in ("output", "input", "cache_read", "cache_hit"):
+        v = row.get(key)
+        if v is None:
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _max_price(rows: list[dict]) -> float:
+    vals = [s for s in (_price_scalar(r) for r in rows) if s is not None]
+    return max(vals) if vals else 1.0
+
+
+def cost_factor_for(provider: Optional[str], model: Optional[str], *,
+                    at: Optional[str] = None,
+                    con: Optional[sqlite3.Connection] = None) -> Optional[dict]:
+    """Normalised cost factor for a chain step, from the REAL price table.
+
+    Replaces the router's hardcoded two-entry ``_MODEL_PRICES``, which keyed on the
+    raw chain string. Measured consequence of that: ``deepseek-v4-flash`` scored a
+    cost factor of 0.136 while ``deepseek-flash`` — the same model, same price —
+    scored 0.505, and every *free* local model also scored 0.505, the same as a
+    paid cloud one. The factor feeds ``cost_bias`` (live: 0.15) in both the scoring
+    path and the L3 sort key, so those wrong factors were steering routing.
+
+    Resolution is per endpoint and time-aware, so the same string on two endpoints
+    prices differently — which is the truth, and previously impossible to express.
+
+    ``provider`` may be empty for a provider-agnostic ("which logical model?")
+    lookup; the cheapest active deployment of the model is then used, since the
+    question being asked is what this model can be run for.
+
+    Returns ``{factor, price, max_price, deployment_id, model_id, matched_by}`` or
+    ``None`` when nothing can price the step — the caller decides what to do, and
+    must not guess.
+    """
+    own = con is None
+    con = _rowify(con or connect(ro=True))
+    try:
+        _ensure_ready(con)
+        res = resolve(provider, model or "", at=at, con=con)
+
+        row: Optional[dict] = None
+        if res.deployment_id is not None:
+            row = price_for(res.deployment_id, con=con)
+        elif res.model_id is not None:
+            best: Optional[tuple] = None
+            for d in con.execute(
+                "SELECT deployment_id FROM mi_deployments"
+                " WHERE model_id = ? AND status = 'active'", (res.model_id,)
+            ):
+                r = price_for(int(d["deployment_id"]), con=con)
+                s = _price_scalar(r)
+                if s is not None and (best is None or s < best[0]):
+                    best = (s, r)
+            if best:
+                row = best[1]
+
+        price = _price_scalar(row)
+        if price is None:
+            return None
+        mx = _max_price(_price_rows(con))
+        return {
+            "factor": (price / mx) if mx > 0 else 0.5,
+            "price": price,
+            "max_price": mx,
+            "deployment_id": res.deployment_id,
+            "model_id": res.model_id,
+            "matched_by": res.matched_by,
+        }
+    finally:
+        if own:
+            con.close()
+
+
+def logical_and_benchmark(provider: Optional[str], model: Optional[str], *,
+                          at: Optional[str] = None,
+                          con: Optional[sqlite3.Connection] = None) -> Optional[dict]:
+    """The logical slug + benchmark key for a step, from the registry.
+
+    Replaces the router's ``_alias_to_logical`` index feeding ``logical_model_name``
+    and ``benchmark_model_name``. That path derived identity from
+    ``model_registry.provider_mappings_json`` — a blob keyed on the **provider name**,
+    which is itself renamed in this estate, so the local lanes resolved to nothing —
+    and, when the blob missed, fell back to punctuation (``split("/")[-1]``).
+
+    With no provider this resolves only by genuinely provider-independent evidence
+    (a global alias, or the string already being a logical slug). It deliberately
+    does NOT try one endpoint after another: the same string is a different model on
+    different endpoints, so which endpoint happened to match first would decide
+    identity. An unresolvable provider-agnostic string returns ``None`` and the
+    caller falls back — visibly, not silently.
+
+    Returns ``{logical, benchmark_key, model_id, matched_by}`` or ``None``.
+    """
+    own = con is None
+    con = _rowify(con or connect(ro=True))
+    try:
+        _ensure_ready(con)
+        res = resolve(provider, model or "", at=at, con=con)
+        if res.model_id is None:
+            return None
+        row = con.execute(
+            "SELECT slug, benchmark_key FROM mi_models WHERE model_id = ?",
+            (res.model_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "logical": row["slug"],
+            "benchmark_key": row["benchmark_key"] or row["slug"],
+            "model_id": res.model_id,
+            "deployment_id": res.deployment_id,
+            "matched_by": res.matched_by,
+        }
+    finally:
+        if own:
+            con.close()
+
+
+def canonical_names(provider: Optional[str], model: Optional[str], *,
+                    at: Optional[str] = None,
+                    con: Optional[sqlite3.Connection] = None) -> list[str]:
+    """Registry names for a model, most specific first. Empty when unresolved.
+
+    For consumers that match a string against a table of model keys (pricing rows,
+    capability rows): returns the benchmark key then the logical slug, so a caller
+    can try each in turn. Appending these AFTER whatever a caller already tries
+    makes such a repoint strictly additive — it can find a row the old path missed,
+    but cannot change a match the old path already made.
+    """
+    lb = logical_and_benchmark(provider, model, at=at, con=con)
+    if not lb:
+        return []
+    out: list[str] = []
+    for name in (lb.get("logical"), lb.get("benchmark_key")):
+        if name and name not in out:
+            out.append(name)
+    return out
 
 
 # ------------------------------------------------------------------ reconciliation
