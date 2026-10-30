@@ -159,6 +159,19 @@ def connect(path: Optional[str] = None, *, ro: bool = False) -> sqlite3.Connecti
     return con
 
 
+def _rowify(con: sqlite3.Connection) -> sqlite3.Connection:
+    """Make a caller-supplied connection yield sqlite3.Row.
+
+    Every read in this module is by column name, so a bare `sqlite3.connect(...)` handed in
+    by a caller would raise ``TypeError: tuple indices must be integers`` — which is exactly
+    how ad-hoc reconciliation scripts fail. Setting the factory here is safe and idempotent:
+    sqlite3.Row also supports index access, so a caller that wants tuples is unaffected.
+    """
+    if con.row_factory is None:
+        con.row_factory = sqlite3.Row
+    return con
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -203,6 +216,7 @@ def normalise_model_string(raw: str) -> str:
 
 
 def registry_version(con: sqlite3.Connection) -> int:
+    con = _rowify(con)
     _ensure_ready(con)
     row = con.execute("SELECT MAX(version) AS v FROM mi_registry_versions").fetchone()
     return int(row["v"] or 0)
@@ -350,7 +364,7 @@ def resolve(
 ) -> Resolution:
     """Identify ``raw`` on ``endpoint`` as of ``at``. Pure; never raises on bad input."""
     own = con is None
-    con = con or connect(ro=True)
+    con = _rowify(con or connect(ro=True))
     try:
         _ensure_ready(con)
         rv = registry_version(con)
@@ -469,7 +483,7 @@ def resolve_strict(endpoint: Optional[str], raw: str, **kw) -> Resolution:
 
 def list_endpoints(con: Optional[sqlite3.Connection] = None) -> list[dict]:
     own = con is None
-    con = con or connect(ro=True)
+    con = _rowify(con or connect(ro=True))
     try:
         _ensure_ready(con)
         return [dict(r) for r in con.execute(
@@ -483,7 +497,7 @@ def list_endpoints(con: Optional[sqlite3.Connection] = None) -> list[dict]:
 
 def list_logical(con: Optional[sqlite3.Connection] = None) -> list[dict]:
     own = con is None
-    con = con or connect(ro=True)
+    con = _rowify(con or connect(ro=True))
     try:
         _ensure_ready(con)
         return [dict(r) for r in con.execute(
@@ -498,7 +512,7 @@ def list_logical(con: Optional[sqlite3.Connection] = None) -> list[dict]:
 
 def list_deployments(con: Optional[sqlite3.Connection] = None) -> list[dict]:
     own = con is None
-    con = con or connect(ro=True)
+    con = _rowify(con or connect(ro=True))
     try:
         _ensure_ready(con)
         return [dict(r) for r in con.execute(
@@ -517,7 +531,7 @@ def list_deployments(con: Optional[sqlite3.Connection] = None) -> list[dict]:
 def aliases(model_or_deployment: Any, *, con: Optional[sqlite3.Connection] = None) -> list[dict]:
     """Every accepted spelling for a model slug or a deployment id."""
     own = con is None
-    con = con or connect(ro=True)
+    con = _rowify(con or connect(ro=True))
     try:
         _ensure_ready(con)
         if isinstance(model_or_deployment, int):
@@ -550,7 +564,7 @@ def price_for(deployment_id: int, *, con: Optional[sqlite3.Connection] = None) -
     import json
 
     own = con is None
-    con = con or connect(ro=True)
+    con = _rowify(con or connect(ro=True))
     try:
         _ensure_ready(con)
         row = con.execute(
@@ -585,7 +599,7 @@ def price_for(deployment_id: int, *, con: Optional[sqlite3.Connection] = None) -
 def capabilities_for(model: str, *, con: Optional[sqlite3.Connection] = None) -> list[dict]:
     """Capability rows for a logical model, found via every spelling it is known by."""
     own = con is None
-    con = con or connect(ro=True)
+    con = _rowify(con or connect(ro=True))
     try:
         _ensure_ready(con)
         keys = {model, normalise_model_string(model)}
@@ -625,7 +639,7 @@ def reconcile(*, con: Optional[sqlite3.Connection] = None) -> list[dict]:
     is exactly what let the alias noise accumulate.
     """
     own = con is None
-    con = con or connect(ro=True)
+    con = _rowify(con or connect(ro=True))
     try:
         _ensure_ready(con)
         findings: list[dict] = []
