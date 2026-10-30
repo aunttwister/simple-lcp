@@ -14,6 +14,14 @@ import pytest
 
 from src.api.cost_plugins.commandcode import CommandCodeCostPlugin, _COMMANDCODE_PRICING
 
+# Billing is time-dependent for every DeepSeek-backed model: peak hours are
+# exactly 2x off-peak (base.py), selected from the request's ``__ts``. The
+# assertions below are the OFF-PEAK rates, so the timestamp is pinned here —
+# a test that lets select_rates() fall back to the wall clock passes all night
+# and fails every weekday 01:00-04:00 and 06:00-10:00 UTC.
+# 2026-10-05 is a Monday; 12:00 UTC is outside both peak bands.
+_OFF_PEAK = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -137,7 +145,8 @@ class TestCommandCodeIdentity:
 
     def test_calculate_cost_accepts_api_id(self, plugin):
         usage = {"prompt_tokens": 1000, "completion_tokens": 500,
-                 "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1000}
+                 "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1000,
+                 "__ts": _OFF_PEAK}
         cost = plugin.calculate_cost("deepseek/deepseek-v4-flash", usage)
         # DeepSeek-V4.1-Flash off-peak rates, verified 2026-10-05.
         expected = (1000 / 1_000_000) * 0.15 + (500 / 1_000_000) * 0.6
@@ -145,7 +154,8 @@ class TestCommandCodeIdentity:
 
     def test_calculate_cost(self, plugin):
         usage = {"prompt_tokens": 1000, "completion_tokens": 500,
-                 "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1000}
+                 "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1000,
+                 "__ts": _OFF_PEAK}
         cost = plugin.calculate_cost("deepseek-v4-flash", usage)
         # DeepSeek-V4.1-Flash off-peak rates, verified 2026-10-05.
         expected = (1000 / 1_000_000) * 0.15 + (500 / 1_000_000) * 0.6

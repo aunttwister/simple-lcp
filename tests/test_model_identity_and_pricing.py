@@ -20,6 +20,7 @@ Four behaviours are pinned here:
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 
 import pytest
 
@@ -36,6 +37,14 @@ from src.api.router import (
     invalidate_registry_cache,
     logical_model_name,
 )
+
+# Billing is time-dependent for every DeepSeek-backed model: peak hours are
+# exactly 2x off-peak (base.py), selected from the request's ``__ts``. The
+# assertions below are the OFF-PEAK rates, so the timestamp is pinned here —
+# a test that lets select_rates() fall back to the wall clock passes all night
+# and fails every weekday 01:00-04:00 and 06:00-10:00 UTC.
+# 2026-10-05 is a Monday; 12:00 UTC is outside both peak bands.
+_OFF_PEAK = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
 
 # The registry row the operator half-built at 13:23, completed: one logical
 # model, benchmark key `deepseek-v4.1-flash`, three provider spellings.
@@ -323,7 +332,8 @@ def test_plugins_price_every_v41_flash_spelling(plugin_cls):
         assert pricing is not None, f"{plugin_cls.__name__} cannot price {name}"
         assert pricing["cache_miss"] == 0.15
         assert plugin.calculate_cost(name, {"prompt_tokens": 1_000_000,
-                                            "completion_tokens": 0}) == pytest.approx(0.15)
+                                            "completion_tokens": 0,
+                                            "__ts": _OFF_PEAK}) == pytest.approx(0.15)
 
 
 def test_commandcode_prices_the_prefixed_catalogue_id():

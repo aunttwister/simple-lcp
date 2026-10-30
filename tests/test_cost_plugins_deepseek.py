@@ -1,11 +1,21 @@
 """Tests for the DeepSeek cost tracking plugin."""
 
 import json
+from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
 from urllib.error import URLError
 
 import pytest
 from src.api.cost_plugins.deepseek import DeepSeekCostPlugin, _PRICING, _BALANCE_URL
+
+# Billing is time-dependent for every DeepSeek-backed model: peak hours are
+# exactly 2x off-peak (base.py), selected from the request's ``__ts``. The
+# assertions below are the OFF-PEAK rates, so the timestamp is pinned here —
+# a test that lets select_rates() fall back to the wall clock passes all night
+# and fails every weekday 01:00-04:00 and 06:00-10:00 UTC.
+# 2026-10-05 is a Monday; 12:00 UTC is outside both peak bands.
+_OFF_PEAK = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
+
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -61,6 +71,7 @@ class TestDeepSeekCalculateCost:
             "prompt_cache_hit_tokens": 1_000_000,
             "prompt_cache_miss_tokens": 1_000_000,
             "completion_tokens": 500_000,
+            "__ts": _OFF_PEAK,
         })
         expected = (1_000_000 / 1_000_000) * 0.022 \
                    + (1_000_000 / 1_000_000) * 0.66 \
@@ -71,6 +82,7 @@ class TestDeepSeekCalculateCost:
         cost = self.plugin.calculate_cost("deepseek-v4-flash", {
             "prompt_tokens": 0,
             "completion_tokens": 100_000,
+            "__ts": _OFF_PEAK,
         })
         expected = (100_000 / 1_000_000) * 0.6
         assert cost == pytest.approx(expected)
@@ -80,6 +92,7 @@ class TestDeepSeekCalculateCost:
         cost = self.plugin.calculate_cost("deepseek-v4-pro", {
             "prompt_tokens": 500_000,
             "completion_tokens": 0,
+            "__ts": _OFF_PEAK,
         })
         expected = (500_000 / 1_000_000) * 0.66
         assert cost == pytest.approx(expected)
@@ -90,6 +103,7 @@ class TestDeepSeekCalculateCost:
             "prompt_tokens": 1000,
             "prompt_cache_hit_tokens": 300,
             "completion_tokens": 0,
+            "__ts": _OFF_PEAK,
         })
         # cache_miss = 1000 - 300 = 700
         expected = (700 / 1_000_000) * 0.66 + (300 / 1_000_000) * 0.022
