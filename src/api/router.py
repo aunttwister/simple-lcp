@@ -13,13 +13,16 @@ the best fit.
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 from .cost_estimator import count_tokens
 from .logging_config import get_logger
+from . import model_identity as _mi
 from .message_norm import (  # noqa: F401  (re-exported: tests patch these via this module's namespace)
     TASK_SIGNALS,
     _ATTACHMENT_REF_RE,
@@ -364,11 +367,128 @@ DEFAULT_COST_BIAS = 0.15
 # Hysteresis: only override/reorder when the best step beats the default by this much.
 _HYSTERESIS = 0.05
 
-# Known model pricing (USD per 1M output tokens) — from the gateway config
-_MODEL_PRICES: dict[str, float] = {
-    "deepseek-v4-pro": 1.98,
-    "deepseek-v4-flash": 0.27,
+# Known model pricing used to be a hardcoded two-entry dict right here
+# (`{"deepseek-v4-pro": 1.98, "deepseek-v4-flash": 0.27}`). Phase 5 deleted it:
+# `model_identity.cost_factor_for` prices the resolved deployment from the real
+# `gateway_config:pricing` table, and the agreement run measured **0 legacy
+# price fallbacks out of 172 step-scores** — the dict was already dead. The
+# numbers it produced were wrong anyway: it keyed on the raw chain string, so
+# `deepseek-v4-flash` and `deepseek-flash` — one model, one price — scored 0.136
+# and 0.505, `deepseek/deepseek-v4-pro` (the estate's most expensive model)
+# scored the same 0.505 as everything unlisted, and every *free* local model was
+# priced as if it were paid.
+
+# ── Phase 4 — the registry decides, not ad-hoc string handling ────────────────
+#
+# Each switch exists so the pre-phase-4 behaviour can be reproduced exactly and
+# the two paths compared on real traffic. Every time the registry cannot answer,
+# it is counted in `_P4_FALLBACKS` — a silent fallback is how the last
+# generation of model drift survived undetected.
+PHASE4_PRICES = os.environ.get("LCP_PHASE4_PRICES", "1") != "0"
+PHASE4_CAPABILITIES = os.environ.get("LCP_PHASE4_CAPABILITIES", "1") != "0"
+PHASE4_LOGICAL = os.environ.get("LCP_PHASE4_LOGICAL", "1") != "0"
+
+#: Cost factor used only when the registry cannot price a step at all. Neutral
+#: midpoint, and counted — an unpriced step must be visible, not silently cheap.
+_P4_UNPRICED_COST_FACTOR = 0.5
+
+_P4_FALLBACKS: dict[str, int] = {
+    "price_registry": 0, "price_unpriced": 0,
+    "logical_registry": 0, "logical_legacy": 0,
+    "capability_registry": 0, "capability_legacy": 0,
 }
+_p4_lock = threading.Lock()
+_p4_cache: dict = {}
+
+
+def _p4_bump(kind: str) -> None:
+    with _p4_lock:
+        _P4_FALLBACKS[kind] = _P4_FALLBACKS.get(kind, 0) + 1
+
+
+def phase4_stats() -> dict:
+    """Snapshot of registry hits vs legacy fallbacks, for tests and reports."""
+    with _p4_lock:
+        return dict(_P4_FALLBACKS)
+
+
+def phase4_clear() -> None:
+    """Drop the phase-4 resolution cache. Called when the registry changes."""
+    with _p4_lock:
+        _p4_cache.clear()
+
+
+def _p4_registry(db_path: str, provider: Optional[str], model: str) -> dict:
+    """The identity registry's answer for one (provider, model): `{logical, benchmark_key, factor, price}`.
+
+    Cached on (db_path, provider, model) and cleared with the registry, matching how
+    `_registry_cache`/`_alias_cache` above already work, so no per-call registry
+    version read is needed. A connection is opened per cache MISS and closed again —
+    a module-level connection would be shared across FastAPI's threadpool, which
+    sqlite forbids. Resolution never raises into the routing path.
+    """
+    if not model:
+        return {}
+    ck = (db_path, provider or "", model)
+    hit = _p4_cache.get(ck)
+    if hit is not None:
+        return hit
+    out: dict = {}
+    con = None
+    try:
+        con = _mi.connect(db_path, ro=True)
+        if PHASE4_LOGICAL or PHASE4_CAPABILITIES:
+            lb = _mi.logical_and_benchmark(provider, model, con=con)
+            if lb:
+                out.update(lb)
+        if PHASE4_PRICES:
+            cf = _mi.cost_factor_for(provider, model, con=con)
+            if cf:
+                out["factor"] = cf["factor"]
+                out["price"] = cf["price"]
+    except Exception as e:  # a stale registry must never break routing
+        logger.warning("phase4_identity_failed", model=model,
+                       provider=provider, error=str(e))
+    finally:
+        if con is not None:
+            con.close()
+    _p4_cache[ck] = out
+    return out
+
+
+def _logical(model: str, db_path: str = "data/costs.db",
+             provider: Optional[str] = None) -> str:
+    """Canonical logical name for a model string, from the registry (phase 4).
+
+    Replaces `logical_model_name` as the router's identity source. The legacy
+    function is still reached when the registry cannot resolve — visibly, because
+    the fallback is counted.
+    """
+    if model and PHASE4_LOGICAL:
+        reg = _p4_registry(db_path, provider, model)
+        if reg.get("logical"):
+            _p4_bump("logical_registry")
+            return reg["logical"]
+    _p4_bump("logical_legacy")
+    return logical_model_name(model, db_path)
+
+
+def _cost_factor(provider: Optional[str], raw: str, db_path: str) -> float:
+    """Normalised cost factor in [0,1] feeding `cost_bias` — from the real price table.
+
+    Phase 5 removed the pre-phase-4 fallback (a hardcoded two-entry dict) because
+    the agreement run measured 0 fallbacks in 172 step-scores. A step the registry
+    cannot price now returns a neutral midpoint AND is counted, so an unpriced
+    provider shows up in `phase4_stats()` instead of being quietly scored as if it
+    were expensive.
+    """
+    if raw and PHASE4_PRICES:
+        reg = _p4_registry(db_path, provider, raw)
+        if "factor" in reg:
+            _p4_bump("price_registry")
+            return reg["factor"]
+    _p4_bump("price_unpriced")
+    return _P4_UNPRICED_COST_FACTOR
 
 # Health bonus per circuit-breaker status (adds to a step's score).
 _HEALTH_BONUS: dict[str, float] = {
@@ -594,6 +714,7 @@ class CapabilityRouter:
         routing picks up fresh scores without a restart.
         """
         self._matrix = None
+        phase4_clear()
 
     def _has_profile_override(self, profile: str) -> bool:
         """True when *profile* has any per-profile routing setting stored."""
@@ -804,15 +925,26 @@ class CapabilityRouter:
             pass
         return list(self._decisions[-limit:])
 
-    def get_model_score(self, model: str, task: str) -> float:
+    def get_model_score(self, model: str, task: str,
+                        provider: Optional[str] = None) -> float:
         """Get capability score for a model on a task (0.0–1.0).
 
-        Resolves the model ID through the explicit registry: alias → logical
-        name → benchmark snapshot, then looks up the score. Unknown models
-        fall back to a default.
+        Phase 4: the registry resolves the model and the score is looked up under
+        the names the registry knows it by (its benchmark key, then its slug). The
+        pre-phase-4 resolution — a JSON blob keyed on the provider NAME, falling
+        back to punctuation — is used only when the registry has nothing, and the
+        fallback is counted in `phase4_stats()`.
         """
         matrix = self.load_matrix()
         task_scores = matrix.get(task, {})
+
+        if model and PHASE4_CAPABILITIES:
+            reg = _p4_registry(self.db_path, provider, model)
+            for key in (reg.get("benchmark_key"), reg.get("logical")):
+                if key and key in task_scores:
+                    _p4_bump("capability_registry")
+                    return task_scores[key]
+            _p4_bump("capability_legacy")
 
         logical = logical_model_name(model, self.db_path)
         benchmark = benchmark_model_name(logical, self.db_path)
@@ -913,10 +1045,8 @@ class CapabilityRouter:
         ``bias`` overrides the default cost bias (used by ``cost_first``).
         """
         model = step["model"]
-        capability = self.get_model_score(model, task)
-        price = _MODEL_PRICES.get(model, 1.0)
-        max_price = max(_MODEL_PRICES.values()) if _MODEL_PRICES else 1.0
-        cost_factor = price / max_price if max_price > 0 else 0.5
+        capability = self.get_model_score(model, task, step.get("provider"))
+        cost_factor = _cost_factor(step.get("provider"), model, self.db_path)
         b = self.cost_bias if bias is None else bias
         score = capability + b * (1.0 - cost_factor)
         score += self._health_bonus(step, profile, config)
@@ -1177,16 +1307,14 @@ class CapabilityRouter:
         (invariant 1).
         """
         provider = step["provider"]
-        logical = logical_model_name(step["model"], self.db_path)
+        logical = _logical(step["model"], self.db_path, provider)
         role_rank = (
             0 if (preferred_provider and provider == preferred_provider) else 1,
             _ROLE_RANK.get(step.get("role"), _ROLE_RANK_UNTAGGED),
             self._provider_health_rank(step, profile, config),
         )
-        quality = self.get_model_score(logical, task)
-        price = _MODEL_PRICES.get(logical, 1.0)
-        max_price = max(_MODEL_PRICES.values()) if _MODEL_PRICES else 1.0
-        cost_factor = price / max_price if max_price > 0 else 0.5
+        quality = self.get_model_score(logical, task, provider)
+        cost_factor = _cost_factor(provider, step["model"], self.db_path)
         b = self.cost_bias if bias is None else bias
         return (role_rank, -quality, -self._balance_headroom(provider),
                 b * cost_factor, chain_index)
@@ -1420,11 +1548,13 @@ class CapabilityRouter:
             rp = rule.get("provider") or "*"
             rm = rule.get("model") or "*"
             gate = rule.get("min_score")
-            pref_logical = None if rm in ("*", "") else logical_model_name(rm, self.db_path)
+            pref_logical = None if rm in ("*", "") else _logical(
+                rm, self.db_path, None if rp in ("*", "") else rp)
 
             if pref_logical is not None:
                 if gate is not None:
-                    cap = self.get_model_score(pref_logical, task)
+                    cap = self.get_model_score(pref_logical, task,
+                                               None if rp in ("*", "") else rp)
                     if cap < float(gate):
                         fired.append({
                             "action": "prefer_skipped_low_score",
@@ -1509,12 +1639,14 @@ class CapabilityRouter:
             rm = rule.get("model") or "*"
             gate = rule.get("min_score")
 
-            pref_logical = None if rm in ("*", "") else logical_model_name(rm, self.db_path)
+            pref_logical = None if rm in ("*", "") else _logical(
+                rm, self.db_path, None if rp in ("*", "") else rp)
 
             if pref_logical is not None:
                 # min_score gate on the preferred model's capability.
                 if gate is not None:
-                    cap = self.get_model_score(pref_logical, task)
+                    cap = self.get_model_score(pref_logical, task,
+                                               None if rp in ("*", "") else rp)
                     if cap < float(gate):
                         fired.append({
                             "action": "prefer_skipped_low_score",
