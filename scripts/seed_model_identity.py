@@ -43,19 +43,24 @@ DEFAULT_DB = os.environ.get("COST_DB", "/app/data/costs.db")
 ENDPOINTS = [
     dict(slug="local-sparks", tier="local", status="active",
          display_name="DGX Spark pair (HP ZGX .107 + MSI EdgeXpert .108)",
-         base_url="http://192.168.1.107:18300/v1"),
+         base_url="http://192.168.1.107:18300/v1", notes=None),
     dict(slug="local-zgx", tier="local", status="retired",
          display_name="HP ZGX local lane (retired — superseded by local-sparks)",
-         base_url=None),
+         base_url=None, notes="Retired local lane; kept for historical resolution."),
     dict(slug="llamacpp", tier="local", status="retired",
-         display_name="llama.cpp lane (retired)", base_url=None),
+         display_name="llama.cpp lane (retired)", base_url=None,
+         notes="Retired local lane; kept for historical resolution."),
     dict(slug="deepseek", tier="cloud", status="active",
-         display_name="DeepSeek API", base_url="https://api.deepseek.com/v1"),
-    dict(slug="opencode", tier="cloud", status="active",
-         display_name="opencode.ai inference",
-         base_url="https://opencode.ai/inference/openai/v1"),
+         display_name="DeepSeek API", base_url="https://api.deepseek.com/v1", notes=None),
+    dict(slug="opencode", tier="cloud", status="inactive",
+         display_name="opencode.ai inference", base_url="https://opencode.ai/inference/openai/v1",
+         notes="Inactive: subscription no longer active (operator, 2026-10-30). Last observed "
+               "traffic 2026-09-29; the live catalogue no longer advertises the legacy "
+               "deepseek-v4-flash name. Kept for historical resolution."),
     dict(slug="commandcode", tier="cloud", status="active",
-         display_name="CommandCode", base_url="https://api.commandcode.ai/provider/v1"),
+         display_name="CommandCode", base_url="https://api.commandcode.ai/provider/v1",
+         notes="Active. Its public /provider/v1/models is readable without credentials and is "
+               "the observation source for its served ids."),
 ]
 
 # legacy provider keys found in the registry's provider_mappings_json
@@ -83,6 +88,12 @@ MODELS = [
     ("grok-4.5", "Grok 4.5", "xai", "active", "grok-4.5"),
     ("gemini-3.6-flash", "Gemini 3.6 Flash", "google", "active", "gemini-3.6-flash"),
     ("ox-alpha-free", "ox-alpha-free", None, "active", None),
+    # Not a stray name: Smaug Agentic is Abacus.AI's agentic SFT of Kimi K3 (2.8T MoE,
+    # architectural drop-in for K3). Our six LiveBench rows match its published numbers
+    # exactly (coding 82.5, agentic coding 64.6, maths 83.9, data analysis 79.9,
+    # language 84.4, instruction following 71.0), so it is a model in its own right,
+    # not a task-shaped key. Released 2026-09-10.
+    ("smaug-agentic", "Smaug Agentic", "abacus", "active", "smaug-agentic"),
 ]
 
 # model_slug, label, released_on, notes
@@ -96,6 +107,9 @@ RELEASES = [
      "DeepSeek-V4-Flash-0731. Retired upstream 2026-09-10."),
     ("deepseek-v4-pro", "2026-08-13", "2026-08-13", "from model_registry.active_release"),
     ("qwen3.8-flash-next", "2026-08-25", "2026-08-25", "from model_registry.active_release"),
+    ("smaug-agentic", "2026-09-10", "2026-09-10",
+     "Abacus.AI Smaug line launch (Smaug Agentic / Flash / Mini). Agentic SFT of Kimi K3; "
+     "open weights on Hugging Face. Not served from any endpoint we own."),
 ]
 
 # endpoint, served_id, model_slug, variant, quantisation, context_window, status, source, notes
@@ -110,11 +124,12 @@ DEPLOYMENTS = [
     # ---- opencode (cloud) ----------------------------------------------------
     ("opencode", "deepseek-v4-pro", "deepseek-v4-pro", None, None, 1000000, "active",
      "registry", None),
-    ("opencode", "deepseek-v4-flash", "deepseek-v4-flash", None, None, 1000000, "active",
-     "registry", "PENDING: opencode still lists both -v4-flash and -v4.1-flash, so this may "
-                 "be the genuine V4-Flash rather than an alias. Confirm against /v1/models."),
+    ("opencode", "deepseek-v4-flash", "deepseek-v4-flash", None, None, 1000000, "retired",
+     "registry", "Genuine V4-Flash until 2026-09-10. opencode mirrored DeepSeek's legacy "
+                 "name, then required the explicit deepseek-v4.1-flash; its live catalogue "
+                 "no longer lists this name. See the 2026-09-10 alias to V4.1."),
     ("opencode", "deepseek-v4.1-flash", "deepseek-flash", None, None, 1000000, "active",
-     "registry", None),
+     "registry", "The explicit V4.1 name, added on a new name rather than a repurposed one."),
     ("opencode", "glm-5.3-flash", "glm-5.3-flash", None, None, None, "active", "traffic", None),
     ("opencode", "ox-alpha-free", "ox-alpha-free", None, None, None, "active", "traffic",
      "PENDING: name only — no capability or price data exists for this model."),
@@ -122,7 +137,10 @@ DEPLOYMENTS = [
     ("commandcode", "deepseek/deepseek-v4-pro", "deepseek-v4-pro", None, None, 1000000,
      "active", "registry", None),
     ("commandcode", "deepseek/deepseek-v4-flash", "deepseek-v4-flash", None, None, 1000000,
-     "active", "registry", "PENDING: as opencode — confirm whether genuine V4-Flash."),
+     "active", "observed", "Still advertised in the live /provider/v1/models catalogue today, "
+     "alongside -v4.1-flash, so the name is kept. It carries the same pair of legacy names "
+     "DeepSeek documents as routed to V4.1 (-v4-flash and -v4-flash-vision-exp), and "
+     "commandcode resells at underlying API rates, so the 2026-09-10 rule applies."),
     ("commandcode", "deepseek/deepseek-v4.1-flash", "deepseek-flash", None, None, 1000000,
      "active", "registry", None),
     ("commandcode", "deepseek/deepseek-v4.1-flash-fast", "deepseek-flash", "fast", None,
@@ -144,12 +162,14 @@ DEPLOYMENTS = [
     ("commandcode", "Qwen/Qwen3.8-Max", "qwen3.8-max", None, None, None, "active",
      "registry", None),
     # ---- local-sparks (the live lane) ---------------------------------------
-    ("local-sparks", "GLM-5.3-Flash-EXL3", "glm-5.3-flash", None, "exl3", None, "active",
-     "observed", None),
+    ("local-sparks", "GLM-5.3-Flash-EXL3", "glm-5.3-flash", None, "exl3", None, "retired",
+     "observed", "Served from :18300 historically, but the engine running there now "
+                 "advertises only DeepSeek-V4.1-Flash-1017 (observed 2026-10-30), so this "
+                 "deployment is retired on this endpoint."),
     ("local-sparks", "DeepSeek-V4.1-Flash-1017", "deepseek-flash", None,
      "exl3-eaqv1-2.9bpw", 1048576, "active", "observed", None),
-    ("local-sparks", "qwen3.8-flash-next", "qwen3.8-flash-next", None, None, None, "active",
-     "traffic", "Recorded historically; not in the live provider catalogue."),
+    ("local-sparks", "qwen3.8-flash-next", "qwen3.8-flash-next", None, None, None, "retired",
+     "traffic", "Recorded historically; not advertised by the live engine (2026-10-30)."),
     # ---- retired local lanes (history only) ---------------------------------
     ("local-zgx", "qwen3.8-flash-next", "qwen3.8-flash-next", None, None, None, "retired",
      "traffic", None),
@@ -170,11 +190,23 @@ DEPLOYMENT_RELEASES = [
     ("deepseek", "deepseek-v4-pro", "deepseek-v4-pro", "2026-08-13",
      "2026-08-13", None, "registry", "medium"),
     ("opencode", "deepseek-v4.1-flash", "deepseek-flash", "v4.1-ga",
-     "2026-09-10", None, "provider_doc", "medium"),
+     "2026-09-10", "2026-10-17", "provider_doc", "medium"),
+    ("opencode", "deepseek-v4.1-flash", "deepseek-flash", "1017",
+     "2026-10-17", None, "provider_doc", "medium"),
     ("commandcode", "deepseek/deepseek-v4.1-flash", "deepseek-flash", "v4.1-ga",
-     "2026-09-10", None, "provider_doc", "medium"),
+     "2026-09-10", "2026-10-17", "provider_doc", "medium"),
+    ("commandcode", "deepseek/deepseek-v4.1-flash", "deepseek-flash", "1017",
+     "2026-10-17", None, "provider_doc", "medium"),
     ("commandcode", "deepseek/deepseek-v4.1-flash-fast", "deepseek-flash", "v4.1-ga",
-     "2026-09-10", None, "provider_doc", "medium"),
+     "2026-09-10", "2026-10-17", "provider_doc", "medium"),
+    ("commandcode", "deepseek/deepseek-v4.1-flash-fast", "deepseek-flash", "1017",
+     "2026-10-17", None, "provider_doc", "medium"),
+    # The legacy name on the reselling endpoints. Genuine V4-Flash until 2026-09-10, so the
+    # window ends there and layer 0 stops being in force; the alias above takes over.
+    ("opencode", "deepseek-v4-flash", "deepseek-v4-flash", "0731",
+     "2026-07-27", "2026-09-10", "provider_catalog_inferred", "high"),
+    ("commandcode", "deepseek/deepseek-v4-flash", "deepseek-v4-flash", "0731",
+     "2026-07-27", "2026-09-10", "provider_catalog_inferred", "medium"),
     ("local-sparks", "DeepSeek-V4.1-Flash-1017", "deepseek-flash", "1017",
      "2026-10-22", None, "operator", "high"),
     ("local-zgx", "qwen3.8-flash-next", "qwen3.8-flash-next", "2026-08-25",
@@ -192,6 +224,17 @@ ALIASES = [
      "provider_doc", "2026-07-27", "2026-09-10"),
     ("deepseek", "deepseek-v4-flash", None, ("deepseek", "deepseek-flash"),
      "provider_doc", "2026-09-10", None),
+    # The reselling endpoints carry DeepSeek's legacy namespace verbatim — commandcode's live
+    # catalogue advertises exactly the pair DeepSeek documents as routed to V4.1
+    # (-v4-flash and -v4-flash-vision-exp) and resells at underlying API rates, and
+    # opencode required the explicit -v4.1-flash name while keeping the legacy one until
+    # 2026-09-29. So the same 2026-09-10 rule applies; both rows are marked as inferred
+    # from the provider catalogue rather than from a provider statement.
+    ("opencode", "deepseek-v4-flash", None, ("opencode", "deepseek-v4.1-flash"),
+     "provider_catalog_inferred", "2026-09-10", None),
+    ("commandcode", "deepseek/deepseek-v4-flash", None,
+     ("commandcode", "deepseek/deepseek-v4.1-flash"), "provider_catalog_inferred",
+     "2026-09-10", None),
     ("deepseek", "deepseek-flash", None, ("deepseek", "deepseek-flash"),
      "provider_doc", "2026-09-10", None),
     # local lane: case-only variant of the served id
@@ -211,6 +254,12 @@ ALIASES = [
     (None, "deepseek/deepseek-v4.1-flash", "deepseek-flash", None, "registry",
      "2026-09-10", None),
     (None, "z-ai/glm-5.3-flash", "glm-5.3-flash", None, "registry", "2026-10-22", None),
+    # Found by --verify-endpoints: commandcode advertises these vendor-prefixed spellings
+    # and they are the only advertised ids that would have matched only provisionally.
+    # Recorded from the provider's own catalogue, dated to the observation.
+    ("commandcode", "google/gemini-3.6-flash", "gemini-3.6-flash", None, "observed_catalog",
+     "2026-10-30", None),
+    ("commandcode", "xai/grok-4.5", "grok-4.5", None, "observed_catalog", "2026-10-30", None),
     (None, "glm-5.3-flash", "glm-5.3-flash", None, "registry", "2026-10-22", None),
     (None, "qwen3.8-27b-q4_k_m-heretic", "qwen3.8-27b-heretic", None, "registry",
      "2026-07-27", None),
@@ -222,10 +271,9 @@ ALIASES = [
 ]
 
 # Deliberately NOT mapped — recorded so the gap is visible instead of silently normalised.
-KNOWN_UNMAPPED = [
-    ("smaug-agentic", "a task-shaped name sitting on a model row in model_capabilities; "
-                      "needs an operator decision, not an automatic alias"),
-]
+# `smaug-agentic` used to be listed here; it is now a registered logical model, because it
+# turned out to be Abacus.AI's agentic SFT of Kimi K3 rather than a task-shaped key.
+KNOWN_UNMAPPED: list = []
 
 
 def now() -> str:
@@ -261,17 +309,17 @@ class Seeder:
     # -- endpoints -------------------------------------------------------------
     def ensure_endpoint(self, e: dict) -> Optional[int]:
         row = self.con.execute(
-            "SELECT endpoint_id, display_name, base_url, tier, status FROM mi_endpoints"
+            "SELECT endpoint_id, display_name, base_url, tier, status, notes FROM mi_endpoints"
             " WHERE slug = ?", (e["slug"],)
         ).fetchone()
         if row:
-            want = (e["display_name"], e["base_url"], e["tier"], e["status"])
-            have = (row["display_name"], row["base_url"], row["tier"], row["status"])
+            want = (e["display_name"], e["base_url"], e["tier"], e["status"], e.get("notes"))
+            have = (row["display_name"], row["base_url"], row["tier"], row["status"], row["notes"])
             if have != want:
                 if self.apply:
                     self.con.execute(
-                        "UPDATE mi_endpoints SET display_name=?, base_url=?, tier=?, status=?"
-                        " WHERE endpoint_id=?", want + (row["endpoint_id"],))
+                        "UPDATE mi_endpoints SET display_name=?, base_url=?, tier=?, status=?,"
+                        " notes=? WHERE endpoint_id=?", want + (row["endpoint_id"],))
                 self.updated += 1
                 self.log("updated", f"endpoint {e['slug']}")
             else:
@@ -283,9 +331,10 @@ class Seeder:
             self.log("create", f"endpoint {e['slug']}")
             return self._placeholder()
         eid = self._ins(
-            "INSERT INTO mi_endpoints (slug, display_name, base_url, tier, status, created_at)"
-            " VALUES (?,?,?,?,?,?)",
-            (e["slug"], e["display_name"], e["base_url"], e["tier"], e["status"], now()))
+            "INSERT INTO mi_endpoints (slug, display_name, base_url, tier, status, notes,"
+            " created_at) VALUES (?,?,?,?,?,?,?)",
+            (e["slug"], e["display_name"], e["base_url"], e["tier"], e["status"],
+             e.get("notes"), now()))
         self.created += 1
         self.log("created", f"endpoint {e['slug']}")
         return eid
@@ -502,6 +551,28 @@ class Seeder:
 # ------------------------------------------------------------------- verification
 def verify_endpoints(con: sqlite3.Connection, apply: bool) -> None:
     """Stamp ``verified_at`` from each endpoint's own /v1/models. Observed, not authored."""
+    try:
+        # one normaliser and one resolver, shared — never a second implementation.
+        # Running as `python scripts/...` puts scripts/ on sys.path, not the repo root,
+        # so make the package importable explicitly.
+        if REPO not in sys.path:
+            sys.path.insert(0, REPO)
+        from src.api.model_identity import (
+            MATCH_NORMALISED,
+            normalise_model_string as _norm,
+            resolve as _resolve,
+        )
+    except Exception as exc:  # noqa: BLE001 — the seeder must still run standalone
+        # Do NOT degrade silently: a fallback here would misreport every candidate.
+        print(f"  NOTE  the resolver is not importable ({exc.__class__.__name__}); the "
+              f"advertised-id classification below is disabled")
+        MATCH_NORMALISED = "normalised"
+
+        def _norm(raw):
+            return (raw or "").strip().lower()
+
+        _resolve = None
+
     paths = [p.strip() for p in os.environ.get("LCP_MODELS_PATHS", "/v1/models,/models").split(",")]
     keys = {}
     envfile = os.path.join(REPO, ".env")
@@ -514,6 +585,31 @@ def verify_endpoints(con: sqlite3.Connection, apply: bool) -> None:
     keymap = {"deepseek": "DEEPSEEK_API_KEY", "opencode": "OPENCODE_API_KEY",
               "commandcode": "COMMANDCODE_API_KEY"}
 
+    def tokens_for(slug: str) -> list:
+        """Every credential worth trying, and finally no credential at all.
+
+        Sources in order: the process environment, the repo .env, then the app's own
+        encrypted credential store (which is what is reachable *inside* the container,
+        where the live keys actually live). Values are never printed.
+        """
+        out = []
+        env_name = keymap.get(slug)
+        if env_name:
+            v = os.environ.get(env_name) or keys.get(env_name)
+            if v:
+                out.append(v)
+        try:
+            from src.api.credential_store import get_credential_store
+            store = get_credential_store()
+            if store is not None:
+                v = store.get(slug)
+                if v:
+                    out.append(v)
+        except Exception:  # noqa: BLE001 — not running inside the app, that is fine
+            pass
+        out.append(None)      # some catalogues (commandcode's) are public
+        return out
+
     print("\n-- endpoint verification (/v1/models) --")
     for ep in con.execute("SELECT endpoint_id, slug, base_url FROM mi_endpoints"
                           " WHERE status='active' ORDER BY slug"):
@@ -521,18 +617,15 @@ def verify_endpoints(con: sqlite3.Connection, apply: bool) -> None:
         if not base:
             print(f"  {ep['slug']:14} SKIP  no base_url recorded")
             continue
-        if base.startswith("http://192.168.") or base.startswith("http://10."):
-            root = base
-        else:
-            root = base
-        found, err = None, None
+        root = base
+        found, errors = None, []
         for p in paths:
             url = root.rsplit("/v1", 1)[0] + p if "/v1" in root else root + p
-            for header_key in (keymap.get(ep["slug"]), None):
-                token = None
-                if header_key:
-                    token = os.environ.get(header_key) or keys.get(header_key)
+            for token in tokens_for(ep["slug"]):
                 req = urllib.request.Request(url)
+                # a bare urllib User-Agent gets 403'd by at least one of these providers
+                req.add_header("User-Agent", "lcp-model-identity/1.0 (+curl-compatible)")
+                req.add_header("Accept", "application/json")
                 if token:
                     req.add_header("Authorization", "Bearer " + token)
                 try:
@@ -542,12 +635,12 @@ def verify_endpoints(con: sqlite3.Connection, apply: bool) -> None:
                     if ids:
                         found = ids
                         break
-                except Exception as e:  # noqa: BLE001
-                    err = str(e)[:80]
+                except Exception as ex:  # noqa: BLE001
+                    errors.append(f"{'+auth' if token else 'no-auth'}: {str(ex)[:60]}")
             if found:
                 break
         if not found:
-            print(f"  {ep['slug']:14} UNVERIFIED  {err or 'no model ids returned'}")
+            print(f"  {ep['slug']:14} UNVERIFIED  {'; '.join(errors) or 'no model ids'}")
             continue
         matched = 0
         for r in con.execute(
@@ -564,11 +657,41 @@ def verify_endpoints(con: sqlite3.Connection, apply: bool) -> None:
             (ep["endpoint_id"],)) if d["served_id"] not in found]
         for m in missing:
             print(f"                   DRIFT  {m!r} is registered but not advertised")
+
+        # Advertised but not registered. A large catalogue (commandcode advertises 94
+        # models) would otherwise bury the actionable rows, so classify instead of dump:
+        # only ids that normalise to a model or alias we already know are worth raising —
+        # those are the spelling variants that need registering or an explicit alias.
+        known = {_norm(r["slug"])
+                 for r in con.execute("SELECT slug FROM mi_models")}
+        known |= {_norm(r["alias"])
+                  for r in con.execute("SELECT alias FROM mi_aliases")}
+        candidates, available, others = [], [], []
         for i in found:
-            if not con.execute(
-                "SELECT 1 FROM mi_deployments WHERE endpoint_id=? AND served_id=?",
-                (ep["endpoint_id"], i)).fetchone():
-                print(f"                   NEW    {i!r} is advertised but not registered")
+            if con.execute("SELECT 1 FROM mi_deployments WHERE endpoint_id=? AND served_id=?",
+                           (ep["endpoint_id"], i)).fetchone():
+                continue
+            if _norm(i) not in known:
+                others.append(i)                  # unrelated to anything we use
+                continue
+            # It looks like a model we know — so ask the resolver whether traffic under
+            # this exact string would resolve cleanly *here*. A name that already resolves
+            # by logical slug needs nothing; one that would only match provisionally is
+            # exactly the spelling variant that needs an explicit alias.
+            res = _resolve(ep["slug"], i, con=con) if _resolve else None
+            if res is None or not res.resolved or res.matched_by == MATCH_NORMALISED:
+                candidates.append(i)
+            else:
+                available.append(i)
+        for i in candidates:
+            print(f"                   ALIAS? {i!r} looks like a model we know but would not "
+                  f"resolve cleanly on this endpoint — register it or add an alias")
+        if available:
+            print(f"                   AVAILABLE: {len(available)} known models are advertised "
+                  f"here with no registered deployment (usable, currently unused)")
+        if others:
+            print(f"                   {len(others)} other advertised ids are unrelated to "
+                  f"anything we use")
 
 
 # --------------------------------------------------------------------------- main

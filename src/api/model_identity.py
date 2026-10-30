@@ -473,7 +473,7 @@ def list_endpoints(con: Optional[sqlite3.Connection] = None) -> list[dict]:
     try:
         _ensure_ready(con)
         return [dict(r) for r in con.execute(
-            "SELECT endpoint_id, slug, display_name, base_url, tier, status"
+            "SELECT endpoint_id, slug, display_name, base_url, tier, status, notes"
             " FROM mi_endpoints ORDER BY tier, slug"
         )]
     finally:
