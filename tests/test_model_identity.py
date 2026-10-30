@@ -13,6 +13,7 @@ import importlib
 import sqlite3
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -447,3 +448,149 @@ def test_rowify_switches_the_factory_once(db):
     mi.list_endpoints(con=con)          # already rowified: still fine
     assert con.row_factory is sqlite3.Row
     con.close()
+
+
+# ------------------------------------------------- the write path (CUR-270 phase 2)
+
+
+def test_stamp_resolves_a_known_pair(db):
+    """The request path gets ids, not a string it has to interpret later."""
+    con = mi.connect(db, ro=True)
+    s = mi.stamp("deepseek", "deepseek-v4-flash", at="2026-10-20T00:00:00+00:00", con=con)
+    assert s["deployment_id"] is not None and s["model_id"] is not None
+    assert s["registry_version"] >= 1 and s["unresolved_reason"] is None
+    con.close()
+
+
+def test_stamp_returns_all_none_for_an_unknown_pair(db):
+    """Unresolved is a recorded unknown, not a guess and not an exception."""
+    con = mi.connect(db, ro=True)
+    s = mi.stamp("no-such-endpoint", "no-such-model", con=con)
+    assert s["deployment_id"] is None and s["model_id"] is None and s["release_id"] is None
+    assert s["unresolved_reason"] == "unknown_endpoint"
+    con.close()
+
+
+def test_stamp_fails_open_when_resolution_breaks(db, monkeypatch):
+    """A broken registry must never fail a request that has already been served."""
+    def boom(*a, **k):
+        raise RuntimeError("registry exploded")
+
+    monkeypatch.setattr(mi, "resolve", boom)
+    con = mi.connect(db, ro=True)
+    s = mi.stamp("deepseek", "deepseek-flash", con=con)
+    assert s["deployment_id"] is None and s["unresolved_reason"] == "stamp_failed"
+    con.close()
+
+
+def test_stamp_fails_open_on_an_unmigrated_database(tmp_path):
+    """No `mi_*` tables at all — still NULLs, still no exception."""
+    path = str(tmp_path / "empty.db")
+    sqlite3.connect(path).close()
+    con = mi.connect(path, ro=False)
+    s = mi.stamp("deepseek", "deepseek-flash", con=con)
+    assert s["deployment_id"] is None and s["unresolved_reason"] == "stamp_failed"
+    con.close()
+
+
+def test_stamp_cache_is_keyed_on_the_registry_version(db):
+    """A stamp from before a registry publish must not be served after it."""
+    con = mi.connect(db, ro=True)
+    mi.clear_stamp_cache()
+    before = mi.stamp("deepseek", "deepseek-flash", at="2026-10-20T00:00:00+00:00", con=con)
+    assert mi.stamp("deepseek", "deepseek-flash",
+                    at="2026-10-20T00:00:00+00:00", con=con) == before
+    w = sqlite3.connect(db)
+    w.execute("INSERT INTO mi_registry_versions (version, created_at, note) VALUES (?,?,?)",
+              (before["registry_version"] + 1, "2026-10-30T00:00:00+00:00", "cache test"))
+    w.commit()
+    w.close()
+    after = mi.stamp("deepseek", "deepseek-flash", at="2026-10-20T00:00:00+00:00", con=con)
+    assert after["registry_version"] > before["registry_version"]
+    con.close()
+
+
+def test_clear_stamp_cache_empties_it(db):
+    con = mi.connect(db, ro=True)
+    mi.stamp("deepseek", "deepseek-flash", con=con)
+    assert mi.clear_stamp_cache() >= 1
+    assert mi.clear_stamp_cache() == 0
+    con.close()
+
+
+def test_orm_models_carry_the_identity_columns():
+    """The schema exists; the ORM must know about it or the ids cannot be written."""
+    from src.api.models import Request, RoutingDecision
+    for col in ("deployment_id", "release_id", "registry_version"):
+        assert col in Request.__table__.columns
+    for col in ("from_deployment_id", "to_deployment_id", "registry_version"):
+        assert col in RoutingDecision.__table__.columns
+
+
+def test_record_cost_stamps_the_identity(db):
+    """End to end: a request row records what served it, resolved at write time."""
+    from src.api.models import Request, get_engine, get_session
+    from src.api.request_pipeline import record_cost
+    engine = get_engine(db)
+    with patch("src.api.request_pipeline.resolve_service") as rs:
+        rs.return_value.for_provider.return_value = None
+        record_cost(engine, profile="cron", model="deepseek-v4-flash", provider="deepseek",
+                    cost_info={"cost": 0.0, "prompt_tokens": 5, "completion_tokens": 5},
+                    success=True, error_type=None, tools_blocked=[])
+    with get_session(engine) as session:
+        row = session.query(Request).order_by(Request.id.desc()).first()
+        assert row.provider == "deepseek" and row.model == "deepseek-v4-flash"
+        assert row.deployment_id is not None, "the write path did not stamp the deployment"
+        assert row.release_id is not None
+        assert row.registry_version >= 1
+
+
+def test_record_cost_stores_nulls_without_a_registry(tmp_path):
+    """Fail open: an unmigrated DB records NULLs rather than losing the request."""
+    from src.api.models import Base, Request, get_engine, get_session
+    from src.api.request_pipeline import record_cost
+    path = str(tmp_path / "plain.db")
+    engine = get_engine(path)
+    Base.metadata.create_all(engine)          # ORM tables only, no `mi_*` registry
+    with patch("src.api.request_pipeline.resolve_service") as rs:
+        rs.return_value.for_provider.return_value = None
+        record_cost(engine, profile="cron", model="deepseek-flash", provider="deepseek",
+                    cost_info={"cost": 0.0}, success=True, error_type=None, tools_blocked=[])
+    with get_session(engine) as session:
+        row = session.query(Request).order_by(Request.id.desc()).first()
+        assert row is not None, "the request row must survive a missing registry"
+        assert row.deployment_id is None and row.registry_version is None
+
+
+def test_decision_identity_resolves_both_sides(db):
+    """A reorder records identity, so "the model changed" is a real change."""
+    from src.api.router import CapabilityRouter
+    ident = CapabilityRouter._decision_identity({
+        "ts": "2026-10-20T00:00:00+00:00",
+        "from_provider": "deepseek", "from_model": "deepseek-flash",
+        "provider": "commandcode", "model": "deepseek/deepseek-v4.1-flash",
+    }, db)
+    assert ident["to_deployment_id"] is not None
+    assert ident["from_deployment_id"] is not None
+    # both sides are the SAME logical model here - which is the whole point
+    assert ident["from_deployment_id"] != ident["to_deployment_id"]
+    assert ident["registry_version"] >= 1
+
+
+def test_decision_identity_survives_a_broken_resolver(db, monkeypatch):
+    """Persistence must never break routing: no ids, no exception."""
+    import src.api.model_identity as _mi
+    monkeypatch.setattr(_mi, "stamp", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+    from src.api.router import CapabilityRouter
+    ident = CapabilityRouter._decision_identity({"provider": "deepseek", "model": "deepseek-flash"})
+    assert ident == {"from_deployment_id": None, "to_deployment_id": None,
+                     "registry_version": None}
+
+
+def test_decision_identity_without_a_from_side(db):
+    """A first-choice decision has nothing displaced; that is None, not a lookup."""
+    from src.api.router import CapabilityRouter
+    ident = CapabilityRouter._decision_identity(
+        {"ts": "2026-10-20T00:00:00+00:00", "provider": "deepseek", "model": "deepseek-flash"}, db)
+    assert ident["from_deployment_id"] is None
+    assert ident["to_deployment_id"] is not None

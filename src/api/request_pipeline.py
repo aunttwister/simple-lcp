@@ -1201,6 +1201,35 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
 
 # ── Cost Recording ───────────────────────────────────────────────────────────
 
+def _stamp_identity(provider: str, model: str, at: str, engine=None) -> dict:
+    """Resolve ``(provider, model)`` into identity ids for storage (CUR-270).
+
+    A thin, fail-open wrapper: the request has already been served by the time this runs,
+    so nothing here may raise. ``model_identity.stamp`` itself never raises; the extra
+    guard covers a failed import.
+
+    The registry is read from the same database the row is written to — resolving against
+    whatever the process-wide default happens to be would be the very mismatch this work
+    exists to eliminate.
+    """
+    blank = {"deployment_id": None, "model_id": None, "release_id": None,
+             "registry_version": None, "matched_by": None,
+             "unresolved_reason": "stamp_failed"}
+    try:
+        from .model_identity import stamp
+        return stamp(provider, model, at=at, path=_engine_db_path(engine))
+    except Exception:  # noqa: BLE001 — fail open, by design
+        return blank
+
+
+def _engine_db_path(engine) -> "str | None":
+    """The file behind a SQLAlchemy engine, so identity is read from its own database."""
+    try:
+        return engine.url.database
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict,
                 success: bool, error_type: str | None, tools_blocked: list[str],
                 error_detail: str | None = None,
@@ -1214,11 +1243,16 @@ def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict
     legacy) is later covered by the deterministic burst backfill.
     """
     cost = cost_info.get("cost", 0)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # CUR-270: record what served this, not just what we asked for. `provider`/`model`
+    # stay the raw strings; these ids are the resolved identity, NULL when unknowable.
+    identity = _stamp_identity(provider, model, ts, engine)
 
     rid = None
     with get_session(engine) as session:
         req = RequestModel(
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=ts,
             profile=profile,
             model=model,
             provider=provider,
@@ -1232,6 +1266,9 @@ def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict
             error_type=error_type,
             error_detail=error_detail,
             tools_blocked=",".join(tools_blocked) if tools_blocked else None,
+            deployment_id=identity["deployment_id"],
+            release_id=identity["release_id"],
+            registry_version=identity["registry_version"],
         )
         session.add(req)
         session.commit()
