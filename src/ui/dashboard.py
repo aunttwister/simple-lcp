@@ -35,7 +35,24 @@ def dashboard_context(config, engine, headers, profile_filter=None):
         try:
             db_path = str(engine.url.database) if engine is not None else "data/costs.db"
             from ..api.router import logical_model_name
-            return logical_model_name(model, db_path)
+            resolved = logical_model_name(model, db_path)
+            # Phase 4: fall through to the identity registry only when the legacy
+            # index could not name the model (it keys on the provider NAME, which
+            # is renamed in this estate, so newer spellings resolve to nothing).
+            if resolved and resolved != model:
+                return resolved
+            try:
+                from ..api import model_identity as _mi
+                con = _mi.connect(db_path, ro=True)
+                try:
+                    names = _mi.canonical_names(None, model, con=con)
+                finally:
+                    con.close()
+                if names:
+                    return names[0]
+            except Exception:  # noqa: BLE001
+                pass
+            return resolved
         except Exception:  # noqa: BLE001 — never break the dashboard on a name
             return model
 

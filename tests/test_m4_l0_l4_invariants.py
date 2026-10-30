@@ -72,8 +72,11 @@ def mk_router(db, monkeypatch, *, policy="eager", min_score=0.0,
     monkeypatch.setattr(r, "_provider_credit_status",
                         lambda p: "drained" if p in drained else "funded")
     if qualities is not None:
+        # The double must track the real signature: `get_model_score` gained an optional
+        # `provider` in phase 4 so the registry can price/capability the deployment the
+        # step actually names.
         monkeypatch.setattr(r, "get_model_score",
-                            lambda model, task: qualities.get(model, 0.5))
+                            lambda model, task, provider=None: qualities.get(model, 0.5))
     return r
 
 
