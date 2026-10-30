@@ -11,6 +11,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 from src.api.cost_plugins.opencode import OpenCodeCostPlugin, _OPENCODE_PRICING, _FREE_MODELS
 
+# Billing is time-dependent for every DeepSeek-backed model: peak hours are
+# exactly 2x off-peak (base.py), selected from the request's ``__ts``. The
+# assertions below are the OFF-PEAK rates, so the timestamp is pinned here —
+# a test that lets select_rates() fall back to the wall clock passes all night
+# and fails every weekday 01:00-04:00 and 06:00-10:00 UTC.
+# 2026-10-05 is a Monday; 12:00 UTC is outside both peak bands.
+_OFF_PEAK = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -105,6 +113,7 @@ class TestOpenCodeCalculateCost:
             "prompt_cache_hit_tokens": 500_000,
             "prompt_cache_miss_tokens": 1_000_000,
             "completion_tokens": 200_000,
+            "__ts": _OFF_PEAK,
         })
         expected = (
             (500_000 / 1_000_000) * 0.022
@@ -128,6 +137,7 @@ class TestOpenCodeCalculateCost:
         """When cache_hit and cache_miss are both 0/absent, fall back to prompt_tokens."""
         cost = plugin.calculate_cost("deepseek-v4-pro", {
             "completion_tokens": 200_000,
+            "__ts": _OFF_PEAK,
         })
         assert cost == pytest.approx(0.396)  # 200k output x 1.98
 
