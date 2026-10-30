@@ -39,6 +39,8 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
@@ -58,6 +60,8 @@ __all__ = [
     "capabilities_for",
     "reconcile",
     "connect",
+    "stamp",
+    "clear_stamp_cache",
 ]
 
 MATCH_SERVED = "served_id"
@@ -764,6 +768,100 @@ def reconcile(*, con: Optional[sqlite3.Connection] = None) -> list[dict]:
     finally:
         if own:
             con.close()
+
+
+# ------------------------------------------------------------- the write path (phase 2)
+#
+# The request path may call :func:`stamp` and nothing else. It fails **open** — a stale or
+# missing registry must never fail a request that has already been served — and it is cached
+# on the registry version, so publishing a new registry invalidates everything at once
+# without an explicit invalidation step.
+
+_STAMP_CACHE: "OrderedDict[tuple, dict]" = OrderedDict()
+_STAMP_CACHE_MAX = 8192
+_STAMP_LOCK = threading.Lock()
+_STAMP_LOCAL = threading.local()
+
+
+def _stamp_con(path: Optional[str] = None) -> sqlite3.Connection:
+    """A per-thread, per-path **read-only** connection for the write path.
+
+    sqlite3 connections are not shareable between threads and the request path is
+    threaded, so each thread keeps its own. Keyed by path as well, because resolving
+    against the wrong database is exactly the class of bug this module exists to remove.
+    Read-only on purpose: nothing on the request path may write to the cost DB.
+    """
+    p = path or _default_db_path()
+    conns = getattr(_STAMP_LOCAL, "cons", None)
+    if conns is None:
+        conns = _STAMP_LOCAL.cons = {}
+    con = conns.get(p)
+    if con is None:
+        con = connect(p, ro=True)
+        conns[p] = con
+    return con
+
+
+def stamp(provider: Optional[str], model: Optional[str], *, at: Optional[str] = None,
+          con: Optional[sqlite3.Connection] = None, path: Optional[str] = None) -> dict:
+    """Resolve ``(provider, model)`` into ids, for the write path.
+
+    Returns ``deployment_id``, ``model_id``, ``release_id``, ``registry_version``,
+    ``matched_by`` and ``unresolved_reason``. Every id is ``None`` when the pair does not
+    resolve; ``matched_by`` says how it matched, so a provisional (normalised) match is
+    countable after the fact rather than invisible.
+
+    **Never raises.** At request time the registry is not allowed to be a new way for a
+    request to fail: every failure degrades to all-None and the caller stores NULLs.
+    """
+    try:
+        c = con if con is not None else _stamp_con(path)
+        _ensure_ready(c)
+        rv = registry_version(c)
+        # Keyed by registry version and the *day* of `at`: releases and aliases are dated,
+        # so a resolution is stable within a day, and a new registry version empties it.
+        key = (rv, (provider or "").strip().lower(), (model or "").strip(), (at or "")[:10])
+        with _STAMP_LOCK:
+            hit = _STAMP_CACHE.get(key)
+            if hit is not None:
+                _STAMP_CACHE.move_to_end(key)
+                return hit
+        res = resolve(provider, model, at=at, con=c)
+        out = {
+            "deployment_id": res.deployment_id,
+            "model_id": res.model_id,
+            "release_id": res.release_id,
+            "registry_version": res.registry_version,
+            "matched_by": res.matched_by,
+            "unresolved_reason": res.unresolved_reason,
+        }
+        with _STAMP_LOCK:
+            _STAMP_CACHE[key] = out
+            while len(_STAMP_CACHE) > _STAMP_CACHE_MAX:
+                _STAMP_CACHE.popitem(last=False)
+        return out
+    except Exception:  # noqa: BLE001 — fail open, by design
+        return {"deployment_id": None, "model_id": None, "release_id": None,
+                "registry_version": None, "matched_by": None,
+                "unresolved_reason": "stamp_failed"}
+
+
+def clear_stamp_cache() -> int:
+    """Drop every cached stamp and return how many were held.
+
+    Called after the registry changes so a long-lived process does not serve a stamp from
+    before it. Keying on the registry version makes this belt-and-braces, not load-bearing.
+    """
+    with _STAMP_LOCK:
+        n = len(_STAMP_CACHE)
+        _STAMP_CACHE.clear()
+    for con in (getattr(_STAMP_LOCAL, "cons", None) or {}).values():
+        try:
+            con.close()
+        except Exception:  # noqa: BLE001
+            pass
+    _STAMP_LOCAL.cons = {}
+    return n
 
 
 def _self_test() -> None:  # pragma: no cover - manual smoke aid

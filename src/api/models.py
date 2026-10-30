@@ -47,6 +47,15 @@ class Request(Base):
     error_detail = Column(Text, nullable=True)  # full traceback or error message
     tools_blocked = Column(String, nullable=True)  # comma-separated list
 
+    # ── CUR-270 model identity (alembic 026) ────────────────────────────────
+    # What actually served this request, as distinct from what we asked for. Stamped
+    # best-effort by ``model_identity.stamp`` at write time and NULL when it cannot be
+    # determined — never guessed. ``registry_version`` says which registry answered, so a
+    # row is reproducible after the registry changes.
+    deployment_id = Column(Integer, nullable=True)
+    release_id = Column(Integer, nullable=True)
+    registry_version = Column(Integer, nullable=True)
+
 
 # ── API Key Management ────────────────────────────────────────────────────
 
@@ -312,6 +321,13 @@ class RoutingDecision(Base):
     # §9 L4 — the one replayable row: {layer, rule_id, intent, margin, scores,
     # balances, from, to, reason}. Replaying it reproduces the winner (M4).
     l4_json = Column(Text, nullable=True)
+
+    # ── CUR-270 model identity (alembic 026) ────────────────────────────────
+    # The resolved identity of each side of a reorder, so "the model changed" is a model
+    # change and not a spelling variant. `provider`/`model` stay the raw recorded strings.
+    from_deployment_id = Column(Integer, nullable=True)
+    to_deployment_id = Column(Integer, nullable=True)
+    registry_version = Column(Integer, nullable=True)
     # No transcript capture here. `conversation_json` used to hold a trimmed copy of the request
     # messages: 101 MB of a 139 MB DB (73%), all of it duplicating what the harness's own session
     # stores already hold. The text that drove the decision is in `intent_text` above, and the
