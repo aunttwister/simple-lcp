@@ -1,26 +1,44 @@
-"""HTTP client for Command Code's internal billing API — subscription tracking.
+"""HTTP client for Command Code's billing/usage API — credits + subscription.
 
-Fetches credits + subscription + usage data from ``api.commandcode.ai``'s
-internal endpoints and parses the JSON. Authenticates via the browser session
-cookie from a logged-in commandcode.ai session (same pattern as OpenCode).
+Two surfaces exist; this module speaks to both and prefers the durable one:
 
-Endpoints (discovered from the Command Code Studio usage page):
+1. **Key-authenticated ``/alpha/*``** (the Command Code CLI's own routes) —
+   ``Authorization: Bearer <CMD_API_KEY>``. The credential is the provider API
+   key, the same one ``/provider/v1`` uses, so it does **not** expire on its own:
 
-    GET /internal/billing/credits        -> credits summary + rolling limits
-    GET /internal/billing/subscriptions  -> active subscription (plan/status)
-    GET /internal/usage/summary          -> billing-period totals (tokens/cost)
-    GET /internal/usage?limit=N          -> recent usage entries
+       GET /alpha/billing/credits        -> credits + rolling window limits
+       GET /alpha/billing/subscriptions  -> active subscription (plan/status)
+       GET /alpha/usage/summary          -> billing-period totals (tokens/cost)
+       GET /alpha/whoami?limits=1        -> user/org + model limits (unused here)
+
+2. **Cookie-authenticated ``/internal/*``** (the Studio usage page) — a browser
+   session cookie from a logged-in commandcode.ai session. Kept only as a
+   fallback: this cookie is a session token that expires, and when it does the
+   vendor card goes stale (2026-10-31: last good fetch 2026-10-28, then 401
+   every 30 min for 3.5 days). ``/internal/*`` rejects the API key.
+
+       GET /internal/billing/credits        -> credits summary + rolling limits
+       GET /internal/billing/subscriptions  -> active subscription (plan/status)
+       GET /internal/usage/summary          -> billing-period totals (tokens/cost)
+       GET /internal/usage?limit=N          -> recent usage entries
+
+The two surfaces return the same field names for credits/subscription/usage; the
+differences are ``freeCredits`` in the alpha payload (the internal one splits the
+grant into premium/open-source pools) and the absence of a per-run list on alpha
+(``/alpha/usage`` is not a route), so ``recent_runs`` is only populated by the
+cookie path.
 
 Usage::
 
     from .commandcode_api import fetch_subscription_snapshot
-    snap = fetch_subscription_snapshot(cookie)
-    # => {"monthly_credits_remaining": 40.19, "purchased_credits": 0.0,
-    #     "five_hour_pct": 10.5, "weekly_pct": 61.6, "monthly_pct": 42.6,
-    #     "five_hour_reset_sec": 11520, "weekly_reset_sec": 172800,
+    snap = fetch_subscription_snapshot(cookie, api_key=key)
+    # => {"monthly_credits_remaining": 14.86, "purchased_credits": 0.0,
+    #     "free_credits": 0.0,
+    #     "five_hour_pct": 4.0, "weekly_pct": 64.1, "monthly_pct": 78.8,
+    #     "five_hour_reset_sec": 14568, "weekly_reset_sec": 48131,
     #     "plan_id": "individual-goat", "plan_status": "active",
     #     "usage_summary": {"total_tokens": ..., "total_runs": ...},
-    #     "recent_runs": [...], ...}
+    #     "credits_source": "alpha", "recent_runs": [...], ...}
 """
 
 from __future__ import annotations
@@ -39,6 +57,12 @@ logger = get_logger("lcp.cost.commandcode_api")
 _COMMANDCODE_BASE = "https://api.commandcode.ai"
 _WEB_ORIGIN = "https://commandcode.ai"
 
+# Key-authenticated surface (the Command Code CLI's own routes) — preferred.
+_ALPHA_CREDITS_PATH = "/alpha/billing/credits"
+_ALPHA_SUBSCRIPTIONS_PATH = "/alpha/billing/subscriptions"
+_ALPHA_USAGE_SUMMARY_PATH = "/alpha/usage/summary"
+
+# Cookie-authenticated surface (Studio usage page) — fallback only.
 _CREDITS_PATH = "/internal/billing/credits"
 _SUBSCRIPTIONS_PATH = "/internal/billing/subscriptions"
 _USAGE_SUMMARY_PATH = "/internal/usage/summary"
@@ -70,6 +94,7 @@ class CommandCodeSubscriptionSnapshot:
     """Parsed billing/usage state from the Command Code web API."""
     monthly_credits_remaining: float = 0.0   # USD left in the monthly grant
     purchased_credits: float = 0.0           # top-up / pay-as-you-go balance
+    free_credits: float = 0.0                # USD left in the free grant (/alpha only)
     premium_monthly_credits: float = 0.0     # USD left in premium grant
     opensource_monthly_credits: float = 0.0  # USD left in open-source grant
     # Rolling 5-hour window
@@ -91,9 +116,11 @@ class CommandCodeSubscriptionSnapshot:
     plan_id: Optional[str] = None
     plan_status: Optional[str] = None
     billing_period_end: Optional[str] = None
-    # Usage totals + recent runs (from /internal/usage/*)
+    # Usage totals + recent runs (from the usage endpoints)
     usage_summary: dict = field(default_factory=dict)
     recent_runs: list = field(default_factory=list)
+    # Which surface produced this snapshot: "alpha" (API key) or "internal" (cookie)
+    source: str = ""
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -102,6 +129,17 @@ def _base_headers(cookie: str) -> dict[str, str]:
     """Return common headers for billing API requests."""
     return {
         "Cookie": cookie.strip(),
+        "User-Agent": _USER_AGENT,
+        "Accept": "application/json, text/plain, */*",
+        "Origin": _WEB_ORIGIN,
+        "Referer": _WEB_ORIGIN + "/",
+    }
+
+
+def _api_key_headers(api_key: str) -> dict[str, str]:
+    """Return common headers for the key-authenticated ``/alpha/*`` routes."""
+    return {
+        "Authorization": f"Bearer {api_key.strip()}",
         "User-Agent": _USER_AGENT,
         "Accept": "application/json, text/plain, */*",
         "Origin": _WEB_ORIGIN,
@@ -209,6 +247,9 @@ def _parse_credits(payload: dict) -> dict:
     return {
         "monthly_credits_remaining": _num(credits.get("monthlyCredits")),
         "purchased_credits": _num(credits.get("purchasedCredits")),
+        # ``freeCredits`` only appears on the /alpha surface; the /internal one
+        # splits the grant into premium/open-source pools instead.
+        "free_credits": _num(credits.get("freeCredits")),
         "premium_monthly_credits": _num(credits.get("premiumMonthlyCredits")),
         "opensource_monthly_credits": _num(credits.get("opensourceMonthlyCredits")),
         "five_hour_pct": five_hour_pct,
@@ -325,17 +366,39 @@ def _derive_monthly(plan_id: Optional[str], monthly_remaining: float) -> tuple[f
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
-def fetch_subscription_snapshot(cookie: Optional[str]) -> Optional[CommandCodeSubscriptionSnapshot]:
-    """Fetch Command Code billing/usage data from the internal API.
+def fetch_subscription_snapshot(
+    cookie: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Optional[CommandCodeSubscriptionSnapshot]:
+    """Fetch Command Code billing/usage data, preferring the durable surface.
 
-    Returns a ``CommandCodeSubscriptionSnapshot`` or ``None`` when the cookie
-    is missing, unreachable, or the response cannot be parsed.
+    The API key against ``/alpha/*`` is tried first — that credential is the
+    provider API key and does not expire on its own, so the vendor card cannot
+    go stale behind it. The browser cookie against ``/internal/*`` is used only
+    when the key is absent or rejected. Returns ``None`` when neither credential
+    is usable (missing, rejected, or the API is unreachable).
     """
-    if not cookie or not cookie.strip():
-        logger.debug("commandcode_cookie_missing")
-        return None
+    key = (api_key or "").strip()
+    if key:
+        snap = _fetch_alpha_snapshot(key)
+        if snap is not None:
+            return snap
+        logger.warning("commandcode_alpha_unavailable_falling_back_to_cookie")
 
-    cookie = cookie.strip()
+    cookie = (cookie or "").strip()
+    if cookie:
+        return _fetch_internal_snapshot(cookie)
+
+    logger.debug("commandcode_credentials_missing")
+    return None
+
+
+def _fetch_internal_snapshot(cookie: str) -> Optional[CommandCodeSubscriptionSnapshot]:
+    """Cookie-authenticated ``/internal/*`` fetch — the legacy fallback path.
+
+    Returns ``None`` when the credential is rejected, unreachable, or the
+    response cannot be parsed.
+    """
     headers = _base_headers(cookie)
 
     # ── Fetch credits (primary) ────────────────────────────────────────
@@ -385,22 +448,95 @@ def fetch_subscription_snapshot(cookie: Optional[str]) -> Optional[CommandCodeSu
     # ── Derive monthly usage % ─────────────────────────────────────────
     monthly_pct, monthly_used, monthly_cap = _derive_monthly(
         plan_id, credits["monthly_credits_remaining"])
+    monthly_reset_sec = _period_end_countdown(period_end)
 
-    # Monthly reset countdown from the billing period end (fallback: 0).
-    monthly_reset_sec = 0
-    if period_end:
-        try:
-            end = datetime.fromisoformat(period_end.replace("Z", "+00:00"))
-            if end.tzinfo is None:
-                end = end.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            monthly_reset_sec = int(max(0.0, (end - now).total_seconds()))
-        except (ValueError, AttributeError):
-            monthly_reset_sec = 0
+    return _build_snapshot(credits, monthly_pct, monthly_used, monthly_cap,
+                           monthly_reset_sec, plan_id, plan_status, period_end,
+                           usage_summary, recent_runs, "internal")
 
+
+def _fetch_alpha_snapshot(api_key: str) -> Optional[CommandCodeSubscriptionSnapshot]:
+    """Key-authenticated ``/alpha/*`` fetch — the preferred, non-expiring path.
+
+    Authenticates with the Command Code provider API key (``Authorization:
+    Bearer``), the same credential ``/provider/v1`` uses. The ``/alpha/usage``
+    per-run list is not a route on this surface, so ``recent_runs`` stays empty.
+    Returns ``None`` when the key is rejected or the API is unreachable, which
+    lets the caller fall back to the cookie path.
+    """
+    headers = _api_key_headers(api_key)
+
+    # ── Fetch credits (primary) ────────────────────────────────────────
+    try:
+        credits_url = _COMMANDCODE_BASE + _ALPHA_CREDITS_PATH
+        credits_payload = _http_get_json(credits_url, headers)
+    except HTTPError as exc:
+        if exc.code in (401, 403):
+            logger.warning("commandcode_alpha_auth_failed", status=exc.code)
+            return None
+        logger.warning("commandcode_alpha_credits_http_error", status=exc.code)
+        return None
+    except (URLError, OSError, json.JSONDecodeError, ValueError) as exc:
+        logger.warning("commandcode_alpha_credits_fetch_failed", error=str(exc))
+        return None
+
+    try:
+        credits = _parse_credits(credits_payload)
+    except Exception as exc:
+        logger.warning("commandcode_alpha_credits_parse_failed", error=str(exc))
+        return None
+
+    # ── Fetch subscription (best-effort enrichment) ────────────────────
+    plan_id = plan_status = period_end = None
+    try:
+        sub_url = _COMMANDCODE_BASE + _ALPHA_SUBSCRIPTIONS_PATH
+        sub_payload = _http_get_json(sub_url, headers)
+        plan_id, plan_status, period_end = _parse_subscription(sub_payload)
+    except Exception as exc:
+        logger.warning("commandcode_alpha_subscription_fetch_failed", error=str(exc))
+
+    # ── Fetch usage totals (best-effort) ───────────────────────────────
+    usage_summary: dict = {}
+    try:
+        summary_url = _COMMANDCODE_BASE + _ALPHA_USAGE_SUMMARY_PATH
+        usage_summary = _parse_usage_summary(_http_get_json(summary_url, headers))
+    except Exception as exc:
+        logger.warning("commandcode_alpha_usage_summary_fetch_failed", error=str(exc))
+
+    # ── Derive monthly usage % ─────────────────────────────────────────
+    monthly_pct, monthly_used, monthly_cap = _derive_monthly(
+        plan_id, credits["monthly_credits_remaining"])
+    monthly_reset_sec = _period_end_countdown(period_end)
+
+    return _build_snapshot(credits, monthly_pct, monthly_used, monthly_cap,
+                           monthly_reset_sec, plan_id, plan_status, period_end,
+                           usage_summary, [], "alpha")
+
+
+def _period_end_countdown(period_end: Optional[str]) -> int:
+    """Seconds until the billing period ends (0 when unknown/unparseable)."""
+    if not period_end:
+        return 0
+    try:
+        end = datetime.fromisoformat(period_end.replace("Z", "+00:00"))
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        return int(max(0.0, (end - datetime.now(timezone.utc)).total_seconds()))
+    except (ValueError, AttributeError):
+        return 0
+
+
+def _build_snapshot(credits: dict, monthly_pct: float, monthly_used: float,
+                    monthly_cap: float, monthly_reset_sec: int,
+                    plan_id: Optional[str], plan_status: Optional[str],
+                    period_end: Optional[str], usage_summary: dict,
+                    recent_runs: list,
+                    source: str) -> CommandCodeSubscriptionSnapshot:
+    """Assemble a snapshot from parsed credits + optional enrichment."""
     return CommandCodeSubscriptionSnapshot(
         monthly_credits_remaining=credits["monthly_credits_remaining"],
         purchased_credits=credits["purchased_credits"],
+        free_credits=credits.get("free_credits", 0.0),
         premium_monthly_credits=credits["premium_monthly_credits"],
         opensource_monthly_credits=credits["opensource_monthly_credits"],
         five_hour_pct=credits["five_hour_pct"],
@@ -420,12 +556,14 @@ def fetch_subscription_snapshot(cookie: Optional[str]) -> Optional[CommandCodeSu
         billing_period_end=period_end,
         usage_summary=usage_summary,
         recent_runs=recent_runs,
+        source=source,
     )
 
 
-def fetch_subscription_snapshot_dict(cookie: Optional[str]) -> Optional[dict]:
+def fetch_subscription_snapshot_dict(cookie: Optional[str] = None,
+                                    api_key: Optional[str] = None) -> Optional[dict]:
     """Same as ``fetch_subscription_snapshot`` but returns a plain dict (or None)."""
-    snap = fetch_subscription_snapshot(cookie)
+    snap = fetch_subscription_snapshot(cookie, api_key=api_key)
     if snap is None:
         return None
     now = datetime.now(timezone.utc)
@@ -438,6 +576,7 @@ def fetch_subscription_snapshot_dict(cookie: Optional[str]) -> Optional[dict]:
     return {
         "monthly_credits_remaining": snap.monthly_credits_remaining,
         "purchased_credits": snap.purchased_credits,
+        "free_credits": snap.free_credits,
         "premium_monthly_credits": snap.premium_monthly_credits,
         "opensource_monthly_credits": snap.opensource_monthly_credits,
         "five_hour_pct": snap.five_hour_pct,
@@ -460,4 +599,7 @@ def fetch_subscription_snapshot_dict(cookie: Optional[str]) -> Optional[dict]:
         "billing_period_end": snap.billing_period_end,
         "usage_summary": snap.usage_summary,
         "recent_runs": snap.recent_runs,
+        # Which surface answered: "alpha" (API key, durable) or "internal"
+        # (browser cookie, expires). Lets a deploy check prove the fix is live.
+        "credits_source": snap.source,
     }
