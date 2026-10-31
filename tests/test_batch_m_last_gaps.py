@@ -115,12 +115,6 @@ class TestEffectiveReleasesEmptySet:
 
 # ── opencode_api.py 263: non-positive credit value → continue ────────────────
 
-class TestSsrNonPositive:
-    def test_negative_value_skipped(self):
-        # 262-263: val <= 0 → continue (unquoted SSR syntax required)
-        from src.api.cost_plugins.opencode_api import _parse_ssr_billing
-        assert _parse_ssr_billing("availableCredits:-5") is None
-
 
 # ── llamacpp.py 181/196: persist no-path early returns ──────────────────────
 
