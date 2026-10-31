@@ -240,16 +240,26 @@ def test_fetch_balance_is_quiet_without_any_credential(monkeypatch):
     assert plugin.fetch_balance() is None
 
 
-def test_fetch_balance_states_that_a_session_is_needed(monkeypatch):
+def test_fetch_balance_names_the_key_fix_when_every_credential_fails(monkeypatch):
+    """No readable credential → the actionable message names the console key, not a dead cookie."""
     plugin = OpenCodeCostPlugin()
     monkeypatch.setattr(plugin, "_token", lambda **kw: "oc_sk_all", raising=False)
     monkeypatch.setattr(co, "current_access_token", lambda force_refresh=False: "")
+    from src.api.cost_plugins import opencode_api as oa
+
+    def unauthorized(token, org_id=None):
+        raise oa.ConsoleApiError(401, "/api/billing/status", "Unauthorized")
+
+    monkeypatch.setattr(oa, "fetch_account_credits", unauthorized)
+    monkeypatch.setattr(co, "resolve_org_id", lambda token="": "wrk_test")
     result = plugin.fetch_balance()
     assert result["_error"] == "auth_failed"
-    assert "console_oauth start" in result["detail"]
+    assert "401" in result["detail"]
+    assert "Console -> Keys" in result["detail"]
 
 
 def test_fetch_balance_uses_the_console_session(monkeypatch):
+    """The session is the *fallback*: it answers once the key is refused."""
     plugin = OpenCodeCostPlugin()
     monkeypatch.setattr(plugin, "_token", lambda **kw: "oc_sk_all", raising=False)
     monkeypatch.setattr(co, "current_access_token", lambda force_refresh=False: "sess")
@@ -258,6 +268,8 @@ def test_fetch_balance_uses_the_console_session(monkeypatch):
     seen = {}
 
     def fake_credits(token, org_id=None):
+        if token == "oc_sk_all":
+            raise oa.ConsoleApiError(403, "/api/billing/status", "Forbidden")
         seen["token"], seen["org_id"] = token, org_id
         return {"availableMicroCents": 300000000, "mode": "pay-as-you-go",
                 "creditLimitMicroCents": None}
@@ -270,9 +282,16 @@ def test_fetch_balance_uses_the_console_session(monkeypatch):
     assert result["available_credits"] == 3.0
     assert result["plan"] == "pay-as-you-go"
     assert result["credit_limit_usd"] is None
+    assert result["credits_source"] == "session"
 
 
 def test_fetch_balance_reports_a_403_distinctly(monkeypatch):
+    """403 is a permissions verdict (both credentials refused), not a dead credential.
+
+    Live measurement 2026-10-31: the credits/budgets routes are person-only on the
+    console and refuse every API key, so the message must point at re-authorising
+    the session — not at a `Billing: Read` key permission, which does not exist.
+    """
     plugin = OpenCodeCostPlugin()
     monkeypatch.setattr(plugin, "_token", lambda **kw: "oc_sk_all", raising=False)
     monkeypatch.setattr(co, "current_access_token", lambda force_refresh=False: "sess")
@@ -284,8 +303,10 @@ def test_fetch_balance_reports_a_403_distinctly(monkeypatch):
     monkeypatch.setattr(oa, "fetch_account_credits", forbidden)
     monkeypatch.setattr(co, "resolve_org_id", lambda token="": "wrk_test")
     result = plugin.fetch_balance()
-    assert result["_error"] == "auth_failed"
+    assert result["_error"] == "permission_denied"
     assert "403" in result["detail"]
+    assert "person-only" in result["detail"]
+    assert "Billing: Read" not in result["detail"]
 
 
 def test_fetch_balance_flags_an_unknown_payload_shape(monkeypatch):

@@ -681,9 +681,12 @@ class CacheRefresher:
         if isinstance(payload, dict) and payload.get("_error"):
             error_kind = payload.get("_error")
             detail = payload.get("detail") or error_kind
-            # Stable conditions (bad cookie, no subscription) do NOT self-heal —
-            # wait until the entry is stale again instead of backing off/hammering.
-            transient = error_kind not in ("auth_failed", "no_subscription")
+            # Stable conditions (bad cookie, missing permission, no subscription)
+            # do NOT self-heal — wait until the entry is stale again instead of
+            # backing off/hammering.  ``permission_denied`` is a key scope the
+            # operator must grant in the vendor console; retrying cannot fix it.
+            transient = error_kind not in ("auth_failed", "no_subscription",
+                                           "permission_denied")
             self._record_failure(key, error_kind, detail, transient=transient)
             return
         # Success — persist and reset retry state.
