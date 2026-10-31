@@ -5,11 +5,15 @@ LLM providers through a single API endpoint
 (``https://api.commandcode.ai/provider/v1``).
 
 Usage tracking has two sources:
-  - ``fetch_subscription`` — Command Code's internal billing API
-    (``/internal/billing/credits`` + ``/internal/billing/subscriptions``),
-    authenticated with a browser session cookie from the encrypted credential
-    store (same pattern as OpenCode). Returns rolling 5-hour / weekly usage
-    percentages with reset countdowns plus remaining monthly credits.
+  - ``fetch_subscription`` — Command Code's billing API. Preferred credential is
+    the **provider API key** against the key-authenticated ``/alpha/*`` routes
+    (``/alpha/billing/credits`` + ``/alpha/billing/subscriptions`` +
+    ``/alpha/usage/summary``, the same routes the Command Code CLI uses); the
+    browser **session cookie** against ``/internal/*`` is a fallback for fields
+    the alpha surface does not carry (it is the only one with a per-run list).
+    Returns rolling 5-hour / weekly usage percentages with reset countdowns plus
+    remaining monthly credits. Both credentials live in the encrypted credential
+    store (UI-managed).
   - ``fetch_summary`` / ``fetch_usage`` — cost history from the gateway's own
     ``requests`` table (every routed request is logged with the provider name).
 
@@ -245,6 +249,20 @@ def _api_model(model: str) -> str:
     return _load_catalog().get(model.strip().lower(), model)
 
 
+def _store_str(store: Any, getter: str, *args: Any) -> str:
+    """Read a credential as a string; anything else (absent, mocked, non-str) → "".
+
+    The credential store is injected as a ``MagicMock`` in tests, where an unset
+    slot returns another MagicMock — treating that as a credential would silently
+    take the wrong auth path, so only real strings count.
+    """
+    try:
+        value = getattr(store, getter)(*args)
+    except Exception:  # noqa: BLE001 — any store failure means "no credential"
+        return ""
+    return value.strip() if isinstance(value, str) else ""
+
+
 class CommandCodeCostPlugin(CostPlugin):
     """Cost tracking for Command Code.
 
@@ -441,18 +459,22 @@ class CommandCodeCostPlugin(CostPlugin):
     def fetch_subscription(self) -> Optional[dict]:
         """Fetch subscription/usage snapshot from the Command Code billing API.
 
-        Requires a Command Code browser session cookie — read from the
-        encrypted credential store (UI-managed).  Returns::
+        Prefers the provider **API key** against the key-authenticated
+        ``/alpha/*`` routes (durable — it does not expire), falling back to the
+        browser **session cookie** against ``/internal/*`` when the key is
+        missing or rejected. Both are read from the encrypted credential store
+        (UI-managed).  Returns::
 
-            {"monthly_credits_remaining": 40.19, "purchased_credits": 0.0,
-             "five_hour_pct": 10.5, "weekly_pct": 61.6, "monthly_pct": 42.6,
-             "five_hour_reset_sec": 11520, "weekly_reset_sec": 172800,
+            {"monthly_credits_remaining": 14.86, "purchased_credits": 0.0,
+             "free_credits": 0.0,
+             "five_hour_pct": 4.0, "weekly_pct": 64.1, "monthly_pct": 78.8,
+             "five_hour_reset_sec": 14568, "weekly_reset_sec": 48131,
              "plan_id": "individual-goat", "plan_status": "active",
              "usage_summary": {"total_tokens": ..., "total_runs": ...},
-             "recent_runs": [...], ...}
+             "credits_source": "alpha", "recent_runs": [...], ...}
 
-        Returns ``{"_error": "auth_failed", "detail": "..."}`` when the cookie
-        is missing/invalid, or ``{"_error": "api_error", "detail": "..."}`` on
+        Returns ``{"_error": "auth_failed", "detail": "..."}`` when neither
+        credential is usable, or ``{"_error": "api_error", "detail": "..."}`` on
         an API failure.
         """
         try:
@@ -495,24 +517,28 @@ class CommandCodeCostPlugin(CostPlugin):
                     "recent_runs": [],
                 }
             from .commandcode_api import fetch_subscription_snapshot_dict
-            cookie = ""
-            # Cookie from the encrypted credential store (UI-managed)
+            # Preferred credential: the provider API key (the /alpha/* routes).
+            # Fallback: the browser session cookie (/internal/*), which expires.
+            api_key = cookie = ""
             try:
                 from ..credential_store import get_credential_store
                 store = get_credential_store()
                 if store is not None:
-                    cookie = store.get_cookie("commandcode") or ""
+                    api_key = _store_str(store, "get", "commandcode")
+                    cookie = _store_str(store, "get_cookie", "commandcode")
             except Exception:
-                cookie = ""
-            if not cookie:
-                logger.debug("commandcode_cookie_not_configured")
+                api_key = cookie = ""
+            if not api_key and not cookie:
+                logger.debug("commandcode_credentials_not_configured")
                 return {"_error": "auth_failed",
-                        "detail": "Command Code cookie not set — add it in the Usage tab"}
-            data = fetch_subscription_snapshot_dict(cookie)
+                        "detail": "Command Code API key or cookie not set — "
+                                  "add the API key (or a session cookie) in the Usage tab"}
+            data = fetch_subscription_snapshot_dict(cookie, api_key=api_key)
             if data is None:
                 logger.warning("commandcode_subscription_fetch_returned_none")
                 return {"_error": "auth_failed",
-                        "detail": "Invalid or expired Command Code cookie, or API unreachable"}
+                        "detail": "Command Code API key and cookie both rejected, "
+                                  "or API unreachable — re-check them in the Usage tab"}
             return data
         except Exception as exc:
             logger.warning("commandcode_subscription_fetch_failed", error=str(exc))
@@ -532,13 +558,13 @@ class CommandCodeCostPlugin(CostPlugin):
                 return "drained"
             rem = subscription.get("monthly_credits_remaining")
             purchased = subscription.get("purchased_credits")
-            if rem is None and purchased is None:
+            free = subscription.get("free_credits")
+            if rem is None and purchased is None and free is None:
                 return "unknown"
             total = 0.0
-            if isinstance(rem, (int, float)):
-                total += rem
-            if isinstance(purchased, (int, float)):
-                total += purchased
+            for value in (rem, purchased, free):
+                if isinstance(value, (int, float)):
+                    total += value
             return "drained" if total <= 5.0 else "funded"
         return "unknown"
 

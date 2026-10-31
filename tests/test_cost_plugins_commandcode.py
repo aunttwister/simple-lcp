@@ -348,6 +348,52 @@ class TestBalanceAndSubscription:
         assert plugin.credit_status({}) == "unknown"
         assert plugin.credit_status(None, None) == "unknown"
 
+    def test_credit_status_counts_free_credits(self, plugin):
+        """The /alpha surface reports a free grant; it is spendable credit too."""
+        assert plugin.credit_status(
+            {"monthly_credits_remaining": 0.0, "purchased_credits": 0.0,
+             "free_credits": 40.0}) == "funded"
+
+    # ── credential selection: API key first, cookie as fallback ───────────
+
+    def test_subscription_prefers_api_key(self, plugin):
+        """With both stored, the API key is what reaches the client."""
+        fake_store = MagicMock()
+        fake_store.get.return_value = "cmd_key"
+        fake_store.get_cookie.return_value = "session=valid"
+        snapshot = {"monthly_credits_remaining": 14.86, "credits_source": "alpha"}
+        with patch.dict(os.environ, {}, clear=False):
+            with patch("src.api.credential_store.get_credential_store", return_value=fake_store):
+                with patch("src.api.cost_plugins.commandcode_api.fetch_subscription_snapshot_dict",
+                           return_value=snapshot) as fetcher:
+                    result = plugin.fetch_subscription()
+        assert result["credits_source"] == "alpha"
+        assert fetcher.call_args.kwargs["api_key"] == "cmd_key"
+        assert fetcher.call_args.args[0] == "session=valid"
+
+    def test_subscription_key_without_cookie_is_not_auth_failure(self, plugin):
+        """A key-only store (never pasted a browser cookie) must still work."""
+        fake_store = MagicMock()
+        fake_store.get.return_value = "cmd_key"
+        fake_store.get_cookie.return_value = ""
+        snapshot = {"monthly_credits_remaining": 14.86, "credits_source": "alpha"}
+        with patch.dict(os.environ, {}, clear=False):
+            with patch("src.api.credential_store.get_credential_store", return_value=fake_store):
+                with patch("src.api.cost_plugins.commandcode_api.fetch_subscription_snapshot_dict",
+                           return_value=snapshot):
+                    result = plugin.fetch_subscription()
+        assert "_error" not in result
+        assert result["monthly_credits_remaining"] == 14.86
+
+    def test_subscription_mock_store_does_not_fake_a_key(self, plugin):
+        """An unconfigured MagicMock store must not be read as holding a key."""
+        fake_store = MagicMock()          # get() returns a MagicMock, not a str
+        fake_store.get_cookie.return_value = ""
+        with patch.dict(os.environ, {}, clear=False):
+            with patch("src.api.credential_store.get_credential_store", return_value=fake_store):
+                result = plugin.fetch_subscription()
+        assert result["_error"] == "auth_failed"
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Registration

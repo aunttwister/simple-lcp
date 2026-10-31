@@ -352,3 +352,204 @@ class TestFetchSubscriptionSnapshotDict:
 
     def test_none_when_cookie_missing(self):
         assert fetch_subscription_snapshot_dict(None) is None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# The key-authenticated /alpha/* surface (Command Code CLI's own routes)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Payloads below are VERBATIM live responses from 2026-10-31 — the point of
+# these tests is that the real shapes parse, not that a hand-written fixture does.
+_ALPHA_CREDITS = {
+    "credits": {
+        "belowThreshold": False,
+        "creditThreshold": 0,
+        "monthlyCredits": 14.8625855977,
+        "purchasedCredits": 0,
+        "freeCredits": 0,
+    },
+    "windowLimits": {
+        "limited": True,
+        "exceeded": None,
+        "fiveHour": {"used": 0.556136168, "cap": 14, "exceeded": False,
+                     "resetAt": 1793469048756},
+        "weekly": {"used": 22.4357623748, "cap": 35, "exceeded": False,
+                   "resetAt": 1793502592400},
+    },
+    "sandboxAccess": True,
+}
+
+_ALPHA_SUBSCRIPTIONS = {
+    "success": True,
+    "data": {
+        "id": "sub_1U2DaBDSZgxV3MJKxtix74Xi",
+        "status": "active",
+        "planId": "individual-goat",
+        "quantity": 1,
+        "cancelAtPeriodEnd": True,
+        "currentPeriodStart": "2026-10-08T17:57:15.000Z",
+        "currentPeriodEnd": "2026-11-08T17:57:15.000Z",
+    },
+}
+
+_ALPHA_USAGE_SUMMARY = {
+    "totalCount": 16836,
+    "totalCost": 55.184895469999994,
+    "averageCost": 0.003277791367902114,
+    "successRate": 100,
+    "completedCount": 16836,
+    "failedCount": 0,
+    "totalTokensIn": 2073654148,
+    "totalTokensOut": 17434503,
+    "totalTokens": 2091088651,
+    "totalCredits": 55.184895469999994,
+    "periodBasis": "billing-period",
+    "periodStart": "2026-10-08T17:57:15.000Z",
+    "daily": [],
+}
+
+
+def _routing_urlopen(routes):
+    """Fake urlopen dispatching on URL path (query ignored); records URL + headers."""
+    calls = []
+
+    def _fake(req, timeout=15):
+        url = getattr(req, "full_url", str(req))
+        path = url.split("?", 1)[0]
+        headers = dict(getattr(req, "headers", {}) or {})
+        calls.append((url, headers))
+        for suffix, payload in routes.items():
+            if path.endswith(suffix):
+                if isinstance(payload, Exception):
+                    raise payload
+                resp = MagicMock()
+                resp.read.return_value = json.dumps(payload).encode()
+                resp.__enter__ = MagicMock(return_value=resp)
+                resp.__exit__ = MagicMock(return_value=False)
+                return resp
+        raise AssertionError(f"unrouted URL: {url}")
+
+    return _fake, calls
+
+
+def _auth_header(headers):
+    for key, value in headers.items():
+        if key.lower() == "authorization":
+            return value
+    return None
+
+
+class TestAlphaKeySurface:
+    """The API key must be used against /alpha/* and the cookie NOT used."""
+
+    def test_alpha_snapshot_from_live_shapes(self):
+        fake, calls = _routing_urlopen({
+            "/alpha/billing/credits": _ALPHA_CREDITS,
+            "/alpha/billing/subscriptions": _ALPHA_SUBSCRIPTIONS,
+            "/alpha/usage/summary": _ALPHA_USAGE_SUMMARY,
+        })
+        with patch("src.api.cost_plugins.commandcode_api.urlopen", side_effect=fake):
+            snap = fetch_subscription_snapshot("session=valid", api_key="cmd_key")
+
+        assert snap is not None
+        assert snap.source == "alpha"
+        # Credits
+        assert snap.monthly_credits_remaining == pytest.approx(14.8625855977)
+        assert snap.purchased_credits == 0.0
+        assert snap.free_credits == 0.0
+        # Windows: 0.556136168/14 = 3.97% -> 4.0 ; 22.4357623748/35 = 64.10%
+        assert snap.five_hour_pct == pytest.approx(4.0, abs=0.05)
+        assert snap.five_hour_cap == 14.0
+        assert snap.weekly_pct == pytest.approx(64.1, abs=0.05)
+        assert snap.weekly_cap == 35.0
+        assert snap.five_hour_reset_sec >= 0
+        assert snap.weekly_reset_sec >= 0
+        # Monthly derived from the plan cap (goat = $70): 70 - 14.8626 used = 78.8%
+        assert snap.monthly_cap == 70.0
+        assert snap.monthly_pct == pytest.approx(78.8, abs=0.1)
+        # Subscription
+        assert snap.plan_id == "individual-goat"
+        assert snap.plan_status == "active"
+        assert snap.billing_period_end == "2026-11-08T17:57:15.000Z"
+        assert snap.monthly_reset_sec > 0
+        # Usage totals
+        assert snap.usage_summary["total_runs"] == 16836
+        assert snap.usage_summary["total_cost"] == pytest.approx(55.184895469999994)
+        # /alpha/usage is not a route, so there is no per-run list on this surface
+        assert snap.recent_runs == []
+        # Only the three alpha routes were called — the cookie path was NOT used.
+        assert len(calls) == 3
+        assert all("/alpha/" in url for url, _ in calls)
+        assert not any("/internal/" in url for url, _ in calls)
+        # Auth is the API key, as a Bearer token.
+        assert _auth_header(calls[0][1]) == "Bearer cmd_key"
+
+    def test_alpha_rejection_falls_back_to_cookie(self):
+        from urllib.error import HTTPError
+        err = HTTPError("url", 401, "Unauthorized", {}, None)
+        fake, calls = _routing_urlopen({
+            "/alpha/billing/credits": err,
+            "/internal/billing/credits": _credits_payload(),
+            "/internal/billing/subscriptions": _subscription_payload(),
+            "/internal/usage/summary": _usage_summary_payload(),
+            "/internal/usage": _usage_list_payload(),
+        })
+        with patch("src.api.cost_plugins.commandcode_api.urlopen", side_effect=fake):
+            snap = fetch_subscription_snapshot("session=valid", api_key="stale_key")
+
+        assert snap is not None
+        assert snap.source == "internal"
+        assert snap.monthly_credits_remaining == pytest.approx(8.7784)
+        assert len(snap.recent_runs) == 1
+        assert any("/internal/billing/credits" in url for url, _ in calls)
+
+    def test_alpha_rejection_without_cookie_returns_none(self):
+        from urllib.error import HTTPError
+        err = HTTPError("url", 401, "Unauthorized", {}, None)
+        fake, _ = _routing_urlopen({"/alpha/billing/credits": err})
+        with patch("src.api.cost_plugins.commandcode_api.urlopen", side_effect=fake):
+            assert fetch_subscription_snapshot(None, api_key="stale_key") is None
+
+    def test_no_key_means_no_alpha_call(self):
+        fake, calls = _routing_urlopen({
+            "/internal/billing/credits": _credits_payload(),
+            "/internal/billing/subscriptions": _subscription_payload(),
+            "/internal/usage/summary": _usage_summary_payload(),
+            "/internal/usage": _usage_list_payload(),
+        })
+        with patch("src.api.cost_plugins.commandcode_api.urlopen", side_effect=fake):
+            snap = fetch_subscription_snapshot("session=valid")
+
+        assert snap.source == "internal"
+        assert not any("/alpha/" in url for url, _ in calls)
+
+    def test_alpha_usage_summary_failure_keeps_credits(self):
+        from urllib.error import HTTPError
+        err = HTTPError("url", 503, "Service Unavailable", {}, None)
+        fake, _ = _routing_urlopen({
+            "/alpha/billing/credits": _ALPHA_CREDITS,
+            "/alpha/billing/subscriptions": _ALPHA_SUBSCRIPTIONS,
+            "/alpha/usage/summary": err,
+        })
+        with patch("src.api.cost_plugins.commandcode_api.urlopen", side_effect=fake):
+            snap = fetch_subscription_snapshot(None, api_key="cmd_key")
+
+        assert snap is not None
+        assert snap.source == "alpha"
+        assert snap.monthly_credits_remaining == pytest.approx(14.8625855977)
+        assert snap.plan_id == "individual-goat"
+        assert snap.usage_summary == {}
+
+    def test_dict_reports_credits_source(self):
+        fake, _ = _routing_urlopen({
+            "/alpha/billing/credits": _ALPHA_CREDITS,
+            "/alpha/billing/subscriptions": _ALPHA_SUBSCRIPTIONS,
+            "/alpha/usage/summary": _ALPHA_USAGE_SUMMARY,
+        })
+        with patch("src.api.cost_plugins.commandcode_api.urlopen", side_effect=fake):
+            result = fetch_subscription_snapshot_dict(None, api_key="cmd_key")
+
+        assert result["credits_source"] == "alpha"
+        assert result["free_credits"] == 0.0
+        assert result["monthly_credits_remaining"] == pytest.approx(14.8625855977)
+        assert result["plan_id"] == "individual-goat"
