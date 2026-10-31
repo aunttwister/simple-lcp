@@ -793,10 +793,20 @@ def fetch_account_credits(token: str,
                           org_id: Optional[str] = None) -> Optional[dict]:
     """Console credits — ``GET /api/billing/status``.
 
-    Reachable only with a console *session* token plus ``x-org-id``: a service
-    API key is rejected with 403 even when its permissions are ``all``, and a
-    session token alone gets 400 ``OrgRequired``.  Returns
-    ``{billingMode, mode, balanceMicroCents, availableMicroCents,
+    Two credentials are accepted, with different refusal modes:
+
+    * a **user token** (console session) plus ``x-org-id`` — 400 ``OrgRequired``
+      without the header;
+    * an **API key** — but measured 2026-10-31 the billing/budgets class is
+      **person-only**: the stored key answered 200 on ``/api/usage/*``,
+      ``/api/v2/config`` and ``/api/service-accounts`` yet **403**
+      ``{"_tag":"Forbidden"}`` here and on ``/api/v1|v2/budgets/members``.  The
+      console documents that some actions "always require a person signed in to
+      the Console, even with an **All** key", and key permissions are only
+      ``Inference only`` | ``All``.  So expect 403 from a key and do not report it
+      as a dead credential: it is a permissions verdict, not an auth failure.
+
+    Returns ``{billingMode, mode, balanceMicroCents, availableMicroCents,
     creditLimitMicroCents, ...}``.
     """
     return _console_get("/billing/status", token, org_id=org_id)
