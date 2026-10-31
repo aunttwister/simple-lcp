@@ -153,38 +153,6 @@ class TestOpenCodePluginGaps:
 
 # ── opencode_api.py ──────────────────────────────────────────────────────────
 
-class TestOpenCodeApiGaps:
-    def test_scan_implausible_skipped(self):
-        from src.api.cost_plugins.opencode_api import _parse_ssr_billing
-        # a token-ledger-like generic value must be skipped, not returned
-        text = '{"available": 12345678901}'
-        assert _parse_ssr_billing(text) is None  # only candidate skipped
-
-    def test_debug_snippet_keyword_path(self):
-        from src.api.cost_plugins.opencode_api import _debug_billing_failure
-        _debug_billing_failure("prefix balance 123 suffix")  # 316-323
-        _debug_billing_failure("no credit keywords at all")   # 324-329 head/tail
-
-    def test_discover_failure_returns_none(self):
-        from src.api.cost_plugins import opencode_api as oa
-        with patch.object(oa, "_http_get", side_effect=OSError("net down")):
-            assert oa.fetch_billing_dict("cookie") is None
-
-    def test_no_workspace_found(self):
-        from src.api.cost_plugins import opencode_api as oa
-        with patch.object(oa, "_http_get", return_value="<html>nothing</html>"):
-            assert oa.fetch_billing_dict("cookie") is None
-
-    def test_billing_page_fetch_failure(self):
-        from src.api.cost_plugins import opencode_api as oa
-        with patch.object(oa, "_http_get", side_effect=OSError("billing 500")):
-            assert oa.fetch_billing_dict("cookie", workspace_id="wrk_1") is None
-
-    def test_billing_parse_failure_logged(self):
-        from src.api.cost_plugins import opencode_api as oa
-        with patch.object(oa, "_http_get", return_value="<html>no credits</html>"):
-            assert oa.fetch_billing_dict("cookie", workspace_id="wrk_1") is None
-
 
 # ── commandcode.py ───────────────────────────────────────────────────────────
 

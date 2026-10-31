@@ -81,12 +81,13 @@ _FREE_MODELS = frozenset({
 
 
 def _map_account_credits(payload: Any) -> Optional[dict]:
-    """Map ``GET /api/billing/account`` onto the balance payload shape.
+    """Map a console credits payload onto the balance payload shape.
 
-    The console quotes money in micro-cents (fixed point, 1e-8 USD) — the same
-    unit the retired billing page used.  Returns ``None`` when no credits field
-    is present, so an upstream shape change reports "unrecognised" rather than a
-    fabricated number.
+    The shape comes from ``GET /api/billing/status`` (the retired billing page
+    and the ``/billing/account`` alias both used it).  The console quotes money
+    in micro-cents (fixed point, 1e-8 USD).  Returns ``None`` when no credits
+    field is present, so an upstream shape change reports "unrecognised" rather
+    than a fabricated number.
     """
     from .opencode_api import micro_cents_to_usd
 
@@ -414,9 +415,9 @@ class OpenCodeCostPlugin(CostPlugin):
     def fetch_balance(self) -> Optional[dict]:
         """Fetch available credits from the OpenCode console.
 
-        Credits live behind ``GET /api/billing/status`` (+ ``/api/billing/account``).
-        Measured 2026-10-31: the *person-only* rule bites here — the stored key
-        answers 200 on ``/api/usage/*``, ``/api/v2/config`` and
+        Credits live behind ``GET /api/billing/status``.  Measured 2026-10-31:
+        the *person-only* rule bites here — the stored key answers 200 on
+        ``/api/usage/*``, ``/api/v2/config`` and
         ``/api/service-accounts`` but 403 ``{"_tag":"Forbidden"}`` on
         ``/api/billing/status`` and ``/api/v1|v2/budgets/members``.  The console
         documents that some actions "always require a person signed in to the
