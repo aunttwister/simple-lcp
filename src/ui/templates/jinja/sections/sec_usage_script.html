@@ -666,14 +666,12 @@ function buildPage(providers) {
                     '<button class="btn-sm btn-primary" onclick="saveOcWsId()">Save</button>' +
                     '<button class="btn-sm" onclick="clearOcWsId()">Clear</button>' +
                     '</div>' +
-                    '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.5rem">Stored encrypted. The <b>API key</b> on the Providers page (Console: Keys, <b>Expiration: Never</b>) is the durable credential and carries the usage totals. Cookie + Workspace ID are the legacy session fallback: the console session is a rotating one-shot refresh token that dies whenever a refresh token is replayed. <b>Credits and budgets are person-only on this console</b> &mdash; they refuse every API key, so only a live console session can read them.</div>' +
+                    '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.5rem">Stored encrypted. The <b>API key</b> on the Providers page (Console: Keys, <b>Expiration: Never</b>) is the durable credential and carries the usage totals. This cookie and the Workspace ID are <b>not</b> read by the cost card &mdash; they only feed model discovery; the card&rsquo;s fallback is the <b>console session</b> (Providers page &rarr; Authorise), which is a rotating one-shot refresh token that dies whenever a refresh token is replayed. <b>Credits and budgets are person-only on this console</b> &mdash; they refuse every API key, so only a live console session can read them.</div>' +
                     '</div>' +
                     '</div>';
                 if (sub._error) {
                     var errMsg = 'OpenCode subscription API error: ' + (sub.detail || 'unknown');
-                    if (sub._error === 'no_subscription') {
-                        errMsg = 'No active OpenCode subscription — renew at opencode.ai to restore usage progress bars.';
-                    } else if (sub._error === 'permission_denied') {
+                    if (sub._error === 'permission_denied') {
                         errMsg = 'OpenCode usage unavailable — every stored credential was refused with HTTP 403. Credits and budgets are person-only on this console (the API key still reads usage), so re-authorise the console session from the Providers page.';
                     } else if (sub._error === 'auth_failed') {
                         errMsg = 'OpenCode usage data unavailable — no stored credential can read the console. Paste an API key (Console: Keys, Expiration: Never) on the Providers page, or re-authorise the console session.';

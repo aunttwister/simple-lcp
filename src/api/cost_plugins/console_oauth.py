@@ -61,7 +61,6 @@ logger = get_logger("lcp.cost.opencode_oauth")
 CONSOLE_WEB = "https://opencode.ai/console"
 REGISTER_URL = CONSOLE_WEB + "/auth/oauth/register"
 TOKEN_URL = CONSOLE_WEB + "/auth/oauth/token"
-REVOKE_URL = CONSOLE_WEB + "/auth/oauth/revoke"
 AUTHORIZE_URL = CONSOLE_WEB + "/oauth/authorize"
 LOOPBACK_REDIRECT = "http://127.0.0.1:8791/callback"
 SCOPE = "usage:read org:manage"
@@ -517,22 +516,6 @@ def current_access_token(force_refresh: bool = False) -> str:
         logger.warning("opencode_console_save_failed", error=str(exc))
     logger.info("opencode_console_token_refreshed")
     return merged.get("access_token") or access
-
-
-def revoke(token: str) -> bool:
-    """Best-effort revocation of a token at the provider."""
-    if not token:
-        return False
-    try:
-        _post_form(REVOKE_URL, {"token": token})
-        return True
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def clear() -> None:
-    """Forget the stored session (used by tests and by an operator reset)."""
-    _resolve_store().set(CREDENTIAL_KEY, "")
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────

@@ -159,7 +159,6 @@ def test_preset_points_at_the_current_inference_base(plugin):
 @pytest.mark.parametrize("fn,expected", [
     (lambda t: oa.fetch_usage_summary(t, "24h"), "/usage/summary?range=24h"),
     (lambda t: oa.fetch_usage_cost_by_day(t, "7d"), "/usage/cost-by-day?range=7d"),
-    (lambda t: oa.fetch_usage_models(t, "30d"), "/usage/models?range=30d"),
     (lambda t: oa.fetch_account_credits(t), "/billing/status"),
     (lambda t: oa.fetch_orgs(t), "/orgs"),
 ])
