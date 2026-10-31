@@ -666,15 +666,17 @@ function buildPage(providers) {
                     '<button class="btn-sm btn-primary" onclick="saveOcWsId()">Save</button>' +
                     '<button class="btn-sm" onclick="clearOcWsId()">Clear</button>' +
                     '</div>' +
-                    '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.5rem">Stored encrypted. Cookie + Workspace ID together enable subscription usage tracking. Paste the full <b>name=value</b> cookie (e.g. <code>auth=...</code>).</div>' +
+                    '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.5rem">Stored encrypted. The <b>API key</b> on the Providers page (Console: Keys, <b>Expiration: Never</b>) is the durable credential and carries the usage totals. Cookie + Workspace ID are the legacy session fallback: the console session is a rotating one-shot refresh token that dies whenever a refresh token is replayed. <b>Credits and budgets are person-only on this console</b> &mdash; they refuse every API key, so only a live console session can read them.</div>' +
                     '</div>' +
                     '</div>';
                 if (sub._error) {
                     var errMsg = 'OpenCode subscription API error: ' + (sub.detail || 'unknown');
                     if (sub._error === 'no_subscription') {
                         errMsg = 'No active OpenCode subscription — renew at opencode.ai to restore usage progress bars.';
+                    } else if (sub._error === 'permission_denied') {
+                        errMsg = 'OpenCode usage unavailable — every stored credential was refused with HTTP 403. Credits and budgets are person-only on this console (the API key still reads usage), so re-authorise the console session from the Providers page.';
                     } else if (sub._error === 'auth_failed') {
-                        errMsg = 'OpenCode subscription data unavailable — cookie missing or invalid. Paste the auth cookie above to enable usage progress bars.';
+                        errMsg = 'OpenCode usage data unavailable — no stored credential can read the console. Paste an API key (Console: Keys, Expiration: Never) on the Providers page, or re-authorise the console session.';
                     }
                     panelsHtml += '<div class="stat-card" style="border-left:3px solid #f97316;margin-bottom:1rem"><div class="label" style="color:#f97316">⚠ Subscription Status</div><div class="value" style="font-size:0.85rem;font-weight:400">' + errMsg + '</div></div>';
                 }
@@ -710,6 +712,9 @@ function buildPage(providers) {
                         '</div>' +
                         (sub.limit_available === false
                             ? '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-bottom:1rem">OpenCode is prepaid pay-as-you-go with no monthly allowance, so there is no percentage to fill: usage is capped only by the credit balance above.</div>'
+                            : '') +
+                        (sub.last_activity_date
+                            ? '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-bottom:1rem">Last vendor-recorded usage on this workspace: <b>' + esc(sub.last_activity_date) + '</b>' + (sub.days_since_activity != null ? ' (' + sub.days_since_activity + ' days ago)' : '') + ' &mdash; an empty window above means no traffic, not a failed fetch.</div>'
                             : '');
                 }
 

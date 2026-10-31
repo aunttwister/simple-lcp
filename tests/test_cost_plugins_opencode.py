@@ -30,6 +30,12 @@ def _create_engine_and_table():
     return engine
 
 
+def _console_err(status: int):
+    """A ``ConsoleApiError`` with *status* — ``side_effect`` shorthand for route fakes."""
+    from src.api.cost_plugins.opencode_api import ConsoleApiError
+    return ConsoleApiError(status, "https://console.opencode.ai/api", "Forbidden", "")
+
+
 def _insert_request(engine, **kwargs):
     """Insert a row into the ``requests`` table."""
     from src.api.models import Request, get_session
@@ -232,12 +238,16 @@ class TestOpenCodeFetchUsage:
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestOpenCodeFetchBalance:
-    """Credits come from the console session token, not a scraped page.
+    """Credits come from the console, key-first, session as fallback.
 
-    ``GET /api/billing/account`` rejects a service API key with 403 even at
-    ``all`` permissions, and the page the old implementation scraped no longer
-    exists — it returns the same 1565-byte client shell as every console route.
-    The happy path therefore needs a session minted by the console OAuth flow.
+    ``GET /api/billing/status`` (+ ``/api/billing/account``) is a **person-only**
+    surface: measured 2026-10-31 the stored key answered 200 on ``/api/usage/*``,
+    ``/api/v2/config`` and ``/api/service-accounts`` yet 403 on billing/budgets,
+    and the console documents that some actions always need a person signed in
+    even with an ``All`` key.  Key permissions are only ``Inference only`` |
+    ``All``.  The device-flow user token is the credential that can read
+    credits; it is a rotating one-shot refresh token the vendor revokes whenever
+    an old refresh token is replayed, so it is tried as the fallback.
     """
 
     def test_no_credential_returns_none(self, plugin):
@@ -247,18 +257,39 @@ class TestOpenCodeFetchBalance:
                    return_value=""):
             assert plugin.fetch_balance() is None
 
-    def test_service_key_without_session_reports_the_missing_step(self, plugin):
-        """A key but no session is a precise, actionable state — not a dead cookie."""
-        with patch.object(plugin, "_token", return_value="oc_sk_all"), \
+    def test_403_is_a_person_only_verdict_not_a_dead_credential(self, plugin):
+        """403 must name the real console control, not a key permission that does
+        not exist: the vocabulary is only `Inference only` | `All`."""
+        from src.api.cost_plugins.opencode_api import ConsoleApiError
+        with patch.object(plugin, "_token", return_value="oc_sk_inference"), \
              patch("src.api.cost_plugins.console_oauth.current_access_token",
-                   return_value=""):
+                   return_value=""), \
+             patch("src.api.cost_plugins.opencode_api.fetch_account_credits",
+                   side_effect=ConsoleApiError(403, "u", "Forbidden", "")):
+            result = plugin.fetch_balance()
+        assert result["_error"] == "permission_denied"
+        detail = result["detail"]
+        assert "person-only" in detail
+        assert "Re-authorise" in detail or "re-authorise" in detail
+        # the removed fiction: no such permission exists on a console key
+        assert "Billing: Read" not in detail
+        assert "Restricted" not in detail
+
+    def test_401_is_reported_as_auth_failed(self, plugin):
+        """A real 401 (dead/revoked credential) keeps the auth_failed meaning."""
+        from src.api.cost_plugins.opencode_api import ConsoleApiError
+        with patch.object(plugin, "_token", return_value="oc_sk_inference"), \
+             patch("src.api.cost_plugins.console_oauth.current_access_token",
+                   return_value=""), \
+             patch("src.api.cost_plugins.opencode_api.fetch_account_credits",
+                   side_effect=ConsoleApiError(401, "u", "Unauthorized", "")):
             result = plugin.fetch_balance()
         assert result["_error"] == "auth_failed"
-        assert "console_oauth start" in result["detail"]
+        assert "401" in result["detail"]
 
-    def test_returns_credits_from_the_console_account_route(self, plugin):
-        """Happy path: micro-cents from /api/billing/account → USD credits."""
-        with patch.object(plugin, "_token", return_value="oc_sk_all"), \
+    def test_credits_come_from_the_durable_key_first(self, plugin):
+        """Happy path: the key answers, so the session is never needed."""
+        with patch.object(plugin, "_token", return_value="oc_sk_scoped"), \
              patch("src.api.cost_plugins.console_oauth.current_access_token",
                    return_value="sess"), \
              patch("src.api.cost_plugins.opencode_api.fetch_account_credits",
@@ -268,7 +299,30 @@ class TestOpenCodeFetchBalance:
         assert result["available_credits"] == 12.34
         assert result["balance"] == 12.34
         assert result["plan"] == "go"
-        assert mock_fetch.call_args[0][0] == "sess"
+        assert result["credits_source"] == "key"
+        assert mock_fetch.call_args[0][0] == "oc_sk_scoped"
+
+    def test_session_carries_credits_when_the_key_lacks_the_scope(self, plugin):
+        """403 on the key falls through to the session instead of giving up."""
+        from src.api.cost_plugins.opencode_api import ConsoleApiError
+
+        seen: list[str] = []
+
+        def _fake(cred, org_id=None):
+            seen.append(cred)
+            if cred == "oc_sk_inference":
+                raise ConsoleApiError(403, "u", "Forbidden", "")
+            return {"availableMicroCents": 500000000}
+
+        with patch.object(plugin, "_token", return_value="oc_sk_inference"), \
+             patch("src.api.cost_plugins.console_oauth.current_access_token",
+                   return_value="sess-live"), \
+             patch("src.api.cost_plugins.opencode_api.fetch_account_credits",
+                   side_effect=_fake):
+            result = plugin.fetch_balance()
+        assert seen == ["oc_sk_inference", "sess-live"]
+        assert result["available_credits"] == 5.0
+        assert result["credits_source"] == "session"
 
     def test_unrecognised_payload_is_flagged_not_fabricated(self, plugin):
         """A shape change upstream must never yield an invented balance."""
@@ -474,6 +528,81 @@ class TestOpenCodeFetchSubscription:
                     result = plugin.fetch_subscription()
         assert result["total_requests"] == 3
         assert result["total_cost_usd"] == 0.01
+
+    # ── Durable key carries the usage read ────────────────────────────────
+
+    def test_usage_totals_come_from_the_key_without_any_session(self, plugin):
+        """``/api/usage/*`` answers an inference-only key, so a dead session is irrelevant.
+
+        This is the 2026-10-26 regression: the card 401ed because the *session*
+        was sent to a route the stored key could read all along.
+        """
+        summary = {"totalRequests": "42", "totalCostMicroCents": "1000000",
+                   "totalCacheReadTokens": "7"}
+        with self._with_org(), \
+             patch.object(plugin, "_token", return_value="oc_sk_inference"), \
+             patch("src.api.cost_plugins.console_oauth.current_access_token",
+                   return_value=""):
+            with patch("src.api.cost_plugins.opencode_api.fetch_go_usage",
+                       return_value=None), \
+                 patch("src.api.cost_plugins.opencode_api.fetch_budget_members",
+                       side_effect=_console_err(403)), \
+                 patch("src.api.cost_plugins.opencode_api.fetch_usage_summary",
+                       return_value=summary) as fetch:
+                result = plugin.fetch_subscription()
+        assert fetch.call_args[0][0] == "oc_sk_inference"
+        assert result["total_requests"] == 42
+        assert result["total_cost_usd"] == 0.01
+        assert result["usage_credential"] == "key"
+
+    def test_usage_403_is_reported_as_a_permissions_gap(self, plugin):
+        """A 403 on the usage route names the missing read scope."""
+        with self._with_org(), \
+             patch.object(plugin, "_token", return_value="oc_sk_inference"), \
+             patch("src.api.cost_plugins.console_oauth.current_access_token",
+                   return_value=""):
+            with patch("src.api.cost_plugins.opencode_api.fetch_go_usage",
+                       return_value=None), \
+                 patch("src.api.cost_plugins.opencode_api.fetch_budget_members",
+                       side_effect=_console_err(403)), \
+                 patch("src.api.cost_plugins.opencode_api.fetch_usage_summary",
+                       side_effect=_console_err(403)):
+                result = plugin.fetch_subscription()
+        assert result["_error"] == "permission_denied"
+        # The console's key vocabulary is `Inference only` | `All`; "Usage: Read"
+        # belongs to org member roles, not keys — never ship that as the fix.
+        assert "Inference only" in result["detail"]
+        assert "Usage: Read" not in result["detail"]
+
+    def test_zero_usage_this_month_still_reports_last_activity(self, plugin):
+        """A real zero must be distinguishable from a broken fetch.
+
+        The vendor's own record for this org stops on 2026-09-29, so the 7d and
+        month-to-date windows are legitimately empty.  Reporting the last active
+        day keeps that from reading as a silent failure.
+        """
+        summary = {"totalRequests": "0", "totalCostMicroCents": "0"}
+        rows = [{"date": "2026-09-28", "totalCostMicroCents": "100",
+                 "totalTokens": "10", "totalRequests": "1"},
+                {"date": "2026-09-29", "totalCostMicroCents": "200",
+                 "totalTokens": "20", "totalRequests": "2"}]
+        with self._with_org(), \
+             patch.object(plugin, "_token", return_value="oc_sk_inference"), \
+             patch("src.api.cost_plugins.console_oauth.current_access_token",
+                   return_value=""):
+            with patch("src.api.cost_plugins.opencode_api.fetch_go_usage",
+                       return_value=None), \
+                 patch("src.api.cost_plugins.opencode_api.fetch_budget_members",
+                       return_value=[]), \
+                 patch("src.api.cost_plugins.opencode_api.fetch_usage_summary",
+                       return_value=summary), \
+                 patch("src.api.cost_plugins.opencode_api.fetch_usage_cost_by_day",
+                       return_value=rows):
+                result = plugin.fetch_subscription()
+        assert result["total_requests"] == 0
+        assert result["last_activity_date"] == "2026-09-29"
+        assert result["days_since_activity"] >= 1
+        assert "month_requests" not in result      # no invented month total
 
     def test_mock_env_short_circuits_without_a_session(self, plugin, monkeypatch):
         monkeypatch.setenv("LCP_MOCK_PLUGIN_DATA", "1")

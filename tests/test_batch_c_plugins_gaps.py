@@ -83,17 +83,34 @@ class TestOpenCodePluginGaps:
             assert p.fetch_balance() is None
 
     def test_fetch_balance_api_error(self, monkeypatch):
+        """A broken store is not a credential; a failing route stays an api_error.
+
+        Rewritten 2026-10-31: the old body patched ``fetch_billing_dict`` (a
+        function this plugin no longer calls) and relied on a MagicMock store
+        leaking a mock token through the single-credential path.  Both are now
+        guarded, so the assertions are the real contract — a store that yields
+        no usable credential stays quiet, and a 5xx is a transient api_error
+        (not an auth failure the operator would chase).
+        """
         from src.api.cost_plugins import opencode as oc
+        from src.api.cost_plugins import opencode_api as oa
+
         monkeypatch.delenv("LCP_MOCK_PLUGIN_DATA", raising=False)
         p = oc.OpenCodeCostPlugin()
+
         store = MagicMock()
         store.get_cookie.return_value = "cookie"
         store.get_workspace_id.return_value = ""
-        with patch("src.api.credential_store.get_credential_store", return_value=store), \
-             patch("src.api.cost_plugins.opencode_api.fetch_billing_dict",
-                   return_value=None):
+        with patch("src.api.credential_store.get_credential_store", return_value=store):
+            assert p.fetch_balance() is None  # a mock is not a credential
+
+        with patch.object(p, "_token", return_value="oc_sk_key"), \
+             patch("src.api.cost_plugins.opencode_api.fetch_account_credits",
+                   side_effect=oa.ConsoleApiError(503, "/api/billing/status",
+                                                  "Unavailable")):
             out = p.fetch_balance()
         assert out["_error"] == "api_error"
+        assert "503" in out["detail"]
 
     def test_fetch_balance_mock_data(self, monkeypatch):
         from src.api.cost_plugins import opencode as oc
