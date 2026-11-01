@@ -56,6 +56,16 @@ class Request(Base):
     release_id = Column(Integer, nullable=True)
     registry_version = Column(Integer, nullable=True)
 
+    # ── Agent provenance (alembic 027) ──────────────────────────────────────
+    # WHO drove the request, as the caller declared it. The profile routes are shared, so
+    # without this an agent turn and a person using the same profile are one row shape.
+    #   agent_generated: 1 = declared agent, 0 = declared not, NULL = said nothing.
+    #   Three states on purpose — "unknown" must not be counted as a person.
+    #   agent_identity : the caller's own name for itself, exactly as sent (free text; it
+    #   arrives from the wire, so it can never fail the request it describes).
+    agent_generated = Column(Integer, nullable=True)
+    agent_identity = Column(String, nullable=True)
+
 
 # ── API Key Management ────────────────────────────────────────────────────
 
