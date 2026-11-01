@@ -148,7 +148,15 @@
         </td>
         <td>{{ c.profile or '—' }}</td>
         <td class="mono">{{ c.model or '—' }}</td>
-        <td>{{ c.source or '—' }}</td>
+        {# `source` says how the transcript got here; the actor says WHO drove it. Two
+           different facts, and the routes are shared, so both are shown. A NULL
+           `agent_generated` renders as "—": the caller never declared, which is not the
+           same as a declaration that it is not an agent, and the table must not imply
+           a claim nobody made. #}
+        <td>{{ c.source or '—' }}
+          {% if c.agent_generated == 1 %}<span class="mono muted" title="{{ c.agent_identity or 'declared agent' }}">· agent</span>
+          {% elif c.agent_generated == 0 %}<span class="mono muted">· not agent</span>
+          {% else %}<span class="mono muted">· —</span>{% endif %}</td>
         {# `messages is none` means the rollup was never recounted — the
            conversation was imported from the request log with no transcript
            stored. That is "unknown", not "zero": rendering 0 beside a summary

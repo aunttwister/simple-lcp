@@ -59,9 +59,12 @@ def db(tmp_path) -> str:
     cfg = Config(str(REPO / "alembic.ini"))
     cfg.set_main_option("script_location", str(REPO / "alembic"))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{path}")
-    # stamp the pre-existing schema at 025 so only 026 runs
+    # Stamp the pre-existing schema at 025, then take it to HEAD: the fixture has to end up
+    # on the revision the application code writes against, not on the revision that
+    # happened to be newest when this test was written. Pinning 026 made the fixture a
+    # database the code can no longer write to as soon as a later revision added a column.
     command.stamp(cfg, "025")
-    command.upgrade(cfg, "026")
+    command.upgrade(cfg, "head")
 
     con = sqlite3.connect(path)
     con.row_factory = sqlite3.Row

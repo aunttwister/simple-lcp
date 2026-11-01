@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS conv_messages (
 _ROLLUP_COLUMNS = (
     ("source", "TEXT"),
     ("agent_session_id", "TEXT"),
+    # alembic 027 — see `models.Request`; duplicated here for the same reason as the rest.
+    ("agent_generated", "INTEGER"),
+    ("agent_identity", "TEXT"),
     ("started_at", "TEXT"),
     ("ended_at", "TEXT"),
     ("message_count", "INTEGER"),
@@ -81,6 +84,19 @@ def _connect() -> sqlite3.Connection:
     con = sqlite3.connect(db_path(), timeout=30)
     con.row_factory = sqlite3.Row
     return con
+
+
+def _conversation_columns(con: sqlite3.Connection) -> set:
+    """Column names present on ``conversations`` right now.
+
+    Needed because this module's SQL runs before/independently of alembic: a database still
+    at revision 026 has no ``agent_generated`` column, and a SELECT naming it would raise
+    where the pre-027 behaviour was simply to have no such field.
+    """
+    try:
+        return {r[1] for r in con.execute("PRAGMA table_info(conversations)")}
+    except sqlite3.Error:
+        return set()
 
 
 def ensure_store() -> None:
@@ -286,11 +302,18 @@ def list_conversations(params: Optional[dict[str, Any]] = None) -> dict[str, Any
                             args).fetchone()[0]
         st = tables.state(params, HISTORY_SORTS, total)
         limit_sql, limit_args = tables.limit_clause(st)
+        # Alembic 027's columns are resolved against the live table rather than assumed: a
+        # database that has not migrated yet must still serve this page, so the projection
+        # substitutes NULLs instead of naming a column that does not exist.
+        has_provenance = {"agent_generated", "agent_identity"} <= _conversation_columns(con)
+        provenance = (", agent_generated, agent_identity" if has_provenance
+                      else ", NULL AS agent_generated, NULL AS agent_identity")
         rows = con.execute(
             "SELECT conversation_id, name, summary, profile, model, source, "
             "message_count, active_message_count, tool_call_count, first_seen, "
-            "last_seen, started_at, ended_at, calls, tokens, cost, errors "
-            "FROM conversations " + where + " ORDER BY " + st["order_sql"] + limit_sql,
+            "last_seen, started_at, ended_at, calls, tokens, cost, errors"
+            + provenance
+            + " FROM conversations " + where + " ORDER BY " + st["order_sql"] + limit_sql,
             args + limit_args).fetchall()
         conversations = [{
             "id": r["conversation_id"],
@@ -314,6 +337,11 @@ def list_conversations(params: Optional[dict[str, Any]] = None) -> dict[str, Any
             "tokens": r["tokens"] or 0,
             "cost": round(r["cost"] or 0.0, 6),
             "errors": r["errors"] or 0,
+            # Alembic 027. None = the caller never declared (unknown), which is NOT the
+            # same as 0 = the caller declared itself not an agent. The template renders
+            # unknown as "—" for the same reason it does for `measured` below.
+            "agent_generated": r["agent_generated"],
+            "agent_identity": r["agent_identity"],
             # A conversation whose requests were never stamped has calls/tokens/
             # cost all at 0 — 3,666 of 5,051 here, all `source='hermes'`. Those
             # zeros are "not measured", not "nothing spent": one of them has 5,874
@@ -383,6 +411,13 @@ def conversation_audit(conversation_id: str) -> dict[str, Any]:
             "profile": rollup["profile"] if "profile" in keys else None,
             "model": rollup["model"] if "model" in keys else None,
             "source": rollup["source"] if "source" in keys else None,
+            # Alembic 027, keyed the same guarded way as every other optional column: the
+            # audit view is served by whatever database is running, which may predate the
+            # migration. None means the caller never declared — not "a person".
+            "agent_generated": (rollup["agent_generated"]
+                                if "agent_generated" in keys else None),
+            "agent_identity": (rollup["agent_identity"]
+                               if "agent_identity" in keys else None),
             "messages": (rollup["message_count"]
                          if "message_count" in keys else None),
             "active_messages": (rollup["active_message_count"]
@@ -577,7 +612,9 @@ def _dump(value: Any) -> str:
 def capture_request(conversation_id: Optional[str], body: dict[str, Any],
                     reply: Optional[str] = None, *, ts: Optional[str] = None,
                     profile: Optional[str] = None,
-                    model: Optional[str] = None) -> int:
+                    model: Optional[str] = None,
+                    agent_generated: Optional[bool] = None,
+                    agent_identity: Optional[str] = None) -> int:
     """Record a served request against its conversation. Fail-open by design.
 
     Appends the request's own messages (system excluded) and, when the reply is
@@ -604,7 +641,9 @@ def capture_request(conversation_id: Optional[str], body: dict[str, Any],
         written = append_messages(conversation_id, messages, origin="capture")
         if written:
             upsert_conversation(conversation_id, profile=profile, model=model,
-                                source="live", last_message_ts=ts)
+                                source="live", last_message_ts=ts,
+                                agent_generated=agent_generated,
+                                agent_identity=agent_identity)
             recount_conversation(conversation_id)
         return written
     except Exception:  # noqa: BLE001
@@ -626,6 +665,8 @@ def upsert_conversation(cid: str, *, profile: Optional[str] = None,
                         input_tokens: Optional[int] = None,
                         output_tokens: Optional[int] = None,
                         last_message_ts: Optional[str] = None,
+                        agent_generated: Optional[bool] = None,
+                        agent_identity: Optional[str] = None,
                         con: Optional[sqlite3.Connection] = None) -> None:
     """Insert or update the conversation rollup, never overwriting a set value with NULL.
 
@@ -643,7 +684,14 @@ def upsert_conversation(cid: str, *, profile: Optional[str] = None,
                   ("ended_at", ended_at), ("message_count", message_count),
                   ("active_message_count", active_message_count),
                   ("tool_call_count", tool_call_count),
-                  ("input_tokens", input_tokens), ("output_tokens", output_tokens)]
+                  ("input_tokens", input_tokens), ("output_tokens", output_tokens),
+                  # Alembic 027. `False` is a real value and must be written, so it is
+                  # converted to 0 here rather than dropped by the None check below;
+                  # `None` keeps its meaning of "the caller did not say", which must not
+                  # overwrite a declaration an earlier request already made.
+                  ("agent_generated",
+                   None if agent_generated is None else (1 if agent_generated else 0)),
+                  ("agent_identity", agent_identity or None)]
         present = [(c, v) for c, v in wanted if c in cols and v is not None]
 
         colnames = [c for c, _ in present]

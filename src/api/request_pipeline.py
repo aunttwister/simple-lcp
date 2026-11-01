@@ -1233,7 +1233,9 @@ def _engine_db_path(engine) -> "str | None":
 def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict,
                 success: bool, error_type: str | None, tools_blocked: list[str],
                 error_detail: str | None = None,
-                conversation_id: str | None = None) -> None:
+                conversation_id: str | None = None,
+                agent_generated: bool | None = None,
+                agent_identity: str | None = None) -> None:
     """Record cost data to SQLite and track against budgets.
 
     ``conversation_id`` (optional): the client's real per-conversation id
@@ -1241,6 +1243,13 @@ def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict
     decisions written during this call, so the unified Conversations view can
     group request + provider logs by conversation. NULL (no header present /
     legacy) is later covered by the deterministic burst backfill.
+
+    ``agent_generated`` / ``agent_identity`` (optional): the caller's own declaration
+    (``X-Agent-Generated`` / ``X-Agent-Identity``). Stored as a **tri-state** —
+    True/False/None — because "the caller said it is not an agent" and "the caller said
+    nothing" are different facts, and a NULL counted as ``0`` would let every unlabelled
+    request be read as a person. Persisted only; nothing here changes routing, cost or
+    which provider serves the call.
     """
     cost = cost_info.get("cost", 0)
     ts = datetime.now(timezone.utc).isoformat()
@@ -1248,6 +1257,9 @@ def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict
     # CUR-270: record what served this, not just what we asked for. `provider`/`model`
     # stay the raw strings; these ids are the resolved identity, NULL when unknowable.
     identity = _stamp_identity(provider, model, ts, engine)
+
+    # None stays None; a declaration is stored as 1/0 so a SQL `= 1` filter is unambiguous.
+    generated_flag = None if agent_generated is None else (1 if agent_generated else 0)
 
     rid = None
     with get_session(engine) as session:
@@ -1269,6 +1281,8 @@ def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict
             deployment_id=identity["deployment_id"],
             release_id=identity["release_id"],
             registry_version=identity["registry_version"],
+            agent_generated=generated_flag,
+            agent_identity=(agent_identity or None),
         )
         session.add(req)
         session.commit()

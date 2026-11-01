@@ -122,6 +122,53 @@ def _resolve_pricing(config, provider: str, model: str) -> dict | None:
     return None
 
 
+#: Headers a client uses to declare that it is an autonomous agent rather than a person.
+#: Sent by the Hermes fleet (see `model.default_headers` in each profile's config.yaml).
+AGENT_GENERATED_HEADER = "X-Agent-Generated"
+AGENT_IDENTITY_HEADER = "X-Agent-Identity"
+
+#: Explicit "not an agent" spellings. Only these produce False; anything else unknown to us
+#: is NOT treated as a denial, because a caller that sets the header to something we do not
+#: recognise has told us nothing we can act on.
+_NOT_AGENT_VALUES = frozenset({"0", "false", "no", "off", "human", "user"})
+
+
+def _caller_provenance(headers) -> tuple[bool | None, str | None]:
+    """Read the caller's own declaration of who drove this request.
+
+    Returns ``(agent_generated, agent_identity)`` where ``agent_generated`` is:
+
+    * ``True``  — the caller declared itself an agent (header present, truthy value);
+    * ``False`` — the caller explicitly declared it is not one (``0``/``false``/``human``…);
+    * ``None``  — no header, or a value we do not recognise.
+
+    The tri-state is the point. ``/l1``, ``/l2`` and the other profile routes are shared
+    between the operator's own clients and autonomous agents, so a two-state flag would
+    force every unlabelled request into "human" — inventing a fact about a request that
+    never made a claim. Unknown stays unknown, and a report can say so.
+
+    Never raises: this is bookkeeping beside a request that has already been served, and a
+    malformed header must not turn a successful call into a failure.
+    """
+    try:
+        raw = headers.get(AGENT_GENERATED_HEADER)
+    except Exception:  # noqa: BLE001
+        return None, None
+    identity = None
+    try:
+        identity = headers.get(AGENT_IDENTITY_HEADER) or None
+    except Exception:  # noqa: BLE001
+        identity = None
+    if raw is None:
+        # No claim made. An identity header on its own still claims an agent, because the
+        # only senders of it are agents.
+        return (True if identity else None), identity
+    value = str(raw).strip().lower()
+    if value in _NOT_AGENT_VALUES:
+        return False, identity
+    return (True if value else None), identity
+
+
 class LCPHandler(
     HealthEndpoints,
     ProviderEndpoints,
@@ -574,6 +621,12 @@ class LCPHandler(
         # NameError, masking the real error.
         _inflight_token = None
 
+        # Bound before the try so an exception raised BEFORE the header read still has a
+        # name to report. (None, not False: the request never got far enough to be
+        # classified, and a failure row claiming "not an agent" would be an invented fact.)
+        agent_generated: bool | None = None
+        agent_identity: str | None = None
+
         try:
             # Validate body has messages (after auth so we return 401 first if unauthenticated)
             if not isinstance(body.get("messages"), list) or len(body.get("messages", [])) == 0:
@@ -661,6 +714,13 @@ class LCPHandler(
             # identified request and silently dropped its cost row.
             conversation_id = self.headers.get("x-opencode-session")
 
+            # Who drove this request, as the caller declares it (alembic 027). Three
+            # states, deliberately: a declared agent (1), a caller that says it is not
+            # (0), and a caller that said nothing (None) — an unlabelled request must not
+            # read as a person's. The identity is the caller's own name for itself and is
+            # stored verbatim; it arrives from the wire, so it can never fail the request.
+            agent_generated, agent_identity = _caller_provenance(self.headers)
+
             # Outbound requests must always carry a stable per-conversation header
             # (`x-opencode-session`); fall back to a per-profile id.
             session_id = conversation_id or f"lcp-{profile}"
@@ -738,7 +798,9 @@ class LCPHandler(
                             "latency_ms": latency_ms,
                         }
                     record_cost(self.engine, profile, model, provider, cost_info, True, None, blocked_tools,
-                                conversation_id=conversation_id)
+                                conversation_id=conversation_id,
+                                agent_generated=agent_generated,
+                                agent_identity=agent_identity)
 
                     # Increment budget spend and fire alerts
                     self._track_budget_spend(
@@ -759,6 +821,8 @@ class LCPHandler(
                     conversation_id, body,
                     reply=extract_sse_text(full_sse),
                     profile=profile, model=model,
+                    agent_generated=agent_generated,
+                    agent_identity=agent_identity,
                 )
 
                 total_wall_ms = int((time.time() - t0) * 1000)
@@ -808,7 +872,9 @@ class LCPHandler(
 
                 # Record cost
                 record_cost(self.engine, profile, model, provider, cost_info, True, None, blocked_tools,
-                                conversation_id=conversation_id)
+                                conversation_id=conversation_id,
+                                agent_generated=agent_generated,
+                                agent_identity=agent_identity)
 
                 # Budget spend tracking — unified: increments profile + key budgets
                 # and syncs ApiKey.total_spend with key-scoped budgets.
@@ -838,6 +904,8 @@ class LCPHandler(
                 conversation_id, body,
                 reply=extract_message_text(response_body),
                 profile=profile, model=model,
+                agent_generated=agent_generated,
+                agent_identity=agent_identity,
             )
 
             total_wall_ms = int((time.time() - t0) * 1000)
@@ -863,14 +931,16 @@ class LCPHandler(
             cost_info = {"prompt_tokens": 0, "completion_tokens": 0, "cache_hit_tokens": 0,
                          "cache_miss_tokens": 0, "cost": 0, "latency_ms": 0}
             record_cost(self.engine, profile, "unknown", "unknown", cost_info, False,
-                       "provider_bad_request", [], error_detail=str(e))
+                       "provider_bad_request", [], error_detail=str(e),
+                       agent_generated=agent_generated, agent_identity=agent_identity)
             self._send_error(e)
         except AllProvidersFailedError as e:
             logger.error("all_providers_failed", profile=profile, error=str(e))
             cost_info = {"prompt_tokens": 0, "completion_tokens": 0, "cache_hit_tokens": 0,
                          "cache_miss_tokens": 0, "cost": 0, "latency_ms": 0}
             record_cost(self.engine, profile, "unknown", "unknown", cost_info, False,
-                       "all_providers_failed", [], error_detail=str(e))
+                       "all_providers_failed", [], error_detail=str(e),
+                       agent_generated=agent_generated, agent_identity=agent_identity)
             self._send_error(e)
         except ProviderError as e:
             # Any other typed provider error (timeout, rate limit, upstream
@@ -879,7 +949,8 @@ class LCPHandler(
             cost_info = {"prompt_tokens": 0, "completion_tokens": 0, "cache_hit_tokens": 0,
                          "cache_miss_tokens": 0, "cost": 0, "latency_ms": 0}
             record_cost(self.engine, profile, "unknown", "unknown", cost_info, False,
-                       e.code, [], error_detail=str(e))
+                       e.code, [], error_detail=str(e),
+                       agent_generated=agent_generated, agent_identity=agent_identity)
             self._send_error(e)
         except LCPError as e:
             logger.error("lcp_error", profile=profile, error=str(e))
