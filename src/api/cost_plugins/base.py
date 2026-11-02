@@ -458,6 +458,13 @@ class CostPluginsComponent(Component):
         from .opencode import OpenCodeCostPlugin
         from .llamacpp import LlamaCppCostPlugin
         from .commandcode import CommandCodeCostPlugin
+        # NOTE: this list — not the plugins' own module-level
+        # `get_registry().register(...)` calls — is what the running server
+        # actually uses. `get_registry()` returns the module singleton, which a
+        # bound Runtime never consults (`resolve_service("pricing")` returns
+        # THIS registry). A plugin registered only at import time therefore
+        # works in ad-hoc scripts and is invisible in the UI. Keep both in sync.
+        from .anthropic import AnthropicCostPlugin
 
         engine = rt.resolve("engine")
         registry = PluginRegistry()
@@ -465,6 +472,7 @@ class CostPluginsComponent(Component):
         registry.register(OpenCodeCostPlugin(engine=engine))
         registry.register(LlamaCppCostPlugin())
         registry.register(CommandCodeCostPlugin(engine=engine))
+        registry.register(AnthropicCostPlugin())
         for p in self._extra_plugins:
             registry.register(p)
         self._registry = registry
