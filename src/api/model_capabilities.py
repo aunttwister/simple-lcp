@@ -87,10 +87,31 @@ def probe_vision(api_base: str, api_key: Optional[str], model: str, *,
 
     headers = dict(browser_headers or {})
     headers.setdefault("Content-Type", "application/json")
-    if api_key:
-        headers["Authorization"] = "Bearer " + api_key
-
-    req = urlrequest.Request(base + "/chat/completions", data=body, headers=headers)
+    # Claude models answer 403 on /chat/completions and only speak the Anthropic
+    # Messages API. Select the wire the same way the proxy does, or a working
+    # Claude model scores 0 here.
+    from .wire_anthropic import (
+        ANTHROPIC_API_VERSION,
+        ANTHROPIC_MESSAGES_PATH,
+        is_anthropic_model,
+        to_anthropic,
+    )
+    if is_anthropic_model(model):
+        # 120 is too small for a Claude model: the leading `thinking` block can
+        # consume the whole budget and leave no text for the scorer to read.
+        payload = dict(json.loads(body.decode()))
+        payload["max_tokens"] = 1024
+        req = urlrequest.Request(
+            base + ANTHROPIC_MESSAGES_PATH,
+            data=json.dumps(to_anthropic(payload, model)).encode(),
+            headers={**headers,
+                     "anthropic-version": ANTHROPIC_API_VERSION,
+                     **({"x-api-key": api_key} if api_key else {})},
+        )
+    else:
+        if api_key:
+            headers["Authorization"] = "Bearer " + api_key
+        req = urlrequest.Request(base + "/chat/completions", data=body, headers=headers)
     start = time.monotonic()
     try:
         ctx = ssl.create_default_context()
