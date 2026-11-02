@@ -19,13 +19,18 @@ for the same models in ``cost_plugins/commandcode.py`` (verified 2026-10-05
 there). Anthropic bills no peak/off-peak differential, so there are no
 ``peak_*`` keys and no time-based rate selection.
 
-``claude-haiku-5-5`` is deliberately listed as SUPPORTED but UNPRICED. It is the
-only Claude tier currently reachable on this estate's commandcode plan, but no
-authoritative per-token rate has been sourced for it. Guessing a number would
-silently corrupt every cost report that includes it, so ``get_pricing`` returns
-``None`` for it and the pipeline records the call with tokens but no cost. Give
-this module the real rate when it is known, and the number becomes trustworthy
-everywhere at once.
+``claude-haiku-5-5`` is priced from Command Code's own catalogue at
+https://commandcode.ai/docs/resources/pricing-limits (read 2026-11-02): input
+$0.10/M, output $0.50/M, cache read $0.01/M, cache write $0.125/M. That is the
+same page the estate's other rates were verified against and the same provider
+this estate actually routes Claude through, so the number is sourced rather
+than inferred.
+
+Known discrepancy, deliberately NOT silently "fixed": that same page lists
+``claude-haiku-4-5`` at input $1.00 / output $5.00 / cache read $0.10, while the
+row below carries $0.80 / $4.00 / $0.08 — 80% of the published rate. Correcting
+it would rewrite the cost basis of already-recorded traffic, so it is left alone
+and reported instead.
 """
 
 from typing import Optional
@@ -39,7 +44,7 @@ _SUPPORTED_MODELS: list[str] = [
     "claude-opus-5",
     "claude-sonnet-5",
     "claude-sonnet-4-6",
-    "claude-haiku-5-5",   # in-plan, RATE UNKNOWN -> records as unpriced
+    "claude-haiku-5-5",   # in-plan, priced below from the Command Code catalogue
     "claude-haiku-4-5",
 ]
 
@@ -50,6 +55,9 @@ _PRICING: dict[str, dict[str, float]] = {
     "claude-sonnet-5":   {"cache_hit": 0.30, "cache_miss": 3.00, "output": 15.00},
     "claude-opus-5":     {"cache_hit": 0.375, "cache_miss": 15.00, "output": 75.00},
     "claude-haiku-4-5":  {"cache_hit": 0.08, "cache_miss": 0.80, "output": 4.00},
+    # 2026-11-02, commandcode.ai/docs/resources/pricing-limits: in 0.10 / out 0.50
+    # / cache read 0.01 (cache write 0.125 is not a column this schema tracks).
+    "claude-haiku-5-5":  {"cache_hit": 0.01, "cache_miss": 0.10, "output": 0.50},
 }
 
 #: Anthropic's public API version string base; model ids have no vendor prefix
@@ -77,8 +85,9 @@ class AnthropicCostPlugin(CostPlugin):
     def get_pricing(self, model: str) -> Optional[dict]:
         """Rates for *model*, or None when the rate is not sourced.
 
-        None is the honest answer for ``claude-haiku-5-5``: it exists and is
-        callable, but nobody has given this module a real rate for it.
+        None means the rate is not sourced for that model; every Claude tier this
+        module claims currently has one, so None here is a signal that a new model
+        appeared without a rate rather than an expected outcome.
         """
         return _PRICING.get(model)
 
