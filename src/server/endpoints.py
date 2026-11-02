@@ -62,6 +62,12 @@ from ..api.models import get_session, Request as RequestModel, Budget, ApiKey, F
 from ..api.prompt_cache import get_prompt_cache
 from ..api.token_verifier import get_token_verifier
 from ..api.runtime import resolve_service
+from ..api.wire_anthropic import (
+    ANTHROPIC_API_VERSION,
+    ANTHROPIC_MESSAGES_PATH,
+    is_anthropic_model,
+    to_anthropic,
+)
 from ..ui.dashboard import render_dashboard
 
 logger = get_logger("lcp.server")
@@ -1310,13 +1316,29 @@ class ProviderEndpoints:
             self._send_json({"error": f"api_base not allowed: {ssrf_reason}"}, 400)
             return
 
-        url = f"{api_base}/chat/completions"
         test_model = model or "gpt-3.5-turbo"
-        test_body = json.dumps({
-            "model": test_model,
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 5,
-        }).encode()
+        # Claude models on providers such as commandcode answer 403 on
+        # /chat/completions and only speak the Anthropic Messages API. The Test
+        # button therefore has to select the same wire format the proxy path
+        # does, or a perfectly working Claude route reports as broken here.
+        test_anthropic = is_anthropic_model(test_model)
+        if test_anthropic:
+            url = f"{api_base}{ANTHROPIC_MESSAGES_PATH}"
+            # 64, not 5: Claude 5 emits a `thinking` block ahead of the answer and
+            # a tiny budget is consumed entirely by it — measured, and it still
+            # returns 200 with no visible text, so a 5-token probe proves nothing.
+            test_body = json.dumps(to_anthropic({
+                "model": test_model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 64,
+            }, test_model)).encode()
+        else:
+            url = f"{api_base}/chat/completions"
+            test_body = json.dumps({
+                "model": test_model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 5,
+            }).encode()
 
         logger.info(
             "provider_test_start",
@@ -1329,7 +1351,11 @@ class ProviderEndpoints:
         start_ts = time.monotonic()
         headers = _browser_headers(api_base)
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            if test_anthropic:
+                headers["x-api-key"] = api_key
+                headers["anthropic-version"] = ANTHROPIC_API_VERSION
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
         req = urllib.request.Request(url, data=test_body, headers=headers)
         try:
             ctx = ssl.create_default_context()
