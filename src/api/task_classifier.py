@@ -142,11 +142,32 @@ class SemanticClassifier:
     # semantic matches only.
     DEFAULT_MIN_SCORE = 0.35
 
-    def __init__(self, embed=None, min_score: float = DEFAULT_MIN_SCORE):
+    def __init__(
+        self,
+        embed=None,
+        min_score: float = DEFAULT_MIN_SCORE,
+        exemplars: Optional[dict[str, list[str]]] = None,
+        taxonomy_id: Optional[str] = None,
+        taxonomy_version: Optional[int] = None,
+    ):
+        # The label space is an ARGUMENT, not a module constant. `exemplars=None` preserves the
+        # shipped behaviour exactly (the module constant), so every existing caller is unaffected;
+        # a taxonomy supplies its own set instead.
         self._embed = embed  # callable(texts: list[str]) -> list[list[float]]
         self._min_score = min_score
+        self._exemplars: dict[str, list[str]] = (
+            {k: list(v) for k, v in (exemplars or TASK_EXEMPLARS).items()}
+        )
+        self.taxonomy_id = taxonomy_id or "builtin-v0"
+        self.taxonomy_version = taxonomy_version
         self._centroids: Optional[dict[str, list[float]]] = None
-        self._task_order: list[str] = list(TASK_EXEMPLARS.keys())
+        self._task_order: list[str] = list(self._exemplars.keys())
+
+    @property
+    def labels(self) -> list[str]:
+        """The label space this classifier decides in — visible, because a taxonomy that is not
+        queryable is a taxonomy nobody can check."""
+        return list(self._exemplars.keys())
 
     @property
     def available(self) -> bool:
@@ -161,7 +182,7 @@ class SemanticClassifier:
         if self._centroids is not None or not self.available:
             return
         centroids: dict[str, list[float]] = {}
-        for task, exemplars in TASK_EXEMPLARS.items():
+        for task, exemplars in self._exemplars.items():
             if not exemplars:
                 continue
             try:
@@ -227,8 +248,24 @@ class SemanticClassifier:
         return best_task
 
 
-# Module-level cached classifier (built lazily from the memory embedder).
-_classifier: Optional[SemanticClassifier] = None
+# Cached classifiers, keyed on (taxonomy_id, taxonomy_version, embedder model). A single global --
+# what this used to be -- is the one thing that cannot survive per-user taxonomies: the second
+# profile to be classified would silently reuse the first profile's label space.
+_classifiers: dict[tuple, SemanticClassifier] = {}
+_classifier: Optional[SemanticClassifier] = None   # built-in slot, kept for back-compat readers
+# The embedder weights are shared across taxonomies - only the label space differs, so reloading
+# 130MB of weights per profile would be pure waste.
+_embedder = None
+
+
+def _cache_key(taxonomy) -> tuple:
+    """The cache identity of a label space: ``(taxonomy_id, taxonomy_version)``.
+
+    Pulled out as a function because this IS the per-user mechanism. A key that ignored the version
+    would serve a stale label space after a taxonomy edit; a key that ignored the id is the single
+    global cache this replaced, where the second profile silently got the first profile's labels.
+    """
+    return (getattr(taxonomy, "id", None) or "builtin-v0", getattr(taxonomy, "version", None))
 
 
 def _probe_embed(embed) -> bool:
@@ -250,8 +287,13 @@ def _probe_embed(embed) -> bool:
     return any(abs(x) > 1e-9 for x in vec)
 
 
-def get_semantic_classifier() -> Optional[SemanticClassifier]:
-    """Return the shared classifier if a real embedder is available, else None.
+def get_semantic_classifier(taxonomy=None) -> Optional[SemanticClassifier]:
+    """Return the classifier for *taxonomy*, or None when no real embedder is available.
+
+    ``taxonomy=None`` means the built-in label space, i.e. exactly what this function returned
+    before taxonomies existed. The result is cached on ``(taxonomy_id, taxonomy_version)``: the
+    label space is what varies per profile, so one shared global would make the second profile
+    silently reuse the first profile's labels.
 
     Builds an ``EmbeddingModel`` from ``plugins.router`` (the SEMANTIC ROUTING
     module — independent of the memory plugin) and probes it. When
@@ -262,9 +304,12 @@ def get_semantic_classifier() -> Optional[SemanticClassifier]:
     and the memory bank are separate installable modules. Both share the same
     embedder type, but the router module is what powers task classification.
     """
-    global _classifier
-    if _classifier is not None:
-        return _classifier
+    global _classifier, _embedder
+    tid, tver = _cache_key(taxonomy)
+    exemplars = taxonomy.exemplars("act") if taxonomy is not None else None
+    hit = _classifiers.get((tid, tver))
+    if hit is not None and hit.available:
+        return hit
     try:
         import sys
 
@@ -310,15 +355,29 @@ def get_semantic_classifier() -> Optional[SemanticClassifier]:
             router_cfg.get("min_score", SemanticClassifier.DEFAULT_MIN_SCORE)
             or SemanticClassifier.DEFAULT_MIN_SCORE
         )
-        _classifier = SemanticClassifier(embed=model.embed, min_score=min_score)
-        logger.info("semantic_classifier_ready", min_score=min_score, models_dir=models_dir)
+        _embedder = model.embed
+        clf = SemanticClassifier(
+            embed=model.embed, min_score=min_score, exemplars=exemplars,
+            taxonomy_id=tid, taxonomy_version=tver,
+        )
+        _classifiers[(tid, tver)] = clf
+        if tid == "builtin-v0":
+            _classifier = clf
+        logger.info("semantic_classifier_ready", taxonomy_id=tid, taxonomy_version=tver,
+                    labels=len(clf.labels), min_score=min_score, models_dir=models_dir)
     except Exception as exc:  # noqa: BLE001 — classifier must never break routing
         logger.warning("semantic_classifier_unavailable", error=str(exc)[:300])
-        _classifier = None
-    return _classifier if (_classifier is not None and _classifier.available) else None
+        clf = None
+    return clf if (clf is not None and clf.available) else None
 
 
 def invalidate_semantic_classifier() -> None:
-    """Drop the cached classifier (e.g. after router module install/uninstall)."""
-    global _classifier
+    """Drop every cached classifier (e.g. after a taxonomy edit or a router module change).
+
+    Clearing ALL keys is deliberate: invalidating one taxonomy while leaving another cached is how
+    you get two profiles classifying in different label spaces with no trace of why.
+    """
+    global _classifier, _embedder
+    _classifiers.clear()
     _classifier = None
+    _embedder = None

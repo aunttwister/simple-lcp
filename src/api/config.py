@@ -305,6 +305,9 @@ SEED_CONFIG: dict[str, Any] = {
             "enabled": True,
             "min_score": 0.35,
             "embedding": {"model": "BAAI/bge-small-en-v1.5", "dim": 384, "device": "cpu"},
+            # Estate-wide fallback taxonomy. None = built-in, i.e. today's label space. Set it to
+            # give every profile that declares nothing a shared taxonomy of its own.
+            "default_taxonomy": None,
         },
     },
 }
@@ -430,6 +433,17 @@ def validate_profile_fields(name: str, prof: dict) -> dict:
             f"(0 disables the gate)"
         )
     out["intent_margin_gate"] = gate
+
+    # Which taxonomy governs this profile. Absent/None = the estate default, which itself defaults
+    # to the built-in label space — so an unset field changes nothing at all.
+    tax = prof.get("intent_taxonomy")
+    if tax is not None:
+        if not isinstance(tax, str) or not tax.strip():
+            raise ConfigError(
+                f"Profile '{name}': 'intent_taxonomy' must be a non-empty taxonomy id, or absent "
+                "to inherit the gateway default"
+            )
+        out["intent_taxonomy"] = tax.strip()
 
     desc = prof.get("description", "")
     if desc is None:

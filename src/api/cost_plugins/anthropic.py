@@ -26,11 +26,14 @@ same page the estate's other rates were verified against and the same provider
 this estate actually routes Claude through, so the number is sourced rather
 than inferred.
 
-Known discrepancy, deliberately NOT silently "fixed": that same page lists
-``claude-haiku-4-5`` at input $1.00 / output $5.00 / cache read $0.10, while the
-row below carries $0.80 / $4.00 / $0.08 — 80% of the published rate. Correcting
-it would rewrite the cost basis of already-recorded traffic, so it is left alone
-and reported instead.
+``claude-haiku-4-5`` is priced from the same page (re-read 2026-11-03): 200K
+context, input $1.00/M, output $5.00/M, cache read $0.10/M, cache write $1.25/M.
+It previously carried $0.80 / $4.00 / $0.08 — 80% of the published rate, an
+inference rather than a source. Corrected once the catalogue was re-read.
+
+Correcting a rate table does NOT rewrite history: rows already recorded keep the
+figures they were costed at. Only new traffic is affected, so a sourced figure
+beats a round-number guess here.
 """
 
 from typing import Optional
@@ -54,7 +57,8 @@ _PRICING: dict[str, dict[str, float]] = {
     "claude-sonnet-4-6": {"cache_hit": 0.30, "cache_miss": 3.00, "output": 15.00},
     "claude-sonnet-5":   {"cache_hit": 0.30, "cache_miss": 3.00, "output": 15.00},
     "claude-opus-5":     {"cache_hit": 0.375, "cache_miss": 15.00, "output": 75.00},
-    "claude-haiku-4-5":  {"cache_hit": 0.08, "cache_miss": 0.80, "output": 4.00},
+    # 2026-11-03, same catalogue page: 1.00 / 5.00 / cache read 0.10 / cache write 1.25
+    "claude-haiku-4-5":  {"cache_hit": 0.10, "cache_miss": 1.00, "output": 5.00},
     # 2026-11-02, commandcode.ai/docs/resources/pricing-limits: in 0.10 / out 0.50
     # / cache read 0.01 (cache write 0.125 is not a column this schema tracks).
     "claude-haiku-5-5":  {"cache_hit": 0.01, "cache_miss": 0.10, "output": 0.50},

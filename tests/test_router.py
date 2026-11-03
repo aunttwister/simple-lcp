@@ -1394,7 +1394,10 @@ def test_classify_task_detail_default_path(monkeypatch):
     # chain (with the real embedder installed, semantics usually win).
     from src.api.router import classify_task_detail
     from src.api import task_classifier as tc
-    monkeypatch.setattr(tc, "get_semantic_classifier", lambda: None)
+    # the stub must mirror the real signature: the router now passes the resolved taxonomy, and a
+    # zero-arg stub raised TypeError, which classify_task_detail swallows as "embedder unavailable"
+    # — so this test was passing for the wrong reason.
+    monkeypatch.setattr(tc, "get_semantic_classifier", lambda *a, **k: None)
     msgs = [{"role": "user", "content": "review the current state of things in this workspace"}]
     detail = classify_task_detail(msgs)
     assert detail.task == "code_generation"
@@ -1421,7 +1424,7 @@ def test_classify_task_detail_semantic_path(monkeypatch):
         def top_scores(self, text, k=5):
             return [("unit_tests", 0.9), ("code_generation", 0.4)]
 
-    monkeypatch.setattr(tc, "get_semantic_classifier", lambda: FakeClf())
+    monkeypatch.setattr(tc, "get_semantic_classifier", lambda *a, **k: FakeClf())
     detail = classify_task_detail([{"role": "user", "content": "zzz qqq some tests"}])
     assert detail.task == "unit_tests"
     assert detail.path == "semantic"
@@ -1497,7 +1500,7 @@ def test_classify_attachment_casual_words_do_not_route_casual(monkeypatch):
     only genuine user text is scanned. Semantic disabled for determinism."""
     from src.api.router import classify_task_detail
     from src.api import task_classifier as tc
-    monkeypatch.setattr(tc, "get_semantic_classifier", lambda: None)
+    monkeypatch.setattr(tc, "get_semantic_classifier", lambda *a, **k: None)
     msgs = [
         {"role": "system", "content": "You are an expert AI programming assistant."},
         {"role": "user", "content": (
