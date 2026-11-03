@@ -37,6 +37,65 @@ from src.api.config import (
 )
 
 
+from types import SimpleNamespace
+from src.api.cost_plugins.base import CostPlugin, PluginRegistry
+from src.api.cost_plugins.commandcode import CommandCodeCostPlugin
+from src.api.provider_type import provider_type, type_of
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+def _engine_and_rows(rows):
+    """In-memory gateway DB with a ``requests`` table seeded from *rows*."""
+    from src.api.models import Base, Request, get_engine, get_session
+
+    engine = get_engine(":memory:")
+    Base.metadata.create_all(engine, tables=[Base.metadata.tables["requests"]])
+    for row in rows:
+        defaults = {
+            "timestamp": "2026-11-02T12:00:00",
+            "profile": "default",
+            "model": "deepseek-v4-pro",
+            "provider": "commandcode",
+            "prompt_tokens": 1000,
+            "completion_tokens": 100,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 0,
+            "cost": 0.01,
+            "latency_ms": 100,
+            "success": 1,
+            "error_type": None,
+            "tools_blocked": None,
+        }
+        defaults.update(row)
+        with get_session(engine) as session:
+            session.add(Request(**defaults))
+            session.commit()
+    return engine
+
+
+class _ToyPlugin(CostPlugin):
+    """Minimal plugin for registry/binding tests (never talks to a real vendor)."""
+
+    def __init__(self, name="toy"):
+        self._name = name
+        self.started = 0
+        self.stopped = 0
+
+    @property
+    def provider_name(self) -> str:
+        return self._name
+
+    def on_startup(self) -> None:
+        self.started += 1
+
+    def on_shutdown(self) -> None:
+        self.stopped += 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# provider_type — the vendor behind a provider name
+# ═══════════════════════════════════════════════════════════════════════════
+
+
 # ══════════════════════════════════════════════════════════════════════ inference
 
 class TestInferFromName:
@@ -464,3 +523,315 @@ class TestRouteRegistration:
         h.config = live_cfg
         assert h._route_table().dispatch(h, "GET") is True
         assert "providers" in ApiHandler.json_of(h)
+
+
+class TestProviderType:
+    def test_declared_type_wins(self):
+        providers = {"commandcode2": {"type": "commandcode"}}
+        assert provider_type("commandcode2", providers) == "commandcode"
+
+    def test_absent_type_defaults_to_own_name(self):
+        """The whole point of the default: an untyped config behaves as before."""
+        providers = {"opencode": {"api_base": "https://x"}}
+        assert provider_type("opencode", providers) == "opencode"
+
+    def test_provider_missing_from_config_is_its_own_type(self):
+        assert provider_type("ghost", {"opencode": {}}) == "ghost"
+
+    def test_blank_and_whitespace_types_are_ignored(self):
+        assert provider_type("p", {"p": {"type": ""}}) == "p"
+        assert provider_type("p", {"p": {"type": "   "}}) == "p"
+
+    def test_type_is_lowercased_and_trimmed(self):
+        assert provider_type("p", {"p": {"type": " CommandCode "}}) == "commandcode"
+
+    def test_non_string_type_falls_back_to_name(self):
+        assert provider_type("p", {"p": {"type": 7}}) == "p"
+        assert provider_type("p", {"p": {"type": None}}) == "p"
+
+    def test_entry_that_is_not_a_dict_falls_back(self):
+        assert provider_type("p", {"p": "not-a-dict"}) == "p"
+
+    def test_non_mapping_providers_falls_back(self):
+        """Duck-typed or mocked configs must never make the question itself throw."""
+        for bad in (None, [], ["opencode"], "opencode", 3):
+            assert provider_type("opencode", bad) == "opencode"
+
+    def test_type_of_reads_the_mapping_off_a_config(self):
+        cfg = SimpleNamespace(providers={"commandcode2": {"type": "commandcode"}})
+        assert type_of(cfg, "commandcode2") == "commandcode"
+        assert type_of(SimpleNamespace(providers={}), "commandcode2") == "commandcode2"
+        assert type_of(SimpleNamespace(), "commandcode2") == "commandcode2"
+        assert type_of(None, "commandcode2") == "commandcode2"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CostPlugin binding — vendor identity vs configured provider
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestCostPluginBinding:
+    def test_unbound_provider_is_the_vendor_name(self):
+        plugin = _ToyPlugin("commandcode")
+        assert plugin.provider == "commandcode"
+        assert plugin.provider == plugin.provider_name
+
+    def test_bind_provider_retargets_the_instance(self):
+        plugin = _ToyPlugin("commandcode").bind_provider("commandcode2")
+        assert plugin.provider == "commandcode2"
+        # The VENDOR is unchanged: pricing, windows and plugin class still follow it.
+        assert plugin.provider_name == "commandcode"
+
+    def test_bind_provider_is_chainable_and_returns_self(self):
+        plugin = _ToyPlugin("commandcode")
+        assert plugin.bind_provider("commandcode2") is plugin
+
+    def test_provider_can_be_set_as_a_plain_attribute(self):
+        """Subclasses that assign ``self.provider`` (existing pattern) still work."""
+        plugin = _ToyPlugin("commandcode")
+        plugin.provider = "commandcode3"
+        assert plugin.provider == "commandcode3"
+
+    def test_commandcode_plugin_takes_a_provider_argument(self):
+        plugin = CommandCodeCostPlugin(engine=None, provider="commandcode2")
+        assert plugin.provider == "commandcode2"
+        assert plugin.provider_name == "commandcode"
+
+    def test_commandcode_plugin_defaults_to_the_vendor_name(self):
+        assert CommandCodeCostPlugin(engine=None).provider == "commandcode"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Registry — keyed by configured provider, typed for policy lookups
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestRegistryBinding:
+    def test_add_bound_registers_a_second_account(self):
+        reg = PluginRegistry()
+        reg.register(_ToyPlugin("commandcode"))
+        assert reg.add_bound("commandcode2", _ToyPlugin("commandcode")) is True
+        assert sorted(reg.providers) == ["commandcode", "commandcode2"]
+        assert reg.for_provider("commandcode2").provider == "commandcode2"
+
+    def test_add_bound_is_idempotent(self):
+        reg = PluginRegistry()
+        reg.register(_ToyPlugin("commandcode"))
+        assert reg.add_bound("commandcode2", _ToyPlugin("commandcode")) is True
+        assert reg.add_bound("commandcode2", _ToyPlugin("commandcode")) is False
+        assert sorted(reg.providers) == ["commandcode", "commandcode2"]
+
+    def test_add_bound_never_shadows_an_existing_provider(self):
+        """'opencode' is registered by the vendor itself: binding must not replace it."""
+        reg = PluginRegistry()
+        original = _ToyPlugin("opencode")
+        reg.register(original)
+        assert reg.add_bound("opencode", _ToyPlugin("opencode")) is False
+        assert reg.for_provider("opencode") is original
+
+    def test_types_maps_each_provider_to_its_vendor(self):
+        reg = PluginRegistry()
+        reg.register(_ToyPlugin("commandcode"))
+        reg.add_bound("commandcode2", _ToyPlugin("commandcode"))
+        reg.register(_ToyPlugin("deepseek"))
+        assert reg.types == {"commandcode": "commandcode",
+                             "commandcode2": "commandcode",
+                             "deepseek": "deepseek"}
+
+    def test_duplicate_registration_still_raises(self):
+        reg = PluginRegistry()
+        reg.register(_ToyPlugin("commandcode"))
+        with pytest.raises(ValueError):
+            reg.register(_ToyPlugin("commandcode"))
+
+    def test_forget_removes_a_provider(self):
+        reg = PluginRegistry()
+        reg.register(_ToyPlugin("commandcode"))
+        reg.add_bound("commandcode2", _ToyPlugin("commandcode"))
+        assert reg.forget("commandcode2") is True
+        assert reg.for_provider("commandcode2") is None
+        assert reg.forget("commandcode2") is False
+        assert sorted(reg.providers) == ["commandcode"]
+
+    def test_forget_calls_shutdown_and_survives_a_throwing_plugin(self):
+        reg = PluginRegistry()
+        plugin = _ToyPlugin("commandcode")
+        reg.register(plugin)
+        assert reg.forget("commandcode") is True
+        assert plugin.stopped == 1
+
+        class _Bad(_ToyPlugin):
+            def on_shutdown(self):
+                raise RuntimeError("boom")
+
+        reg.register(_Bad("commandcode"))
+        assert reg.forget("commandcode") is True
+
+    def test_fetch_all_helpers_key_by_provider(self):
+        reg = PluginRegistry()
+        reg.register(_ToyPlugin("commandcode"))
+        reg.add_bound("commandcode2", _ToyPlugin("commandcode"))
+        assert set(reg.fetch_all_subscriptions()) == {"commandcode", "commandcode2"}
+        assert set(reg.fetch_all_summaries()) == {"commandcode", "commandcode2"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# The real plugin: rows and credentials are per ACCOUNT
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestCommandCodeSecondAccount:
+    def test_usage_is_aggregated_per_account(self):
+        engine = _engine_and_rows([
+            {"provider": "commandcode", "cost": 0.10, "prompt_tokens": 100},
+            {"provider": "commandcode", "cost": 0.20, "prompt_tokens": 200},
+            {"provider": "commandcode2", "cost": 0.30, "prompt_tokens": 300},
+        ])
+        first = CommandCodeCostPlugin(engine=engine)
+        second = CommandCodeCostPlugin(engine=engine, provider="commandcode2")
+
+        # fetch_usage aggregates per (date, model): the first account's two rows
+        # collapse into one with request_count 2, the second's stays at 1. Counting
+        # requests is what tells the two accounts apart — cost happens to match here.
+        first_rows = first.fetch_usage()
+        second_rows = second.fetch_usage()
+        assert len(first_rows) == 1 and len(second_rows) == 1
+        assert first_rows[0]["request_count"] == 2
+        assert first_rows[0]["provider"] == "commandcode"
+        assert second_rows[0]["request_count"] == 1
+        assert second_rows[0]["provider"] == "commandcode2"
+        assert second_rows[0]["cost"] == pytest.approx(0.30)
+
+    def test_summary_is_per_account(self):
+        engine = _engine_and_rows([
+            {"provider": "commandcode", "cost": 0.10},
+            {"provider": "commandcode", "cost": 0.20},
+            {"provider": "commandcode2", "cost": 0.30},
+        ])
+        first = CommandCodeCostPlugin(engine=engine).fetch_summary()
+        second = CommandCodeCostPlugin(engine=engine, provider="commandcode2").fetch_summary()
+        assert first["monthly"]["requests"] == 2
+        assert second["monthly"]["requests"] == 1
+        assert second["monthly"]["cost"] == pytest.approx(0.30)
+
+    def test_subscription_reads_its_own_credential_slot(self):
+        """The second account must use ITS API key, not the first account's."""
+        store = MagicMock()
+        store.get.side_effect = lambda name: {"commandcode": "sk-first",
+                                              "commandcode2": "sk-second"}.get(name, "")
+        store.get_cookie.return_value = ""
+        snapshot = {"monthly_credits_remaining": 12.0, "purchased_credits": 0.0}
+        plugin = CommandCodeCostPlugin(engine=None, provider="commandcode2")
+
+        with patch("src.api.credential_store.get_credential_store", return_value=store):
+            with patch("src.api.cost_plugins.commandcode_api."
+                       "fetch_subscription_snapshot_dict", return_value=snapshot) as fetch:
+                result = plugin.fetch_subscription()
+
+        assert result == snapshot
+        assert fetch.call_args.kwargs["api_key"] == "sk-second"
+        store.get.assert_any_call("commandcode2")
+
+    def test_second_account_with_no_credential_does_not_borrow_the_first(self):
+        """Only its OWN slot counts: no credential there is an auth failure."""
+        store = MagicMock()
+        store.get.side_effect = lambda name: "sk-first" if name == "commandcode" else ""
+        store.get_cookie.return_value = ""
+        plugin = CommandCodeCostPlugin(engine=None, provider="commandcode2")
+
+        with patch("src.api.credential_store.get_credential_store", return_value=store):
+            with patch("src.api.cost_plugins.commandcode_api."
+                       "fetch_subscription_snapshot_dict") as fetch:
+                result = plugin.fetch_subscription()
+
+        assert result["_error"] == "auth_failed"
+        fetch.assert_not_called()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Component wiring — configured providers of a known vendor get an instance
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _component(providers):
+    """A cost_plugins component wired against a stub config (no real Runtime)."""
+    from src.api.cost_plugins import CostPluginsComponent
+
+    comp = CostPluginsComponent()
+    comp._factories = comp._build_factories(None)
+    comp._config = SimpleNamespace(providers=providers)
+    reg = PluginRegistry()
+    for builder in comp._factories.values():
+        reg.register(builder())
+    comp._registry = reg
+    return comp, reg
+
+
+class TestTypedProviderWiring:
+    def test_second_account_is_wired_from_its_type(self):
+        comp, reg = _component({
+            "commandcode": {"api_base": "https://api.commandcode.ai/provider/v1"},
+            "commandcode2": {"type": "commandcode",
+                             "api_base": "https://api.commandcode.ai/provider/v1"},
+        })
+        added = comp._wire_typed_providers(reg)
+        assert added == ["commandcode2"]
+        assert reg.for_provider("commandcode2").provider == "commandcode2"
+        assert reg.for_provider("commandcode2").provider_name == "commandcode"
+
+    def test_matching_type_does_not_duplicate_a_registered_vendor(self):
+        comp, reg = _component({"commandcode": {}, "opencode": {}})
+        assert comp._wire_typed_providers(reg) == []
+        assert sorted(reg.providers) == ["anthropic", "commandcode", "deepseek",
+                                         "llamacpp", "opencode"]
+
+    def test_untyped_unknown_provider_stays_unregistered(self):
+        comp, reg = _component({"mystery": {}})
+        assert comp._wire_typed_providers(reg) == []
+        assert reg.for_provider("mystery") is None
+
+    def test_unknown_type_does_not_invent_a_plugin(self):
+        comp, reg = _component({"weird": {"type": "no-such-vendor"}})
+        assert comp._wire_typed_providers(reg) == []
+        assert reg.for_provider("weird") is None
+
+    def test_ensure_provider_wires_a_provider_created_after_boot(self):
+        comp, reg = _component({})
+        assert reg.for_provider("commandcode2") is None
+        comp._config = SimpleNamespace(providers={"commandcode2": {"type": "commandcode"}})
+        assert comp.ensure_provider("commandcode2") is True
+        assert reg.for_provider("commandcode2").provider == "commandcode2"
+
+    def test_ensure_provider_is_idempotent(self):
+        comp, reg = _component({"commandcode2": {"type": "commandcode"}})
+        assert comp.ensure_provider("commandcode2") is True
+        first = reg.for_provider("commandcode2")
+        assert comp.ensure_provider("commandcode2") is False
+        assert reg.for_provider("commandcode2") is first
+
+    def test_drop_provider_unwires_a_deleted_provider(self):
+        comp, reg = _component({"commandcode2": {"type": "commandcode"}})
+        comp.ensure_provider("commandcode2")
+        assert comp.drop_provider("commandcode2") is True
+        assert reg.for_provider("commandcode2") is None
+
+    def test_ensure_drop_before_setup_are_no_ops(self):
+        from src.api.cost_plugins import CostPluginsComponent
+
+        comp = CostPluginsComponent()
+        assert comp.ensure_provider("commandcode2") is False
+        assert comp.drop_provider("commandcode2") is False
+
+    def test_setup_wires_typed_providers_end_to_end(self):
+        """Through a real Runtime, exactly as the server boots."""
+        from src.api.cost_plugins import CostPluginsComponent
+        from src.api.runtime import Runtime
+
+        # 'config' is a ROOT key owned by the Runtime itself.
+        config = SimpleNamespace(providers={"commandcode": {},
+                                            "commandcode2": {"type": "commandcode"}})
+        rt = Runtime(config=config, engine=object())
+        rt.register(CostPluginsComponent())
+        rt.start()
+
+        reg = rt.resolve("cost_plugins").registry
+        assert sorted(reg.providers) == ["anthropic", "commandcode", "commandcode2",
+                                         "deepseek", "llamacpp", "opencode"]
+        assert reg.for_provider("commandcode2").provider == "commandcode2"
+        assert reg.types["commandcode2"] == "commandcode"
