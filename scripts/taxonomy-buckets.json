@@ -1,0 +1,50 @@
+{
+  "version": "op-v2",
+  "derived_from": "op-v1 (12 acts x 9 subjects) + the ACT3/SUBJ5 bucket maps that were previously hardcoded inside build_corpus2.py",
+  "note": "SINGLE SOURCE OF TRUTH for the label space. Every corpus builder, the trainer, and the serving classifier read THIS file. The coarse maps used to live inside build_corpus2.py, which is why a later builder (build_additive6.py) silently produced a 15-class act space instead of 3.",
+  "axes": {
+    "act_fine": {
+      "role": "observability / grows",
+      "labels": [
+        "change", "advise", "inspect", "build", "research", "diagnose",
+        "approve", "supervise", "status", "personal", "organize",
+        "correct", "evaluate", "unblock", "plan"
+      ]
+    },
+    "act_bucket": {
+      "role": "DECIDING axis - frozen, versioned",
+      "labels": ["change", "advise", "inspect"],
+      "note": "3 classes. This is the axis every published accuracy figure is denominated in."
+    },
+    "subject_fine": {
+      "role": "observability / grows",
+      "labels": [
+        "lcp", "hermes-agents", "naptune", "blog-seo", "inference-platform",
+        "homelab-infra", "network-purchasing", "finance-economics", "personal-life"
+      ]
+    },
+    "subject_group": {
+      "role": "DECIDING axis - frozen, versioned",
+      "labels": ["agents-lcp", "infra-ops", "product", "inference", "misc"]
+    }
+  },
+  "act_bucket_map": {
+    "change": "change", "advise": "advise", "inspect": "inspect",
+    "build": "change", "correct": "change", "supervise": "change",
+    "organize": "change", "approve": "change",
+    "status": "inspect", "diagnose": "inspect", "unblock": "inspect",
+    "research": "advise", "evaluate": "advise", "plan": "advise",
+    "personal": "advise"
+  },
+  "subject_group_map": {
+    "agents-lcp": "agents-lcp", "infra-ops": "infra-ops", "product": "product",
+    "inference": "inference", "misc": "misc",
+    "hermes-agents": "agents-lcp", "lcp": "agents-lcp",
+    "inference-platform": "inference", "homelab-infra": "infra-ops",
+    "naptune": "product", "blog-seo": "product",
+    "personal-life": "misc", "finance-economics": "misc", "network-purchasing": "misc"
+  },
+  "open_decision": {
+    "personal": "op-v1's ACT3 map had NO entry for 'personal', so it survived as a 4th act class and silently made chain6 a 4-class run. Defaulted here to 'advise' (an observation about the operator's own affairs, not an instruction to change the estate). FLAGGED FOR OPERATOR CONFIRMATION."
+  }
+}
