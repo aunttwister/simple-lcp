@@ -1299,6 +1299,12 @@ def _build_routes() -> RouteTable:
           regex(r"^/api/providers/(?P<name>[^/]+)/failures$"),
           lambda h, p: h._serve_provider_failures_api(
               h._path_part(h.path, 3)))
+    # Self-hosted engines have no billing API: this reads the box's own /health
+    # + /metrics so the Usage page can show what a local provider is actually
+    # doing. Sits with the other /api/providers/* GETs, before the bare list.
+    t.get("api.providers.engine",
+          regex(r"^/api/providers/(?P<name>[^/]+)/engine$"),
+          lambda h, p: h._serve_provider_engine(h._path_part(h.path, 3)))
     t.get("api.providers", exact("/api/providers"),
           lambda h, p: h._serve_providers_list())
 

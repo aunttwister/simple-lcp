@@ -183,21 +183,25 @@
 
       var sum = pluginSummaries[latest];
       var hdrLabel = providerDisplayName(latest);
+      // Branch on the provider's TYPE (declared or inferred), so the header
+      // chip reads the same way for a second account of a vendor and for a
+      // second local box as it does for the first of each.
+      var hdrType = (typeof providerTypeOf === 'function') ? (providerTypeOf(latest) || latest) : latest;
 
-      if (latest === 'deepseek' && sum && sum.balance) {
+      if (hdrType === 'deepseek' && sum && sum.balance) {
         hideUsage();
         hdrLabel += ' \u00b7 ' + (sum.balance.currency || 'USD') + ' ' + sum.balance.available.toFixed(2) + ' available';
-      } else if (latest === 'opencode') {
-        var ocBal = balances['opencode'];
+      } else if (hdrType === 'opencode') {
+        var ocBal = balances[latest];
         if (ocBal && ocBal.balance != null) hdrLabel += ' \u00b7 $' + ocBal.balance.toFixed(2) + ' credits';
-        renderOpencodeUsage(subscriptions['opencode'], ocBal);
-      } else if (latest === 'commandcode') {
-        var ccSub = subscriptions['commandcode'];
+        renderOpencodeUsage(subscriptions[latest], ocBal);
+      } else if (hdrType === 'commandcode') {
+        var ccSub = subscriptions[latest];
         if (ccSub && ccSub.monthly_credits_remaining != null) {
           hdrLabel += ' \u00b7 $' + ccSub.monthly_credits_remaining.toFixed(2) + ' credits';
         }
         renderCommandCodeUsage(ccSub);
-      } else if (latest === 'llamacpp') {
+      } else if (hdrType === 'local') {
         hideUsage();
         var mt = (window.monthly && window.monthly[latest]) ? (window.monthly[latest].tokens || 0) : 0;
         hdrLabel += ' \u00b7 ' + fmtTokens(mt) + ' tokens';

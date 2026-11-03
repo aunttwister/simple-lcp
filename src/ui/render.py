@@ -179,6 +179,28 @@ def render_page(template_name: str, config, engine=None, **kwargs) -> str:
             kwargs.setdefault(key, value)
     monthly = _compute_monthly(engine)
     provider_names = sorted(config.providers.keys()) if config is not None and hasattr(config, 'providers') else []
+    # Vendor family per provider name. Pages branch their per-provider UI on
+    # this instead of the literal name; a config object without the accessor
+    # (older mocks, fixtures) degrades to "no types", i.e. name inference in JS.
+    provider_types = {}
+    provider_type_declared = {}
+    if config is not None and hasattr(config, "provider_type"):
+        try:
+            for _n in provider_names:
+                _t = config.provider_type(_n)
+                # Only real strings are published: a mock/incomplete config
+                # returns something unserialisable, and dropping it degrades to
+                # name inference in JS rather than breaking the page.
+                if isinstance(_t, str) and _t:
+                    provider_types[_n] = _t
+        except Exception:
+            provider_types = {}
+    if config is not None and hasattr(config, "providers"):
+        try:
+            for _n, _pd in (config.providers or {}).items():
+                provider_type_declared[_n] = bool(isinstance(_pd, dict) and _pd.get("type"))
+        except Exception:
+            provider_type_declared = {}
     profiles_list = list(config.profiles.keys()) if config is not None and hasattr(config, 'profiles') else []
     # Which providers have an encrypted credential stored (UI-managed API key)?
     provider_has_keys = {}
@@ -195,6 +217,9 @@ def render_page(template_name: str, config, engine=None, **kwargs) -> str:
         "monthly": monthly,
         "monthly_json": json.dumps(monthly),
         "configured_providers_json": json.dumps(provider_names),
+        "provider_types_json": json.dumps(provider_types),
+        "provider_types": provider_types,
+        "provider_type_declared": provider_type_declared,
         "providers": config.providers if config is not None and hasattr(config, 'providers') else {},
         "profiles": profiles_list,
         "profiles_dict": config.profiles if config is not None and hasattr(config, 'profiles') else {},

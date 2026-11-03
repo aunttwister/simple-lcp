@@ -30,9 +30,9 @@ window.addEventListener('hashchange', applyHashTab);
 
 function loadPresets(){api('GET','/api/providers/presets').then(function(d){var s=document.getElementById('provPreset');Object.keys(d.presets||{}).forEach(function(k){s.innerHTML+='<option value="'+k+'">'+k+'</option>'})})}
 
-function loadPreset(){var k=document.getElementById('provPreset').value;if(!k)return;showAddProvForm();api('GET','/api/providers/presets').then(function(d){var p=(d.presets||{})[k];if(!p)return;document.getElementById('provName').value=k;document.getElementById('provUrl').value=p.api_base||'';_selectedModels=[];renderSelected();refreshTestModelOptions();document.getElementById('provSaveBtn').disabled=false})}
+function loadPreset(){var k=document.getElementById('provPreset').value;if(!k)return;showAddProvForm();api('GET','/api/providers/presets').then(function(d){var p=(d.presets||{})[k];if(!p)return;document.getElementById('provName').value=k;document.getElementById('provUrl').value=p.api_base||'';var _ts=document.getElementById('provType');if(_ts)_ts.value=((typeof providerTypeOf==='function')?providerTypeOf(k):'');_selectedModels=[];renderSelected();refreshTestModelOptions();document.getElementById('provSaveBtn').disabled=false})}
 
-function showAddProvForm(){document.getElementById('provForm').style.display='block';document.getElementById('provName').value='';document.getElementById('provUrl').value='';document.getElementById('provKeyVal').value='';_selectedModels=[];_allDiscovered=[];_discFilter='';_discoverPage=0;_discoverPlan=null;_focusSearch=false;_editingProvider=null;renderSelected();refreshTestModelOptions();document.getElementById('testResult').style.display='none';document.getElementById('discoveryResult').style.display='none';document.getElementById('provSaveBtn').disabled=true}
+function showAddProvForm(){document.getElementById('provForm').style.display='block';document.getElementById('provName').value='';document.getElementById('provUrl').value='';document.getElementById('provKeyVal').value='';var _ts=document.getElementById('provType');if(_ts)_ts.value='';_selectedModels=[];_allDiscovered=[];_discFilter='';_discoverPage=0;_discoverPlan=null;_focusSearch=false;_editingProvider=null;renderSelected();refreshTestModelOptions();document.getElementById('testResult').style.display='none';document.getElementById('discoveryResult').style.display='none';document.getElementById('provSaveBtn').disabled=true}
 
 function hideAddProvForm(){document.getElementById('provForm').style.display='none'}
 
@@ -142,13 +142,18 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
 
 function testProvider(){var r=document.getElementById('testResult');r.style.display='block';r.textContent='Testing...';r.style.color='hsl(var(--amber-fg))';var name=document.getElementById('provName').value.trim();var msel=document.getElementById('provTestModel');var model=msel&&msel.value?msel.value:(_selectedModels[0]||'default');api('POST','/api/providers/test',{api_base:document.getElementById('provUrl').value,provider:name,model:model}).then(function(d){if(d.ok){r.textContent='Connected — model: '+d.model;r.style.color='hsl(var(--green-fg))';document.getElementById('provSaveBtn').disabled=false}else{var msg=d.error||('HTTP '+(d.status||'?')+' failed');var hint='';if(d.code==='MODEL_NOT_IN_PLAN'||d.code==='permission_error'){hint='<div style="margin-top:0.25rem;font-size:0.6875rem;color:hsl(var(--muted-foreground))">This model isn\u2019t covered by your current plan \u2014 pick another model, upgrade, or use extra on-demand usage.</div>'}else if(d.code==='unsupported_model'){hint='<div style="margin-top:0.25rem;font-size:0.6875rem;color:hsl(var(--muted-foreground))">This model uses the Anthropic /provider/v1/messages shape \u2014 it can\u2019t be reached via /chat/completions.</div>'}r.innerHTML=msg+hint;r.style.color='hsl(var(--red-fg))'}})}
 
-function editProvider(name){_editingProvider=name;api('GET','/api/providers').then(function(d){var p=(d.providers||{})[name];if(!p)return;showAddProvFormForEdit();document.getElementById('provName').value=name;document.getElementById('provUrl').value=p.api_base||'';document.getElementById('provKeyVal').value='';_selectedModels=(p.models||[]).slice();_allDiscovered=[];_discFilter='';_discoverPage=0;_discoverPlan=null;renderSelected();refreshTestModelOptions();document.getElementById('provSaveBtn').disabled=false})}
+function editProvider(name){_editingProvider=name;api('GET','/api/providers').then(function(d){var p=(d.providers||{})[name];if(!p)return;showAddProvFormForEdit();document.getElementById('provName').value=name;document.getElementById('provUrl').value=p.api_base||'';document.getElementById('provKeyVal').value='';var tsel=document.getElementById('provType');if(tsel)tsel.value=p.type_declared?(p.type||''):'';_selectedModels=(p.models||[]).slice();_allDiscovered=[];_discFilter='';_discoverPage=0;_discoverPlan=null;renderSelected();refreshTestModelOptions();document.getElementById('provSaveBtn').disabled=false})}
 
 // Like showAddProvForm() but keeps the editing state (original name).
 function showAddProvFormForEdit(){document.getElementById('provForm').style.display='block';document.getElementById('provKeyVal').value='';document.getElementById('testResult').style.display='none';document.getElementById('discoveryResult').style.display='none'}
 
 function saveProvider(){var name=document.getElementById('provName').value.trim().replace(/\u00a0/g,' ');if(!name){alert('Provider name is required');return}
-  var doSave=function(){var payload={api_base:document.getElementById('provUrl').value.trim(),models:_selectedModels};var kv=document.getElementById('provKeyVal').value.trim();if(kv)payload.api_key=kv;
+  var doSave=function(){var payload={api_base:document.getElementById('provUrl').value.trim(),models:_selectedModels};
+    // Declared vendor family. An empty value clears the declaration, leaving the
+    // server to infer it from the name — also the way back from a wrong type.
+    var tsel=document.getElementById('provType');
+    if(tsel)payload.type=(tsel.value||'');
+    var kv=document.getElementById('provKeyVal').value.trim();if(kv)payload.api_key=kv;
     if(_editingProvider){
       // Editing an existing provider: update its config in place (PUT).
       api('PUT','/api/providers/'+encodeURIComponent(_editingProvider),payload).then(function(d){

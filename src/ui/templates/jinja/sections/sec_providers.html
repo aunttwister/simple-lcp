@@ -151,6 +151,15 @@ button.ph-cell[aria-pressed="true"]{background:hsl(var(--secondary));box-shadow:
 <div class="prov-form" id="provForm" style="display:none">
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
     <div><label>Provider Name</label><input id="provName" placeholder="e.g. openai"></div>
+    <div><label>Type <span style="font-weight:400;color:hsl(var(--muted-foreground))">(vendor family — decides the Usage panel)</span></label>
+      <select id="provType" style="width:100%;padding:0.375rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+        <option value="">— infer from the name —</option>
+        <option value="commandcode">commandcode</option>
+        <option value="opencode">opencode</option>
+        <option value="deepseek">deepseek</option>
+        <option value="local">local</option>
+      </select>
+    </div>
     <div><label>API Base URL</label><input id="provUrl" placeholder="https://api.openai.com/v1"></div>
     <div><label>API Key Value <span style="font-weight:400;color:hsl(var(--muted-foreground))">(encrypted at rest)</span></label><input type="password" id="provKeyVal" placeholder="sk-…" autocomplete="off"></div>
   </div>
@@ -174,12 +183,15 @@ button.ph-cell[aria-pressed="true"]{background:hsl(var(--secondary));box-shadow:
 </div>
 
 <div class="table-wrap"><table><thead><tr>
-  <th scope="col">Name</th><th scope="col">Base URL</th><th scope="col">Key</th><th scope="col">Models</th><th scope="col">Actions</th>
+  <th scope="col">Name</th><th scope="col">Type</th><th scope="col">Base URL</th><th scope="col">Key</th><th scope="col">Models</th><th scope="col">Actions</th>
 </tr></thead><tbody id="providersBody">
 {% if providers %}{% for name, pdata in providers.items() %}
-<tr><td><b>{{ name }}</b></td><td class="mono" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ pdata.get('api_base', '—') }}</td><td>{% if provider_has_keys.get(name) %}<span class="badge badge-success">stored</span>{% else %}<span style="font-size:0.75rem;color:hsl(var(--muted-foreground))">—</span>{% endif %}</td><td>{{ pdata.get('models', []) | join(', ') or '—' }}</td>
+<tr><td><b>{{ name }}</b></td>
+{% set _pt = provider_types.get(name, '') %}
+<td>{% if _pt %}<span class="badge badge-success" style="text-transform:none">{{ _pt }}</span>{% if not provider_type_declared.get(name) %}<span style="font-size:0.625rem;color:hsl(var(--muted-foreground))"> inferred</span>{% endif %}{% else %}<span class="badge" style="background:hsl(var(--secondary));color:hsl(var(--muted-foreground));text-transform:none">unclassified</span>{% endif %}</td>
+<td class="mono" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ pdata.get('api_base', '—') }}</td><td>{% if provider_has_keys.get(name) %}<span class="badge badge-success">stored</span>{% else %}<span style="font-size:0.75rem;color:hsl(var(--muted-foreground))">—</span>{% endif %}</td><td>{{ pdata.get('models', []) | join(', ') or '—' }}</td>
 <td><button class="btn-sm" onclick="editProvider('{{ name | e }}')">Edit</button><button class="btn-sm btn-danger" onclick="deleteProvider('{{ name | e }}')">Del</button></td></tr>
-{% endfor %}{% else %}<tr><td colspan="5" class="empty">No providers configured.</td></tr>{% endif %}
+{% endfor %}{% else %}<tr><td colspan="6" class="empty">No providers configured.</td></tr>{% endif %}
 </tbody></table></div>
 </div>
 

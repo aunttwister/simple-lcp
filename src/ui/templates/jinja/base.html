@@ -46,12 +46,27 @@
 
 <script>
 var monthly = {{ monthly_json | safe }};
-var configuredProviders = {{ configured_providers_json | safe }};
+var configuredProviders = {{ configured_providers_json | default('[]') | safe }};
+// Vendor FAMILY per provider name (declared `type`, else inferred server-side).
+// Panels branch on this, never on the literal name: `commandcode2` is a second
+// account of commandcode, `local-zgx` and `local-sparks` are the same kind of box.
+var providerTypes = {{ provider_types_json | default('{}') | safe }};
+function providerTypeOf(key) {
+  var t = (providerTypes || {})[key];
+  return t == null ? '' : String(t);
+}
 // Display name for a provider key (internal ids stay stable; only the label
 // shown to users changes). e.g. llamacpp -> "Local LLM".
 function providerDisplayName(key) {
   if (key === 'llamacpp') return 'Local LLM';
   return key;
+}
+function providerTypeLabel(t) {
+  if (t === 'commandcode') return 'Command Code';
+  if (t === 'opencode') return 'OpenCode';
+  if (t === 'deepseek') return 'DeepSeek';
+  if (t === 'local') return 'Local engine';
+  return 'Unclassified';
 }
 </script>
 {% block base_scripts %}

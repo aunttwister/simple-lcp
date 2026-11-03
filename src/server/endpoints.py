@@ -176,6 +176,197 @@ def _validate_api_base_destination(api_base: str) -> str | None:
     return None
 
 
+# ── Provider type ──────────────────────────────────────────────────────────
+def _provider_types() -> tuple:
+    """The known provider types.
+
+    Lazy import, like every other `src.api.config` use in this module: the
+    config package must not be pulled in at module load from the server side.
+    """
+    from ..api.config import PROVIDER_TYPES
+    return PROVIDER_TYPES
+
+
+def _resolved_provider_type(cfg, name: str) -> str:
+    """The provider's type, resolved, always a plain string.
+
+    Prefers the config's own accessor; falls back to name inference when the
+    object has no accessor (older mocks, fixtures) or answers with something
+    that is not a string. Never publishes a non-string into a JSON payload.
+    """
+    getter = getattr(cfg, "provider_type", None)
+    if callable(getter):
+        try:
+            got = getter(name)
+            if isinstance(got, str) and got:
+                return got
+        except Exception:
+            pass
+    from ..api.config import provider_type_of
+    entry = None
+    try:
+        entry = (cfg.providers or {}).get(name)
+    except Exception:
+        entry = None
+    return provider_type_of(name, entry)
+
+
+def _normalise_provider_type(raw: Any):
+    """``(ok, value, error)`` for a ``type`` field arriving from the API.
+
+    Absent or empty means "not declared": inference from the name then applies,
+    which is what every entry written before `type` existed relies on. A
+    non-empty value must be a known type — the UI branches its whole panel on
+    it, so storing an unknown one would render a blank page rather than fail
+    loudly here.
+    """
+    from ..api.config import PROVIDER_TYPES
+    if raw is None:
+        return True, None, None
+    if not isinstance(raw, str):
+        return False, None, "'type' must be a string"
+    val = raw.strip().lower()
+    if not val:
+        return True, None, None
+    if val not in PROVIDER_TYPES:
+        return False, None, f"'type' must be one of: {', '.join(PROVIDER_TYPES)}"
+    return True, val, None
+
+
+# ── Self-hosted engine introspection ───────────────────────────────────────
+def _engine_get_json(url: str, timeout: float = 3.0):
+    """``(payload, error)`` for a JSON GET against a provider's own box.
+
+    Never raises: an engine that is down, slow or answering non-JSON is a
+    *value* the caller renders ("unreachable"), not an exception to propagate
+    into a request path.
+    """
+    import urllib.error
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", "replace")
+        return json.loads(body), None
+    except Exception as exc:  # noqa: BLE001 — any failure is "unreachable"
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def _engine_get_counters(url: str, names: tuple, timeout: float = 3.0) -> dict:
+    """Read a few named Prometheus counters/gauges off the engine's /metrics.
+
+    Only the names asked for are returned, so a new metric in the engine's
+    exposition cannot change this payload's shape.
+    """
+    import urllib.request
+    out: dict = {}
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            text = resp.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 — metrics are optional enrichment
+        return out
+    for line in text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        head, _, value = line.partition(" ")
+        metric = head.split("{", 1)[0].strip()
+        if metric in names:
+            try:
+                out[metric] = float(value.strip())
+            except ValueError:
+                continue
+    return out
+
+
+def _pct(numerator, denominator, digits: int = 1):
+    """Percentage, or None when it is not measurable (never a fake 0.0)."""
+    try:
+        n = float(numerator)
+        d = float(denominator)
+    except (TypeError, ValueError):
+        return None
+    if not d:
+        return None
+    return round(n / d * 100.0, digits)
+
+
+def _rate(numerator, denominator, digits: int = 1):
+    """Ratio, or None when it is not measurable."""
+    try:
+        n = float(numerator)
+        d = float(denominator)
+    except (TypeError, ValueError):
+        return None
+    if not d:
+        return None
+    return round(n / d, digits)
+
+
+def _derive_engine_metrics(health: Any, counters: dict) -> dict:
+    """Normalise a self-hosted engine's own /health into the fields the UI shows.
+
+    Deliberately generic-with-a-tensorfold-bias: the key names below are what
+    the estate's engine (tensorfold) publishes. A different engine returns a
+    dict with the same shape and `None`s where it has no counterpart, so the
+    panel degrades instead of breaking — and nothing here is invented: a value
+    with no source is None, which the panel renders as an em-dash.
+    """
+    def num(key):
+        v = health.get(key)
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    streams = health.get("streams") if isinstance(health.get("streams"), dict) else {}
+    decoding = streams.get("decoding")
+    prefilling = streams.get("prefilling")
+    running = health.get("requests_running")
+    if running is None and (isinstance(decoding, (int, float)) or isinstance(prefilling, (int, float))):
+        running = (decoding or 0) + (prefilling or 0)
+
+    waiting = counters.get("tensorfold:requests_waiting")
+
+    prompt = num("prompt_tokens_total")
+    completion = num("completion_tokens_total")
+    cached = num("cached_tokens_total")
+    prefill_s = num("prefill_seconds_total")
+    decode_s = num("decode_seconds_total")
+    drafted = num("drafted_total")
+    accepted = num("accepted_total")
+    pool = num("pool_tokens")
+    pool_free = num("pool_free_tokens")
+    kept = num("kept_bytes")
+    kept_cap = num("kept_bytes_cap")
+
+    pool_used_pct = None
+    if pool is not None and pool_free is not None:
+        pool_used_pct = _pct(pool - pool_free, pool)
+
+    return {
+        "model_backend": health.get("backend"),
+        "ok": bool(health.get("ok")),
+        "busy": bool(health.get("busy")),
+        "requests_running": running,
+        "requests_waiting": waiting,
+        "requests_total": num("requests_total"),
+        "lanes": streams.get("max"),
+        "context_length": num("context_length"),
+        "decode_tokens_per_s": _rate(completion, decode_s),
+        "prefill_tokens_per_s": _rate(prompt, prefill_s),
+        "prompt_cache_hit_pct": _pct(cached, prompt),
+        "mtp_accept_pct": _pct(accepted, drafted),
+        "pool_used_pct": pool_used_pct,
+        "kept_bytes": kept,
+        "kept_bytes_cap": kept_cap,
+        "kept_cap_used_pct": _pct(kept, kept_cap),
+        "kv_cache_usage_pct": (
+            round(counters["tensorfold:kv_cache_usage_ratio"] * 100.0, 1)
+            if "tensorfold:kv_cache_usage_ratio" in counters else None
+        ),
+        "prompt_tokens_total": prompt,
+        "completion_tokens_total": completion,
+        "cached_tokens_total": cached,
+    }
+
+
 def _engine_db_path(engine) -> str:
     """Return the SQLite file path backing *engine* (fallback ``data/costs.db``)."""
     try:
@@ -1136,12 +1327,79 @@ class ProviderEndpoints:
             providers[name] = {
                 "api_base": pdata.get("api_base", ""),
                 "models": pdata.get("models", []),
+                # The vendor family this entry belongs to, resolved (declared →
+                # inferred). Every UI panel and every vendor-plugin lookup keys
+                # on this instead of the literal name, which is what makes a
+                # second account of a vendor a first-class provider.
+                "type": _resolved_provider_type(cfg, name),
+                "type_declared": (
+                    isinstance(pdata.get("type"), str)
+                    and pdata.get("type", "").strip().lower()
+                    in _provider_types()
+                ),
                 "has_api_key": bool(store and store.has(name)),
             }
         profile_chains = {}
         for pname, pcfg in cfg.profiles.items():
             profile_chains[pname] = pcfg.get("chain", [])
         self._send_json({"providers": providers, "profile_chains": profile_chains})
+
+    def _serve_provider_engine(self, name: str):
+        """GET /api/providers/{name}/engine — the inference box's own view.
+
+        A cloud provider's usage card reads the vendor's billing API. A
+        self-hosted engine has no billing API, so the numbers that mean
+        something live on the box: what is loaded, what is in flight, what is
+        queued, how full the KV pool is, and how fast it decodes. This proxies
+        ``/health`` and ``/metrics`` from the provider's own ``api_base`` (the
+        ``/v1`` suffix stripped) — server-side, because the browser cannot
+        reach the LAN address from the gateway's origin.
+
+        Read-only and best-effort: an unreachable box answers **200** with
+        ``reachable: false`` and the reason, never a 5xx, so the page still
+        renders its gateway-side numbers. The destination is held to the same
+        SSRF guard as provider test/discover.
+        """
+        cfg = self.config
+        pdata = cfg.providers.get(name)
+        if pdata is None:
+            self._send_json({"error": f"provider '{name}' not found"}, 404)
+            return
+        api_base = str(pdata.get("api_base") or "").rstrip("/")
+        root = api_base[:-3].rstrip("/") if api_base.endswith("/v1") else api_base
+        raw_models = pdata.get("models")
+        declared = ([m for m in raw_models if isinstance(m, str)]
+                    if isinstance(raw_models, (list, tuple)) else [])
+        out = {
+            "provider": name,
+            "type": _resolved_provider_type(cfg, name),
+            "api_base": api_base,
+            "engine": root,
+            "reachable": False,
+            "declared_models": declared,
+            "derived": {},
+            "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        reason = _validate_api_base_destination(root) if root else "no api_base declared"
+        if reason:
+            out["error"] = reason
+            logger.warning("provider_engine_blocked", provider=name, reason=reason)
+            self._send_json(out)
+            return
+        health, err = _engine_get_json(f"{root}/health")
+        if health is None or not isinstance(health, dict):
+            out["error"] = err or "engine returned no JSON health payload"
+            self._send_json(out)
+            return
+        counters = _engine_get_counters(
+            f"{root}/metrics",
+            ("tensorfold:requests_waiting", "tensorfold:kv_cache_usage_ratio"),
+        )
+        out["reachable"] = True
+        out["health"] = health
+        out["derived"] = _derive_engine_metrics(health, counters)
+        self._send_json(out)
+
 
     def _serve_provider_presets(self):
         presets = resolve_service("pricing", fallback=get_registry).presets
@@ -1158,10 +1416,16 @@ class ProviderEndpoints:
             self._send_json({"error": "missing 'name' field"}, 400)
             return
         cfg = self.config
+        ok, ptype, type_err = _normalise_provider_type(body.get("type"))
+        if not ok:
+            self._send_json({"error": type_err}, 400)
+            return
         provider_data = {
             "api_base": body.get("api_base", ""),
             "models": body.get("models", []),
         }
+        if ptype:
+            provider_data["type"] = ptype
         cfg.raw.setdefault("providers", {})[name] = provider_data
         cfg.save()
         # Best-effort: learn each model's real served context window so the
@@ -1204,6 +1468,17 @@ class ProviderEndpoints:
             else:
                 self._send_json({"error": "credential store not initialized"}, 500)
                 return
+        if "type" in body:
+            ok, ptype, type_err = _normalise_provider_type(body.get("type"))
+            if not ok:
+                self._send_json({"error": type_err}, 400)
+                return
+            # An explicit empty value clears the declaration, returning the
+            # entry to name inference — the way back from a wrong type.
+            if ptype:
+                pdata["type"] = ptype
+            else:
+                pdata.pop("type", None)
         if "api_base" in body:
             pdata["api_base"] = body["api_base"]
         if "models" in body:

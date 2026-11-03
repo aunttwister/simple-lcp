@@ -88,6 +88,7 @@ SEED_CONFIG: dict[str, Any] = {
     },
     "providers": {
         "opencode": {
+            "type": "opencode",
             "api_key_env": "OPENCODE_API_KEY",
             "api_base": "https://opencode.ai/inference/openai/v1",
             "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
@@ -102,6 +103,7 @@ SEED_CONFIG: dict[str, Any] = {
             },
         },
         "deepseek": {
+            "type": "deepseek",
             "api_key_env": "DEEPSEEK_API_KEY",
             "api_base": "https://api.deepseek.com/v1",
             "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
@@ -112,6 +114,7 @@ SEED_CONFIG: dict[str, Any] = {
             },
         },
         "commandcode": {
+            "type": "commandcode",
             "api_base": "https://api.commandcode.ai/provider/v1",
             "models": ["deepseek-v4-pro", "deepseek-v4-flash", "claude-sonnet-5",
                        "gpt-5.6-luna", "kimi-k3", "minimax-m3", "qwen3.8-max"],
@@ -339,6 +342,54 @@ INTENTS_MAX = 32
 # letting the dynamic router score it. Static is the pre-existing behaviour.
 ROUTING_MODES = ("", "static", "dynamic")
 
+# ── Provider type — the vendor FAMILY a provider entry belongs to ───────────
+# Every layer that used to key on the literal provider NAME now keys on this:
+# a second account of a vendor (`commandcode2`) and a second box of a kind
+# (`local-zgx`, `local-sparks`) are the same *type* as their sibling, and only
+# the credential + the traffic rows are per name. Declared as
+# `providers.<name>.type`; inference below keeps an undeclared entry working.
+PROVIDER_TYPES = ("commandcode", "opencode", "deepseek", "local")
+
+# Name → type, applied only when nothing is declared. Ordered: the first prefix
+# that matches wins, so a specific family cannot be shadowed by a broader one.
+_TYPE_BY_NAME = (
+    ("commandcode", "commandcode"),
+    ("opencode", "opencode"),
+    ("deepseek", "deepseek"),
+    ("llamacpp", "local"),
+    ("local", "local"),
+)
+
+
+def infer_provider_type(name: str) -> str:
+    """The type implied by a provider's name; ``""`` when nothing fits.
+
+    Kept deliberately conservative: it is a compatibility shim for entries that
+    predate `type`, not a second source of truth. An unrecognised name is
+    ``""`` (= unknown), never a guess.
+    """
+    n = str(name or "").strip().lower()
+    for prefix, ptype in _TYPE_BY_NAME:
+        if n.startswith(prefix):
+            return ptype
+    return ""
+
+
+def provider_type_of(name: str, entry: Any = None) -> str:
+    """Declared `type` when it is one of PROVIDER_TYPES, else inferred, else ``""``.
+
+    A declared-but-unknown type is *not* propagated as-is: the UI would then
+    branch on a value nothing handles. It falls back to inference so a typo
+    degrades to the old behaviour instead of an empty panel.
+    """
+    declared = ""
+    if isinstance(entry, dict):
+        raw = entry.get("type")
+        if isinstance(raw, str) and raw.strip().lower() in PROVIDER_TYPES:
+            declared = raw.strip().lower()
+    return declared or infer_provider_type(name)
+
+
 # Matches the API's cap on the card description.
 PROFILE_DESC_MAX = 120
 
@@ -507,6 +558,23 @@ def validate_gateway_config(raw: dict) -> list[str]:
         problems.append("no providers declared")
     if not profiles:
         problems.append("no profiles declared")
+
+    # A declared `type` must be one this config knows. Unknown values are not
+    # fatal (provider_type_of falls back to name inference), so this is a
+    # reported problem rather than a ConfigError — but it must be *visible*,
+    # because the value is what every UI panel branches on.
+    for pname, pentry in providers.items():
+        if not isinstance(pentry, dict):
+            problems.append(f"provider '{pname}' is not a dict")
+            continue
+        declared = pentry.get("type")
+        if declared is None or (isinstance(declared, str) and not declared.strip()):
+            continue
+        if not isinstance(declared, str) or declared.strip().lower() not in PROVIDER_TYPES:
+            problems.append(
+                f"provider '{pname}' declares type '{declared}', which is not one of: "
+                + ", ".join(PROVIDER_TYPES)
+            )
 
     for name, prof in profiles.items():
         if not isinstance(prof, dict):
@@ -683,6 +751,19 @@ class Config:
     @property
     def providers(self) -> dict:
         return self._data["providers"]
+
+    def provider_type(self, name: str) -> str:
+        """The vendor family of *name*: declared `type`, else inferred, else ``""``.
+
+        The single accessor every consumer uses (UI, alert windows, cost/credit
+        plugins), so "what kind of provider is this" is answered in exactly one
+        place instead of by a literal-name comparison per call site.
+        """
+        return provider_type_of(name, self._data.get("providers", {}).get(name))
+
+    def provider_types(self) -> dict[str, str]:
+        """``{provider_name: type}`` for every configured provider."""
+        return {n: self.provider_type(n) for n in self._data.get("providers", {})}
 
     @property
     def pricing(self) -> list:

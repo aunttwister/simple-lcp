@@ -37,6 +37,154 @@ function fmtTime(iso) {
 
 const escC = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+// ══ Provider type — the axis this page is organised on ═══════════════════
+// Every per-provider panel below is chosen by the provider's TYPE
+// (`providerTypes` from base.html, resolved server-side from the declared
+// `type` with name inference as the fallback), never by its literal name.
+// That is what gives a second account of a vendor (`commandcode2`) and a
+// second box of a kind (`local-zgx`, `local-sparks`, `llamacpp`) their
+// family's panel instead of the generic one.
+function pType(prov) {
+  if (typeof providerTypeOf === 'function') {
+    var t = providerTypeOf(prov);
+    if (t) return t;
+  }
+  // Last-resort inference, for a page rendered without the server-side map
+  // (or a fixture). Mirrors src/api/config.infer_provider_type().
+  if (/^opencode/.test(prov)) return 'opencode';
+  if (/^deepseek/.test(prov)) return 'deepseek';
+  if (/^commandcode/.test(prov)) return 'commandcode';
+  if (/^llamacpp|^local/.test(prov)) return 'local';
+  return '';
+}
+
+var TYPE_NOTES = {
+  commandcode: 'Vendor account — credits, allowance windows and usage as Command Code reports them.',
+  opencode: 'Vendor account — credits, plan windows and console-reported usage.',
+  deepseek: 'Vendor account — prepaid balance plus the gateway\u2019s own cache-hit savings.',
+  local: 'Self-hosted engine — no credits and no allowance. Spend is $0; this panel shows the tokens served, '
+       + 'the engine\u2019s own state, and what those tokens would have cost on a cloud lane.'
+};
+
+function typeBanner(prov) {
+  var t = pType(prov);
+  return '<div style="display:flex;align-items:baseline;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem">' +
+      '<span style="display:inline-flex;align-items:center;padding:0.1rem 0.5rem;border:1px solid hsl(var(--card-border));'
+      + 'border-radius:9999px;font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">'
+      + escC(typeof providerTypeLabel === 'function' ? providerTypeLabel(t) : (t || 'Unclassified')) + '</span>' +
+      '<span style="font-size:0.65rem;color:hsl(var(--muted-foreground))">'
+      + (TYPE_NOTES[t] || 'No type declared — set one on the Providers page to get this family\u2019s panel; '
+         + 'the generic view is shown meanwhile.') + '</span>' +
+    '</div>';
+}
+
+// The same three vendor payloads the vendor panels read, so "is there anything
+// for this provider?" is asked the same way for a second account as for the first.
+function vendorPayloadPresent(prov, summaries, subscriptions) {
+  var t = pType(prov);
+  if (t === 'deepseek') return hasOwn(summaries, prov);
+  if (t === 'opencode' || t === 'commandcode') return hasOwn(subscriptions, prov);
+  return true;
+}
+function hasOwn(obj, key) { return !!obj && Object.prototype.hasOwnProperty.call(obj, key); }
+
+// Reference rates for the local panel's counterfactual. Stated in the panel on
+// purpose: this is a comparison, not a measurement, and the rate it used is
+// part of the number. Source: DeepSeek off-peak pricing, 2026-10-05.
+var CLOUD_REF = {
+  hit: 0.003, miss: 0.15, out: 0.60,
+  label: 'DeepSeek-Flash off-peak rates ($0.003 / $0.15 / $0.60 per 1M)'
+};
+
+function fmtNum(v, digits) {
+  if (v == null || isNaN(v)) return '\u2014';
+  return Number(v).toFixed(digits == null ? 1 : digits);
+}
+function fmtGB(bytes) {
+  if (bytes == null || isNaN(bytes)) return '\u2014';
+  return (Number(bytes) / 1073741824).toFixed(2) + ' GB';
+}
+function statCard(label, value, sub) {
+  return '<div class="stat-card"><div class="label">' + label + '</div><div class="value">' + value + '</div>'
+    + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
+}
+function engineCell(label, value, sub) {
+  return '<div style="background:hsl(var(--background));border:1px solid hsl(var(--card-border));'
+    + 'border-radius:var(--radius);padding:0.55rem 0.7rem">'
+    + '<div class="label" style="margin-bottom:0.15rem">' + label + '</div>'
+    + '<div style="font-size:1.05rem;font-weight:700;font-variant-numeric:tabular-nums">' + value + '</div>'
+    + (sub ? '<div class="sub" style="font-size:0.625rem">' + sub + '</div>' : '') + '</div>';
+}
+function stateDot(color) {
+  return '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:hsl(var(--' + color + '-fg))"></span>';
+}
+
+// ── The local engine strip ───────────────────────────────────────────────
+// A cloud provider's card reads the vendor's billing API. A self-hosted engine
+// has none, so the first thing this panel answers is "what is the box doing
+// right now", read from the engine's own /health + /metrics through
+// /api/providers/<name>/engine. Absent payload = the provider has no box in the
+// gateway config; unreachable payload = the box is down and the strip says so
+// while every gateway-side number below stays valid.
+function engineStripHtml(prov, eng) {
+  if (!eng) {
+    return '<div class="stat-card" style="margin-bottom:1rem">'
+      + '<div class="label">Engine</div>'
+      + '<div class="value" style="font-size:0.85rem;font-weight:400">No engine to read — this provider is not in the gateway config.</div>'
+      + '</div>';
+  }
+  if (!eng.reachable) {
+    return '<div class="stat-card" style="border-left:3px solid #f97316;margin-bottom:1rem">'
+      + '<div class="label" style="color:#f97316">Engine unreachable</div>'
+      + '<div class="value" style="font-size:0.85rem;font-weight:400">' + escC(eng.engine || '')
+      + ' &mdash; ' + escC(eng.error || 'no response') + '</div>'
+      + '<div class="sub">Tokens, requests and the breakdowns below come from the gateway\u2019s own records and stay valid.</div>'
+      + '<div style="margin-top:0.5rem"><button class="btn btn-outline btn-sm" onclick="refreshEngine(\'' + prov + '\')">Retry</button></div>'
+      + '</div>';
+  }
+  var d = eng.derived || {};
+  var state = d.ok ? (d.busy ? 'generating' : 'idle') : 'failed';
+  var color = !d.ok ? 'red' : (d.busy ? 'amber' : 'green');
+  var lanes = (d.lanes != null) ? String(d.lanes) : '\u2014';
+  return '<div class="stat-card" style="margin-bottom:1rem">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem">'
+      + '<div class="label" style="margin:0">Engine &middot; ' + escC(eng.engine || '') + '</div>'
+      + '<div style="display:flex;align-items:center;gap:0.6rem;font-size:0.65rem">'
+        + '<span style="display:flex;align-items:center;gap:0.35rem">' + stateDot(color) + '<b>' + state + '</b></span>'
+        + '<span class="muted">as of ' + escC(String(eng.fetched_at || '').replace('T', ' ').slice(0, 19)) + '</span>'
+        + '<button class="btn btn-outline btn-sm" onclick="refreshEngine(\'' + prov + '\')">Refresh</button>'
+      + '</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:0.5rem">'
+      + engineCell('In flight', fmtNum(d.requests_running, 0), 'decoding or prefilling')
+      + engineCell('Queued', fmtNum(d.requests_waiting, 0), 'held until a lane frees')
+      + engineCell('Lanes', lanes, 'concurrent streams')
+      + engineCell('Context', d.context_length != null ? formatTokens(d.context_length) : '\u2014', 'tokens per request')
+      + engineCell('Model', escC((eng.declared_models || [])[0] || 'not declared'), 'declared on this provider')
+      + engineCell('Served', formatTokens(d.requests_total || 0), 'requests since engine start')
+    + '</div>'
+    + '</div>';
+}
+
+window.refreshEngine = function (prov) {
+  var host = document.getElementById('engineStrip-' + prov);
+  if (!host) return;
+  host.innerHTML = '<div class="stat-card" style="margin-bottom:1rem"><div class="label">Engine</div>'
+    + '<div class="value" style="font-size:0.85rem;font-weight:400">Reading\u2026</div></div>';
+  fetch('/api/providers/' + encodeURIComponent(prov) + '/engine')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { host.innerHTML = engineStripHtml(prov, d); })
+    .catch(function () { host.innerHTML = engineStripHtml(prov, null); });
+};
+
+function loadEngine(prov) {
+  if (pType(prov) !== 'local') return Promise.resolve(null);
+  return fetch('/api/providers/' + encodeURIComponent(prov) + '/engine')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .catch(function () { return null; });
+}
+
+
 // ── Per-provider section collapse (persisted) ─────────────────────────────
 function applyTtlCollapsed(collapsed) {
   const wrap = document.getElementById('ttlCollapse');
@@ -275,7 +423,7 @@ function renderTrendAndGauges() {
     var sumEl = document.getElementById('spark-sum-' + prov);
     if (!sumEl) return;
     if (!info) { sumEl.textContent = ''; return; }
-    var isLocal = prov === 'llamacpp';
+    var isLocal = pType(prov) === 'local';
     var fmt = isLocal
       ? function (n) { return Math.round(n).toLocaleString() + ' tok'; }
       : function (n) { return '$' + n.toFixed(n < 1 ? 4 : 2); };
@@ -405,142 +553,161 @@ function loadBalances() {
         .then(function(d) { return d.plugin_balances || {}; });
 }
 
-// ── Credentials (collapsible card in opencode tab) ──
-var _ocCookieSet = false;
-var _ocWsIdSet = false;
+// ── Credentials (collapsible card in each vendor panel) ──
+// Every credential helper takes the PROVIDER KEY, not the vendor name, and every
+// element id is suffixed with it. That is what makes a second account of a
+// vendor land on its own card and its own stored cookie instead of silently
+// reusing the first account's field: `commandcode` and `commandcode2` each get
+// their own input, and each read/write goes to /api/cost-plugins/cookie/<key>.
+var _ocCredState = {};   // prov -> {cookie: bool, wsid: bool}
+var _ccCredState = {};   // prov -> {cookie: bool}
 
-function loadOcCredStatus() {
+function loadOcCredStatus(prov) {
+    var key = prov || 'opencode';
     Promise.all([
-        fetch('/api/cost-plugins/cookie/opencode').then(function(r){return r.json()}),
-        fetch('/api/cost-plugins/workspace-id/opencode').then(function(r){return r.json()})
+        fetch('/api/cost-plugins/cookie/' + encodeURIComponent(key)).then(function(r){return r.json()}),
+        fetch('/api/cost-plugins/workspace-id/' + encodeURIComponent(key)).then(function(r){return r.json()})
     ]).then(function(res){
-        _ocCookieSet = res[0].has_cookie;
-        _ocWsIdSet = res[1].has_workspace_id;
-        updateOcCredSummary();
-    });
+        _ocCredState[key] = {cookie: !!res[0].has_cookie, wsid: !!res[1].has_workspace_id};
+        updateOcCredSummary(key);
+    }).catch(function () {});
 }
 
-function updateOcCredSummary() {
-    var el = document.getElementById('ocCredSummary');
+function updateOcCredSummary(prov) {
+    var key = prov || 'opencode';
+    var st = _ocCredState[key] || {cookie: false, wsid: false};
+    var el = document.getElementById('ocCredSummary_' + key);
     if (!el) return;
-    if (_ocCookieSet && _ocWsIdSet) {
+    if (st.cookie && st.wsid) {
         el.innerHTML = '<span class="badge badge-success">STORED</span>';
-    } else if (_ocCookieSet || _ocWsIdSet) {
+    } else if (st.cookie || st.wsid) {
         el.innerHTML = '<span class="badge badge-warning">partial</span>';
     } else {
         el.innerHTML = '<span class="badge" style="background:hsl(var(--secondary));color:hsl(var(--muted-foreground))">not set</span>';
     }
 }
 
-function toggleOcCreds() {
-    var body = document.getElementById('ocCredBody');
+function toggleOcCreds(prov) {
+    var body = document.getElementById('ocCredBody_' + (prov || 'opencode'));
+    if (!body) return;
     var card = body.parentElement;
     var shown = body.style.display !== 'none';
     body.style.display = shown ? 'none' : 'block';
     if (shown) card.classList.remove('open'); else card.classList.add('open');
 }
 
-function saveOcCookie() {
-    var val = (document.getElementById('ocCookieInput').value || '').trim();
+function saveOcCookie(prov) {
+    var key = prov || 'opencode';
+    var input = document.getElementById('ocCookieInput_' + key);
+    var val = ((input && input.value) || '').trim();
     if (!val) { alert('Paste the auth cookie first.'); return; }
     if (val.indexOf('=') === -1) { alert('That looks like a bare token value. Paste the full name=value cookie, e.g. auth=...'); return; }
-    fetch('/api/cost-plugins/cookie/opencode', {
+    fetch('/api/cost-plugins/cookie/' + encodeURIComponent(key), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({cookie: val})
     }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.ok) { document.getElementById('ocCookieInput').value = ''; loadOcCredStatus(); loadPage(); }
+        if (d.ok) { if (input) input.value = ''; loadOcCredStatus(key); loadPage(); }
         else alert('Error: ' + (d.error || 'unknown'));
     });
 }
 
-function clearOcCookie() {
-    if (!confirm('Clear the stored OpenCode cookie?')) return;
-    fetch('/api/cost-plugins/cookie/opencode', {
+function clearOcCookie(prov) {
+    var key = prov || 'opencode';
+    if (!confirm('Clear the stored OpenCode cookie for ' + key + '?')) return;
+    fetch('/api/cost-plugins/cookie/' + encodeURIComponent(key), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({cookie: ''})
     }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.ok) { loadOcCredStatus(); loadPage(); }
+        if (d.ok) { loadOcCredStatus(key); loadPage(); }
         else alert('Error: ' + (d.error || 'unknown'));
     });
 }
 
-function saveOcWsId() {
-    var val = (document.getElementById('ocWsIdInput').value || '').trim();
+function saveOcWsId(prov) {
+    var key = prov || 'opencode';
+    var input = document.getElementById('ocWsIdInput_' + key);
+    var val = ((input && input.value) || '').trim();
     if (!val) { alert('Paste your workspace ID first.'); return; }
-    fetch('/api/cost-plugins/workspace-id/opencode', {
+    fetch('/api/cost-plugins/workspace-id/' + encodeURIComponent(key), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({workspace_id: val})
     }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.ok) { document.getElementById('ocWsIdInput').value = ''; loadOcCredStatus(); loadPage(); }
+        if (d.ok) { if (input) input.value = ''; loadOcCredStatus(key); loadPage(); }
         else alert('Error: ' + (d.error || 'unknown'));
     });
 }
 
-function clearOcWsId() {
-    if (!confirm('Clear the stored workspace ID?')) return;
-    fetch('/api/cost-plugins/workspace-id/opencode', {
+function clearOcWsId(prov) {
+    var key = prov || 'opencode';
+    if (!confirm('Clear the stored workspace ID for ' + key + '?')) return;
+    fetch('/api/cost-plugins/workspace-id/' + encodeURIComponent(key), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({workspace_id: ''})
     }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.ok) { loadOcCredStatus(); loadPage(); }
+        if (d.ok) { loadOcCredStatus(key); loadPage(); }
         else alert('Error: ' + (d.error || 'unknown'));
     });
 }
 
-// ── Credentials (collapsible card in commandcode tab) ──
-var _ccCookieSet = false;
-
-function loadCcCredStatus() {
-    fetch('/api/cost-plugins/cookie/commandcode').then(function(r){return r.json()}).then(function(res){
-        _ccCookieSet = res.has_cookie;
-        updateCcCredSummary();
-    });
+// ── Credentials (collapsible card in each commandcode panel) ──
+function loadCcCredStatus(prov) {
+    var key = prov || 'commandcode';
+    fetch('/api/cost-plugins/cookie/' + encodeURIComponent(key)).then(function(r){return r.json()}).then(function(res){
+        _ccCredState[key] = {cookie: !!res.has_cookie};
+        updateCcCredSummary(key);
+    }).catch(function () {});
 }
 
-function updateCcCredSummary() {
-    var el = document.getElementById('ccCredSummary');
+function updateCcCredSummary(prov) {
+    var key = prov || 'commandcode';
+    var st = _ccCredState[key] || {cookie: false};
+    var el = document.getElementById('ccCredSummary_' + key);
     if (!el) return;
-    if (_ccCookieSet) {
+    if (st.cookie) {
         el.innerHTML = '<span class="badge badge-success">STORED</span>';
     } else {
         el.innerHTML = '<span class="badge" style="background:hsl(var(--secondary));color:hsl(var(--muted-foreground))">not set</span>';
     }
 }
 
-function toggleCcCreds() {
-    var body = document.getElementById('ccCredBody');
+function toggleCcCreds(prov) {
+    var body = document.getElementById('ccCredBody_' + (prov || 'commandcode'));
+    if (!body) return;
     var card = body.parentElement;
     var shown = body.style.display !== 'none';
     body.style.display = shown ? 'none' : 'block';
     if (shown) card.classList.remove('open'); else card.classList.add('open');
 }
 
-function saveCcCookie() {
-    var val = (document.getElementById('ccCookieInput').value || '').trim();
+function saveCcCookie(prov) {
+    var key = prov || 'commandcode';
+    var input = document.getElementById('ccCookieInput_' + key);
+    var val = ((input && input.value) || '').trim();
     if (!val) { alert('Paste the session cookie first.'); return; }
     if (val.indexOf('=') === -1) { alert('That looks like a bare token value. Paste the full name=value cookie, e.g. __Secure-commandcode_prod_.session_token=...'); return; }
-    fetch('/api/cost-plugins/cookie/commandcode', {
+    fetch('/api/cost-plugins/cookie/' + encodeURIComponent(key), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({cookie: val})
     }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.ok) { document.getElementById('ccCookieInput').value = ''; loadCcCredStatus(); loadPage(); }
+        if (d.ok) { if (input) input.value = ''; loadCcCredStatus(key); loadPage(); }
         else alert('Error: ' + (d.error || 'unknown'));
     });
 }
 
-function clearCcCookie() {
-    if (!confirm('Clear the stored Command Code cookie?')) return;
-    fetch('/api/cost-plugins/cookie/commandcode', {
+function clearCcCookie(prov) {
+    var key = prov || 'commandcode';
+    if (!confirm('Clear the stored Command Code cookie for ' + key + '?')) return;
+    fetch('/api/cost-plugins/cookie/' + encodeURIComponent(key), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({cookie: ''})
     }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.ok) { loadCcCredStatus(); loadPage(); }
+        if (d.ok) { loadCcCredStatus(key); loadPage(); }
         else alert('Error: ' + (d.error || 'unknown'));
     });
 }
@@ -555,12 +722,16 @@ function buildPage(providers) {
         Promise.all(providers.map(function(p) { return loadStats(p, INITIAL_DAYS); })),
         loadSummaries(),
         loadSubscriptions(),
-        loadBalances()
+        loadBalances(),
+        // Self-hosted providers are read from their own box (one request each,
+        // only for type=local). A failure resolves to null and costs nothing.
+        Promise.all(providers.map(function(p) { return loadEngine(p); }))
     ]).then(function(results) {
         var statsList = results[0];
         var summaries = results[1];
         var subscriptions = results[2];
         var balances = results[3];
+        var engineList = results[4];
 
         // Shared helpers for subscription usage bars (opencode + commandcode)
         function barColor(pct) { return pct >= 90 ? 'red' : pct >= 70 ? 'orange' : pct >= 40 ? 'yellow' : 'green'; }
@@ -605,8 +776,22 @@ function buildPage(providers) {
             var dailyChartId = 'chart-daily-' + prov;
             var modelTableId = 'table-model-' + prov;
             var profileTableId = 'table-profile-' + prov;
+            // The TYPE decides which panel is built below (see pType above).
+            var vType = pType(prov);
+            var eng = engineList[i] || null;
 
             panelsHtml += '<div class="tab-panel' + activeClass + '" id="' + panelId + '">';
+
+            // ── Type banner ──
+            // States the family this panel belongs to and, for a provider with
+            // no declared type, says so instead of silently showing the generic
+            // view.
+            panelsHtml += typeBanner(prov);
+
+            // ── Engine strip (self-hosted only) ──
+            if (vType === 'local') {
+                panelsHtml += '<div id="engineStrip-' + prov + '">' + engineStripHtml(prov, eng) + '</div>';
+            }
 
             // ── Trend card ──
             // Every provider panel gets its daily series as a text sparkline.
@@ -614,7 +799,7 @@ function buildPage(providers) {
             // so it costs no extra request and no new dependency. The series is
             // stashed in _sparkSeries and mounted after innerHTML, because a
             // canvas/pre cannot be drawn into a string.
-            var isLocalProv = prov === 'llamacpp';
+            var isLocalProv = vType === 'local';
             var trendSeries = (stats.daily || []).map(function (d) {
                 return isLocalProv ? (d.tokens || 0) : (d.cost || 0);
             });
@@ -629,7 +814,18 @@ function buildPage(providers) {
                 '</div>' +
               '</div>';
 
-            if (prov === 'deepseek') {
+            // A vendor family with no payload for THIS account: the vendor
+            // readers are registered per vendor, so a second account of a
+            // vendor shows nothing rather than an error. Say it here, once,
+            // instead of leaving a credentials card that reads like a failure.
+            if (vType && vType !== 'local' && !vendorPayloadPresent(prov, summaries, subscriptions)) {
+                panelsHtml += '<div class="stat-card" style="margin-bottom:1rem">' +
+                    '<div class="label">No vendor payload for <b>' + escC(prov) + '</b> yet</div>' +
+                    '<div class="value" style="font-size:0.85rem;font-weight:400">The vendor readers are registered per vendor name (opencode / deepseek / commandcode), so this account\u2019s own credential is not being read — credits, allowance and vendor-reported usage are unavailable for it. Traffic, tokens and cost below come from the gateway\u2019s own rows and are complete.</div>' +
+                    '</div>';
+            }
+
+            if (vType === 'deepseek') {
                 var bal = (sum && sum.balance) ? sum.balance : {};
                 var available = bal.available || 0;
                 var spent = bal.spent;
@@ -646,25 +842,25 @@ function buildPage(providers) {
                         '<div class="stat-card"><div class="label">Cache Savings</div><div class="value">$' + cache.savings.toFixed(4) + '</div><div class="sub">from cache-hit discount</div></div>';
                 }
                 panelsHtml += '<div class="stat-cards">' + statCardsHtml + '</div>';
-            } else if (prov === 'opencode') {
-                var sub = subscriptions['opencode'] || {};
+            } else if (vType === 'opencode') {
+                var sub = subscriptions[prov] || {};
                 // ── Collapsible credentials card ──
                 panelsHtml += '<div class="stat-card ov-collapse-card" style="margin-bottom:1rem">' +
-                    '<div class="label ov-collapse-trigger" onclick="toggleOcCreds()" style="display:flex;justify-content:space-between;align-items:center">Credentials' +
+                    '<div class="label ov-collapse-trigger" onclick="toggleOcCreds(\'' + prov + '\')" style="display:flex;justify-content:space-between;align-items:center">Credentials' +
                     '<span style="display:flex;align-items:center;gap:0.5rem;font-weight:400">' +
-                    '<span id="ocCredSummary" style="font-size:0.65rem">…</span>' +
-                    '<span class="ov-collapse-chevron" id="ocCredChevron">▾</span>' +
+                    '<span id="ocCredSummary_' + prov + '" style="font-size:0.65rem">…</span>' +
+                    '<span class="ov-collapse-chevron" id="ocCredChevron_' + prov + '">▾</span>' +
                     '</span></div>' +
-                    '<div class="ov-collapse-body" id="ocCredBody" style="display:none;margin-top:0.75rem;border-top:1px solid hsl(var(--card-border));padding-top:0.75rem">' +
+                    '<div class="ov-collapse-body" id="ocCredBody_' + prov + '" style="display:none;margin-top:0.75rem;border-top:1px solid hsl(var(--card-border));padding-top:0.75rem">' +
                     '<div class="oc-cred-row"><label>Cookie</label>' +
-                    '<input type="password" id="ocCookieInput" placeholder="auth=... (full name=value cookie)" autocomplete="off" style="flex:1;padding:0.375rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">' +
-                    '<button class="btn-sm btn-primary" onclick="saveOcCookie()">Save</button>' +
-                    '<button class="btn-sm" onclick="clearOcCookie()">Clear</button>' +
+                    '<input type="password" id="ocCookieInput_' + prov + '" placeholder="auth=... (full name=value cookie)" autocomplete="off" style="flex:1;padding:0.375rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">' +
+                    '<button class="btn-sm btn-primary" onclick="saveOcCookie(\'' + prov + '\')">Save</button>' +
+                    '<button class="btn-sm" onclick="clearOcCookie(\'' + prov + '\')">Clear</button>' +
                     '</div>' +
                     '<div class="oc-cred-row"><label>Workspace</label>' +
-                    '<input type="text" id="ocWsIdInput" placeholder="wrk_..." autocomplete="off" style="flex:1;padding:0.375rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">' +
-                    '<button class="btn-sm btn-primary" onclick="saveOcWsId()">Save</button>' +
-                    '<button class="btn-sm" onclick="clearOcWsId()">Clear</button>' +
+                    '<input type="text" id="ocWsIdInput_' + prov + '" placeholder="wrk_..." autocomplete="off" style="flex:1;padding:0.375rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">' +
+                    '<button class="btn-sm btn-primary" onclick="saveOcWsId(\'' + prov + '\')">Save</button>' +
+                    '<button class="btn-sm" onclick="clearOcWsId(\'' + prov + '\')">Clear</button>' +
                     '</div>' +
                     '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.5rem">Stored encrypted. The <b>API key</b> on the Providers page (Console: Keys, <b>Expiration: Never</b>) is the durable credential and carries the usage totals. This cookie and the Workspace ID are <b>not</b> read by the cost card &mdash; they only feed model discovery; the card&rsquo;s fallback is the <b>console session</b> (Providers page &rarr; Authorise), which is a rotating one-shot refresh token that dies whenever a refresh token is replayed. <b>Credits and budgets are person-only on this console</b> &mdash; they refuse every API key, so only a live console session can read them.</div>' +
                     '</div>' +
@@ -680,7 +876,7 @@ function buildPage(providers) {
                 }
 
                 // ── Available credits (from the billing page) ──
-                var ocbal = balances['opencode'] || {};
+                var ocbal = balances[prov] || {};
                 if (ocbal.balance != null) {
                     var ocPlan = ocbal.plan ? ' · ' + esc(ocbal.plan) : '';
                     panelsHtml += '<div class="stat-card" style="margin-bottom:1rem"><div class="label">Available Credits</div><div class="value">$' + ocbal.balance.toFixed(2) + '</div><div class="sub">' + (ocbal.currency || 'USD') + ocPlan + (ocbal._stale ? ' · stale' : '') + '</div></div>';
@@ -746,7 +942,7 @@ function buildPage(providers) {
                     if (sub[w.key + '_pct'] == null) return;
                     var pct = sub[w.key + '_pct'];
                     var resetSec = sub[w.key + '_reset_sec'];
-                    var canvasId = 'gauge-' + w.key;
+                    var canvasId = 'gauge-' + prov + '-' + w.key;
                     _gaugeSeries[canvasId] = pct;
                     var legend = fmtCountdown(resetSec)
                         ? 'resets in <b>' + fmtCountdown(resetSec) + '</b>'
@@ -782,22 +978,22 @@ function buildPage(providers) {
                         }).join('<br>') +
                         '</div><div class="sub" style="font-size:0.625rem">Shared and model-specific caps apply independently of the member cap above.</div></div>';
                 }
-            } else if (prov === 'commandcode') {
-                var ccsub = subscriptions['commandcode'] || {};
+            } else if (vType === 'commandcode') {
+                var ccsub = subscriptions[prov] || {};
                 // ── Collapsible credentials card (cookie only) ──
                 panelsHtml += '<div class="stat-card ov-collapse-card" style="margin-bottom:1rem">' +
-                    '<div class="label ov-collapse-trigger" onclick="toggleCcCreds()" style="display:flex;justify-content:space-between;align-items:center">Credentials' +
+                    '<div class="label ov-collapse-trigger" onclick="toggleCcCreds(\'' + prov + '\')" style="display:flex;justify-content:space-between;align-items:center">Credentials' +
                     '<span style="display:flex;align-items:center;gap:0.5rem;font-weight:400">' +
-                    '<span id="ccCredSummary" style="font-size:0.65rem">…</span>' +
-                    '<span class="ov-collapse-chevron" id="ccCredChevron">▾</span>' +
+                    '<span id="ccCredSummary_' + prov + '" style="font-size:0.65rem">…</span>' +
+                    '<span class="ov-collapse-chevron" id="ccCredChevron_' + prov + '">▾</span>' +
                     '</span></div>' +
-                    '<div class="ov-collapse-body" id="ccCredBody" style="display:none;margin-top:0.75rem;border-top:1px solid hsl(var(--card-border));padding-top:0.75rem">' +
+                    '<div class="ov-collapse-body" id="ccCredBody_' + prov + '" style="display:none;margin-top:0.75rem;border-top:1px solid hsl(var(--card-border));padding-top:0.75rem">' +
                     '<div class="oc-cred-row"><label>Cookie</label>' +
-                    '<input type="password" id="ccCookieInput" placeholder="__Secure-...session_token=... (full name=value cookie)" autocomplete="off" style="flex:1;padding:0.375rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">' +
-                    '<button class="btn-sm btn-primary" onclick="saveCcCookie()">Save</button>' +
-                    '<button class="btn-sm" onclick="clearCcCookie()">Clear</button>' +
+                    '<input type="password" id="ccCookieInput_' + prov + '" placeholder="__Secure-...session_token=... (full name=value cookie)" autocomplete="off" style="flex:1;padding:0.375rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">' +
+                    '<button class="btn-sm btn-primary" onclick="saveCcCookie(\'' + prov + '\')">Save</button>' +
+                    '<button class="btn-sm" onclick="clearCcCookie(\'' + prov + '\')">Clear</button>' +
                     '</div>' +
-                    '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.5rem">Stored encrypted. The cookie enables credits + usage tracking from api.commandcode.ai. Paste the full <b>name=value</b> cookie (e.g. <code>__Secure-commandcode_prod_.session_token=...</code>).</div>' +
+                    '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-top:0.5rem">Stored encrypted, keyed by provider name (' + escC(prov) + ') — a second account of this vendor keeps its own cookie. Pasting one enables credits + usage tracking from api.commandcode.ai for <b>' + escC(prov) + '</b>.</div>' +
                     '</div>' +
                     '</div>';
                 if (ccsub._error) {
@@ -847,7 +1043,7 @@ function buildPage(providers) {
                     ccWindows.forEach(function (w) {
                         if (w.pct == null) return;
                         if (w.key === 'monthly' && !(w.pct > 0)) return;
-                        var canvasId = 'gauge-cc-' + w.key;
+                        var canvasId = 'gauge-cc-' + prov + '-' + w.key;
                         _gaugeSeries[canvasId] = w.pct;
                         var legend = fmtCountdown(w.reset)
                             ? 'resets in <b>' + fmtCountdown(w.reset) + '</b>'
@@ -872,13 +1068,45 @@ function buildPage(providers) {
                         panelsHtml += '<div class="usage-bars">' + ccBars + '</div>';
                     }
                 }
-            } else if (prov === 'llamacpp') {
-                // Local LLM — token-centric view (no $ — self-hosted hardware).
+            } else if (vType === 'local') {
+                // ── Local panel ──
+                // A self-hosted engine has no credits, no allowance and no
+                // vendor bill, so the money cards are replaced rather than
+                // zeroed: marginal cost is $0 by construction, and the only
+                // figure that means anything in money is what these tokens
+                // would have cost on a cloud lane.
                 var lt = stats.totals || {};
+                var lcache = stats.cache || {hit_tokens: 0, miss_tokens: 0};
+                var engD = (eng && eng.reachable && eng.derived) ? eng.derived : null;
+                var hitT = lcache.hit_tokens || 0;
+                var missT = lcache.miss_tokens || 0;
+                var outT = lt.completion_tokens || 0;
+                var cloudEq = (hitT / 1e6) * CLOUD_REF.hit + (missT / 1e6) * CLOUD_REF.miss + (outT / 1e6) * CLOUD_REF.out;
+                var cacheTot = hitT + missT;
+                var hitPct = cacheTot > 0 ? (hitT / cacheTot * 100) : null;
                 panelsHtml += '<div class="stat-cards">' +
-                    '<div class="stat-card"><div class="label">Tokens (30d)</div><div class="value">' + formatTokens(lt.tokens || 0) + '</div><div class="sub">' + (lt.requests || 0) + ' requests</div></div>' +
-                    '<div class="stat-card"><div class="label">Tokens In</div><div class="value">' + formatTokens(lt.prompt_tokens || 0) + '</div><div class="sub">prompt</div></div>' +
-                    '<div class="stat-card"><div class="label">Tokens Out</div><div class="value">' + formatTokens(lt.completion_tokens || 0) + '</div><div class="sub">completion</div></div>' +
+                    statCard('Marginal cost', '$0.00', 'own hardware — no credits, no allowance') +
+                    statCard('Cloud equivalent', '$' + cloudEq.toFixed(2), 'these tokens on the reference rate below') +
+                    statCard('Tokens served', formatTokens(lt.tokens || 0), (lt.requests || 0).toLocaleString() + ' requests') +
+                    statCard('Tokens in / out', formatTokens(lt.prompt_tokens || 0) + ' / ' + formatTokens(outT), 'prompt / completion') +
+                    (hitPct != null ? statCard('Prompt cache hit', hitPct.toFixed(1) + '%', formatTokens(hitT) + ' of ' + formatTokens(cacheTot)) : '') +
+                  '</div>';
+                if (engD) {
+                    // The engine's own throughput and capacity, which the
+                    // gateway cannot measure (see the note below).
+                    panelsHtml += '<div class="stat-cards">' +
+                        statCard('Decode', fmtNum(engD.decode_tokens_per_s) + ' tok/s', 'engine lifetime average') +
+                        statCard('Prefill', fmtNum(engD.prefill_tokens_per_s, 0) + ' tok/s', 'engine lifetime average') +
+                        statCard('Draft accept', engD.mtp_accept_pct != null ? fmtNum(engD.mtp_accept_pct) + '%' : '\u2014', 'speculative tokens kept') +
+                        statCard('KV pool used', engD.pool_used_pct != null ? fmtNum(engD.pool_used_pct) + '%' : '\u2014', 'shared attention pool') +
+                        statCard('Kept prompt cache', engD.kept_cap_used_pct != null ? fmtNum(engD.kept_cap_used_pct) + '%' : '\u2014', fmtGB(engD.kept_bytes) + ' of ' + fmtGB(engD.kept_bytes_cap)) +
+                      '</div>';
+                }
+                panelsHtml += '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-bottom:1rem">' +
+                    'Cost is $0 by construction (own hardware); every cost axis below is replaced by tokens. The cloud-equivalent figure is a counterfactual at '
+                    + CLOUD_REF.label + ' — a comparison, not spend. Engine figures are cumulative since the engine started, not per window. '
+                    + 'Throughput is read from the engine\u2019s own counters because the gateway\u2019s latency column is a single HTTP hop and, for a streamed reply, '
+                    + 'records time to first byte — it cannot measure local tokens/second.' +
                     '</div>';
             } else {
                 panelsHtml += '<div class="stat-cards">' +
@@ -896,7 +1124,7 @@ function buildPage(providers) {
                 '<button class="date-pill" data-range="custom" onclick="applyDateRange(this,\'' + prov + '\',\'custom\')">Apply</button>' +
                 '</div>';
 
-            panelsHtml += '<div class="chart-wrap"><h3 style="font-size:0.85rem;margin-bottom:0.5rem" id="chartTitle-' + prov + '">' + (prov === 'llamacpp' ? 'Daily Tokens (7 days)' : 'Daily Spending (7 days)') + '</h3><div style="height:250px"><canvas id="' + dailyChartId + '"></canvas></div></div>';
+            panelsHtml += '<div class="chart-wrap"><h3 style="font-size:0.85rem;margin-bottom:0.5rem" id="chartTitle-' + prov + '">' + (isLocalProv ? 'Daily Tokens (7 days)' : 'Daily Spending (7 days)') + '</h3><div style="height:250px"><canvas id="' + dailyChartId + '"></canvas></div></div>';
 
             panelsHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">' +
                 '<div class="chart-wrap"><h3 style="font-size:0.85rem;margin-bottom:0.5rem">By Model</h3><div id="' + modelTableId + '"></div></div>' +
@@ -911,16 +1139,19 @@ function buildPage(providers) {
 
         providers.forEach(function(prov, i) {
             var stats = statsList[i] || {daily:[], by_model:{}, by_profile:{}};
-            var isLocal = prov === 'llamacpp';
+            var isLocal = pType(prov) === 'local';
             // Initialize per-tab state on first load
             window._tabState[prov] = { range: String(INITIAL_DAYS), label: INITIAL_DAYS + ' days' };
             renderDailyChart('chart-daily-' + prov, stats.daily, isLocal ? 'tokens' : 'cost');
             renderBreakdownTable('table-model-' + prov, stats.by_model, 'Model', isLocal ? 'tokens' : 'cost');
             renderBreakdownTable('table-profile-' + prov, stats.by_profile, 'Profile', isLocal ? 'tokens' : 'cost');
+            // Each vendor panel reads the credential status of ITS OWN provider
+            // key, so a second account of a vendor shows its own STORED/not-set
+            // badge and never the first account's.
+            if (pType(prov) === 'opencode' && typeof loadOcCredStatus === 'function') loadOcCredStatus(prov);
+            if (pType(prov) === 'commandcode' && typeof loadCcCredStatus === 'function') loadCcCredStatus(prov);
         });
         renderTrendAndGauges();
-        if (typeof loadOcCredStatus === 'function') loadOcCredStatus();
-        if (typeof loadCcCredStatus === 'function') loadCcCredStatus();
     });
 }
 
@@ -938,7 +1169,7 @@ window.switchTab = function(prov) {
     // Restore this tab's saved chart title from state
     var st = window._tabState[prov];
     var titleEl = document.getElementById('chartTitle-' + prov);
-    var isLocalTab = prov === 'llamacpp';
+    var isLocalTab = pType(prov) === 'local';
     if (titleEl && st && st.label) {
         titleEl.textContent = (isLocalTab ? 'Daily Tokens (' : 'Daily Spending (') + st.label + ')';
     }
@@ -987,7 +1218,7 @@ window.applyDateRange = function(btnEl, provider, range) {
     window._tabState[provider] = { range: String(range), label: label };
 
     var titleEl = document.getElementById('chartTitle-' + provider);
-    var isLocal = provider === 'llamacpp';
+    var isLocal = pType(provider) === 'local';
     if (titleEl) titleEl.textContent = (isLocal ? 'Daily Tokens (' : 'Daily Spending (') + label + ')';
 
     fetch('/api/usage/stats?provider=' + encodeURIComponent(provider) + '&start=' + start + '&end=' + end)
