@@ -472,7 +472,7 @@ def _gate_intent(body: dict, config: Any, profile: str, router: Any,
         if margin is None:
             from .router import classify_task_detail
             detail = classify_task_detail(
-                body.get("messages") or [], body.get("tools"))
+                body.get("messages") or [], body.get("tools"), profile=profile)
             margin, top1, top2 = router._intent_margin(detail)
     except Exception:  # noqa: BLE001
         return False, "G4 not evaluated (intent margin unavailable)", margin, False
@@ -552,6 +552,9 @@ def record_decision(decision: dict, db_path: str) -> bool:
                 path=decision.get("path"),
                 min_score=decision.get("min_score"),
                 l4_json=(json.dumps(decision["l4"]) if decision.get("l4") else None),
+                # The taxonomy travels with the decision into the one decision log the UI reads.
+                taxonomy_id=decision.get("taxonomy_id"),
+                taxonomy_version=decision.get("taxonomy_version"),
             ))
             session.commit()
         return True

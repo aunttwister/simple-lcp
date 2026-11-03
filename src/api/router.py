@@ -148,6 +148,10 @@ class ClassifyResult:
     sem_available: bool = False         # embedder was up
     tool_count: int = 0
     token_count: int = 0
+    # Which taxonomy produced this classification. Stamped on EVERY result so a historical decision
+    # can always be explained by the label space that was in force when it was made.
+    taxonomy_id: str = "builtin-v0"
+    taxonomy_version: Optional[int] = None
 
 
 def _profile_intents(config: Any, profile: Optional[str]) -> list:
@@ -175,10 +179,13 @@ def _profile_intents(config: Any, profile: Optional[str]) -> list:
         return [str(i) for i in raw if str(i).strip()] if isinstance(raw, list) else []
 
 
-def classify_task_detail(
+def _classify_task_detail_body(
     messages: list[dict],
     tools: Optional[list[dict]] = None,
     max_tokens: int = 1024,
+    profile: Optional[str] = None,
+    config: Any = None,
+    tax: Any = None,
 ) -> ClassifyResult:
     """Classify a request into a task type, returning the FULL rationale.
 
@@ -256,7 +263,9 @@ def classify_task_detail(
     sem_available = False
     try:
         from .task_classifier import get_semantic_classifier
-        clf = get_semantic_classifier()
+        # The taxonomy is resolved ONCE by the wrapper and passed in: the label space governs which
+        # centroids exist, so resolving it any later would classify in the wrong space first.
+        clf = get_semantic_classifier(tax)
         if clf is not None and intent_lc.strip():
             sem_available = True
             min_score = clf.min_score
@@ -323,6 +332,31 @@ def classify_task_detail(
         semantic=semantic, min_score=min_score,
         sem_available=sem_available, tool_count=tool_count,
     )
+
+
+def classify_task_detail(
+    messages: list[dict],
+    tools: Optional[list[dict]] = None,
+    max_tokens: int = 1024,
+    profile: Optional[str] = None,
+    config: Any = None,
+) -> ClassifyResult:
+    """Classify a request and stamp the taxonomy that governed it.
+
+    A thin wrapper rather than edits to every return site: the body has seven exits, and a taxonomy
+    stamped on six of them would be worse than none. Resolution failure falls back to the built-in
+    taxonomy and NEVER raises — this is the request path.
+    """
+    tax = None
+    try:
+        from .intent_taxonomy import resolve_for_profile
+        tax = resolve_for_profile(profile, config)
+    except Exception:  # noqa: BLE001 — an unresolvable taxonomy must not break routing
+        tax = None
+    res = _classify_task_detail_body(messages, tools, max_tokens, profile, config, tax)
+    res.taxonomy_id = getattr(tax, "id", None) or "builtin-v0"
+    res.taxonomy_version = getattr(tax, "version", None)
+    return res
 
 
 def classify_task(
@@ -819,6 +853,10 @@ class CapabilityRouter:
             "semantic_json": json.dumps(detail.semantic) if detail.semantic else None,
             "min_score": detail.min_score,
             "sem_available": detail.sem_available,
+            # Which taxonomy produced this decision - without it, a decision logged under one label
+            # space is indistinguishable from the same decision under another.
+            "taxonomy_id": getattr(detail, "taxonomy_id", "builtin-v0"),
+            "taxonomy_version": getattr(detail, "taxonomy_version", None),
         }
 
     @staticmethod
@@ -883,6 +921,11 @@ class CapabilityRouter:
                     from_deployment_id=_ident["from_deployment_id"],
                     to_deployment_id=_ident["to_deployment_id"],
                     registry_version=_ident["registry_version"],
+                    # Named explicitly, like every other column here: adding the key to the dict in
+                    # _decision_base is NOT enough, because this constructor is the only thing that
+                    # reaches the table.
+                    taxonomy_id=decision.get("taxonomy_id"),
+                    taxonomy_version=decision.get("taxonomy_version"),
                 ))
                 session.commit()
         except Exception:  # noqa: BLE001 — persistence must never break routing
@@ -1823,7 +1866,9 @@ class CapabilityRouter:
             policy, min_score = self._effective_policy(config, profile)
         except TypeError:
             policy, min_score = self._effective_policy(config)
-        detail = classify_task_detail(messages, tools, max_tokens)
+        # The profile is passed through so the governing taxonomy is the PROFILE's, not the estate
+        # default: that is the entire point of a per-user label space.
+        detail = classify_task_detail(messages, tools, max_tokens, profile=profile, config=config)
         # M2d: a profile that declares what it is for is routed inside that
         # declaration. A profile that declares nothing is untouched, so this line
         # changes nothing until an `intents` list is set on a profile.
