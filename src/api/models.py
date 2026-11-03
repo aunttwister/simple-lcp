@@ -328,6 +328,14 @@ class RoutingDecision(Base):
     from_deployment_id = Column(Integer, nullable=True)
     to_deployment_id = Column(Integer, nullable=True)
     registry_version = Column(Integer, nullable=True)
+
+    # ── Dynamic per-user taxonomy (alembic 028) ─────────────────────────────
+    # Which taxonomy (label space) produced this decision. Recorded because a decision logged under
+    # one label space is otherwise indistinguishable from the same decision under another, so the
+    # historical log could not be re-interpreted honestly - and a taxonomy may only be `active` if
+    # it carries a grade whose negative control passed.
+    taxonomy_id = Column(Text, nullable=True)
+    taxonomy_version = Column(Integer, nullable=True)
     # No transcript capture here. `conversation_json` used to hold a trimmed copy of the request
     # messages: 101 MB of a 139 MB DB (73%), all of it duplicating what the harness's own session
     # stores already hold. The text that drove the decision is in `intent_text` above, and the
