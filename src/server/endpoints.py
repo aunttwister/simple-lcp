@@ -58,6 +58,7 @@ from ..api.key_manager import get_key_manager
 from ..api.credential_store import get_credential_store
 from ..api.alert_manager import get_alert_manager
 from ..api.cost_plugins import get_registry
+from ..api.provider_type import type_of
 from ..api.models import get_session, Request as RequestModel, Budget, ApiKey, FailoverEvent
 from ..api.prompt_cache import get_prompt_cache
 from ..api.token_verifier import get_token_verifier
@@ -1312,6 +1313,40 @@ def _rekey_provider_in_registry(engine: Any, old: str, new: str) -> int:
     return changed
 
 
+def _cost_plugins_component() -> Any:
+    """The ``cost_plugins`` component itself (not its registry), or None."""
+    from ..api.runtime import get_runtime
+    rt = get_runtime()
+    if rt is None:
+        return None
+    try:
+        return rt.resolve("cost_plugins")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _wire_provider_plugin(provider: str) -> bool:
+    """Give a just-created/edited provider its plugin in the LIVE registry."""
+    try:
+        comp = _cost_plugins_component()
+        ensure = getattr(comp, "ensure_provider", None)
+        return bool(ensure(provider)) if callable(ensure) else False
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cost_plugin_wire_failed", provider=provider, error=str(exc))
+        return False
+
+
+def _unwire_provider_plugin(provider: str) -> bool:
+    """Drop a deleted provider's plugin from the live registry. Never raises."""
+    try:
+        comp = _cost_plugins_component()
+        drop = getattr(comp, "drop_provider", None)
+        return bool(drop(provider)) if callable(drop) else False
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cost_plugin_unwire_failed", provider=provider, error=str(exc))
+        return False
+
+
 class ProviderEndpoints:
     """Provider CRUD, testing, chain reorder."""
 
@@ -1447,6 +1482,7 @@ class ProviderEndpoints:
         refresher = resolve_service("refresher", fallback=get_refresher)
         if refresher is not None:
             refresher.request_refresh(provider=name)
+        _wire_provider_plugin(name)
         self._audit("provider.create", provider=name)
         self._send_json({"ok": True, "provider": name})
 
@@ -1491,6 +1527,7 @@ class ProviderEndpoints:
         refresher = resolve_service("refresher", fallback=get_refresher)
         if refresher is not None:
             refresher.request_refresh(provider=name)
+        _wire_provider_plugin(name)
         self._audit("provider.update", provider=name,
                     fields=sorted(k for k in body if k != "api_key"))
         self._send_json({"ok": True, "provider": name})
@@ -1555,15 +1592,18 @@ class ProviderEndpoints:
                          f"{', '.join(sorted(emptied))}. Those profiles now return "
                          f"503 profile_invalid until a step is added."),
                         dedup_key=f"profile_invalid:{name}")
+        plugin_dropped = _unwire_provider_plugin(name)
         self._audit("provider.delete", provider=name,
                     health_rows_removed=health_rows_removed,
                     registry_mappings_updated=mappings_updated,
                     models_unserved=models_unserved,
+                    plugin_dropped=plugin_dropped,
                     profiles_emptied=sorted(emptied))
         self._send_json({"ok": True, "deleted": name,
                          "health_rows_removed": health_rows_removed,
                          "registry_mappings_updated": mappings_updated,
                          "models_unserved": models_unserved,
+                         "plugin_dropped": plugin_dropped,
                          "profiles_emptied": sorted(emptied)})
 
     def _serve_provider_rename(self, name: str):
@@ -1621,6 +1661,10 @@ class ProviderEndpoints:
             except Exception as exc:  # noqa: BLE001 — rename must not fail wholesale
                 logger.warning("provider_rename_credential_move_failed",
                                provider=name, new_name=new_name, error=str(exc))
+
+        # Drop the live plugin under the old identity and bind it under the new.
+        _unwire_provider_plugin(name)
+        _wire_provider_plugin(new_name)
 
         # Fresh cache entry for the new name on the next background pass.
         from ..api.cost_cache import get_refresher
