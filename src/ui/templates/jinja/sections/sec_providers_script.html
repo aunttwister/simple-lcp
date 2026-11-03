@@ -190,25 +190,382 @@ function toggleProviderState(provider, profile, action){
   });
 }
 
-// Profile-grouped health stacks. Expanded groups + open detail rows survive
-// the 10s auto-refresh re-render via these maps.
-var _provOpen = {};   // profile-stack sid -> true when expanded
-var _hdetOpen = {};   // provider-detail sid -> true when open
+// ── Provider health MATRIX ────────────────────────────────────────────────
+// Rows are profiles, columns are providers, and a cell is the (provider,
+// profile) pair — exactly the key provider_health uses. The page can then be
+// read two ways: down a column ("is commandcode usable anywhere, and where is
+// it broken?") or across a row ("what can profile l2 call right now?"). The
+// previous layout grouped by profile, which answered only the second of those
+// questions, on a page whose subject is providers.
+//
+// A cell has FOUR states and the two quiet ones are the point:
+//   healthy / degraded / dead — a health row exists for this pair
+//   "no data"                 — the provider IS in this profile's chain but has
+//                               never carried a request for it, so nothing has
+//                               ever assessed it. Silence, not health.
+//   "·" (dim)                 — the provider is not registered for this profile
+//
+// The state is passive: it is written only by real traffic
+// (request_pipeline -> circuit_breaker.record_success/record_failure). Nothing
+// probes a provider that is not being called, which is why a pair can sit here
+// at "no data" indefinitely and why a six-week-old last success can still show
+// 100% uptime.
+var PH = {cells:{}, chains:{}, provs:[], profs:[], index:{}, sel:null, summary:{}, notice:null};
 
-function toggleProvProfile(sid){
-  toggleStack(sid);
-  var el = document.getElementById(sid);
-  _provOpen[sid] = !!(el && el.classList.contains('expanded'));
+function phEsc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function phSev(st){ return st === 'dead' ? 2 : st === 'degraded' ? 1 : st === 'healthy' ? 0 : 3; }
+function phDot(st){
+  var cls = st === 'healthy' ? 'ok' : st === 'degraded' ? 'warn' : st === 'dead' ? 'dead' : 'none';
+  return '<span class="ph-dot ph-dot-' + cls + '"></span>';
+}
+function phId(s){ return String(s).replace(/[^a-zA-Z0-9]/g, '_'); }
+function phBase(prof, prov){
+  var es = PH.cells[prof + '|' + prov] || [];
+  return es.length ? (es[0].h.base_url || '') : '';
+}
+function phModel(prof, prov){
+  var hit = (PH.chains[prof] || []).filter(function(s){ return s.provider === prov; })[0];
+  return hit ? (hit.model || '') : '';
 }
 
-function toggleHealthDetail(id){
-  var tr = document.getElementById('hdet-'+id);
-  var chev = document.getElementById('hchev-'+id);
-  if(!tr) return;
-  var show = tr.style.display !== 'table-row';
-  tr.style.display = show ? 'table-row' : 'none';
-  if(chev) chev.textContent = show ? '▴' : '▾';
-  _hdetOpen[id] = show;
+function loadProviderHealth(){
+  // Guarded: the probe bar lives in a later <script> block, and this function is
+  // first invoked at the bottom of THIS block — where phLoadProbe does not exist
+  // yet. Calling it unguarded threw a ReferenceError that killed the matrix
+  // render entirely (proven in-browser: body stuck on "Loading…").
+  if (typeof phLoadProbe === 'function') phLoadProbe();
+  api('GET','/api/providers').then(function(p){
+    api('GET','/api/providers/health').then(function(h){
+      PH.chains = (p && p.profile_chains) || {};
+      PH.provs  = Object.keys((p && p.providers) || {});
+      PH.profs  = Object.keys(PH.chains);
+      var hp = (h && h.providers) || {};
+      var cells = {};
+      Object.keys(hp).forEach(function(k){
+        var e = hp[k];
+        // Read provider/profile from the entry, not from the dict key: two
+        // configs can share a pair with different base URLs, and the key then
+        // carries a discriminator that is not part of the profile name.
+        var prof = e.profile || k.split('/')[1] || '';
+        var prov = e.provider || k.split('/')[0] || '';
+        var key = prof + '|' + prov;
+        (cells[key] = cells[key] || []).push({prof:prof, prov:prov, h:e});
+      });
+      PH.cells = cells;
+      // A profile or provider appearing only in health data still gets a
+      // row/column, so a stray row is visible instead of silently absent.
+      Object.keys(cells).forEach(function(k){
+        var prof = k.split('|')[0], prov = k.split('|')[1];
+        if(prof && PH.profs.indexOf(prof) === -1) PH.profs.push(prof);
+        if(prov && PH.provs.indexOf(prov) === -1) PH.provs.push(prov);
+      });
+      PH.profs = PH.profs.filter(function(x){ return x; }).sort();
+      PH.provs = PH.provs.filter(function(x){ return x; }).sort();
+      PH.summary = (h && h.summary) || {};
+      phRender();
+    });
+  });
+}
+
+function phRender(){
+  var head = document.getElementById('phHead');
+  var body = document.getElementById('providerHealthBody');
+  if(!head || !body) return;
+
+  var hh = '<th scope="col" class="ph-rowhead">Profile</th>';
+  PH.provs.forEach(function(pr){
+    hh += '<th scope="col" title="' + phEsc(pr) + '">' + phEsc(pr) + '</th>';
+  });
+  hh += '<th scope="col" title="Providers registered in this profile\'s chain">Chain</th>';
+  head.innerHTML = hh;
+
+  PH.index = {};
+  var unassessed = 0, rows = '';
+
+  PH.profs.forEach(function(prof){
+    var steps = (PH.chains[prof] || []).map(function(s){ return s.provider; });
+    rows += '<tr><th scope="row">' + phEsc(prof) + '</th>';
+
+    PH.provs.forEach(function(prov){
+      var es = PH.cells[prof + '|' + prov] || [];
+      var inChain = steps.indexOf(prov) !== -1;
+
+      if(!es.length){
+        if(inChain){
+          unassessed++;
+          rows += '<td><span class="ph-cell ph-static" title="Registered in '
+               + phEsc(prof) + "'s chain but never assessed — no request has carried it"
+               + ' yet, so no health row exists. Unassessed, not healthy.">'
+               + '<span class="ph-dot ph-dot-none"></span>no data</span></td>';
+        } else {
+          rows += '<td><span class="ph-cell ph-static" title="Not registered for '
+               + phEsc(prof) + '">·</span></td>';
+        }
+        return;
+      }
+
+      var worst = phWorst(es);
+      var st = worst.h.status;
+      var extra = '';
+      if(es.length > 1) extra = ' <span class="ph-tag">' + es.length + ' urls</span>';
+      else if(!inChain) extra = ' <span class="ph-tag">retired</span>';
+      var sid = 'phc-' + phId(prof) + '-' + phId(prov);
+      PH.index[sid] = {prof:prof, prov:prov};
+      var pressed = (PH.sel && PH.sel.prof === prof && PH.sel.prov === prov) ? 'true' : 'false';
+      rows += '<td><button type="button" class="ph-cell" id="' + sid + '" aria-pressed="' + pressed
+           +  '" onclick="phSelect(\'' + sid + '\')" title="'
+           +  phEsc(prof + ' / ' + prov + ' — click for actions') + '">'
+           +  phDot(st) + phEsc(st) + extra + '</button></td>';
+    });
+
+    rows += '<td style="text-align:center"><button type="button" class="ph-cell ph-chainbtn"'
+         +  ' onclick="phSelectProfile(\'' + phId(prof) + '\')"'
+         +  ' title="Show this profile\'s chain in order, with each step\'s status">'
+         +  steps.length + '</button></td></tr>';
+  });
+  body.innerHTML = rows;
+
+  var sum = PH.summary || {};
+  document.getElementById('hcHealthy').textContent  = sum.healthy  != null ? sum.healthy  : '–';
+  document.getElementById('hcDegraded').textContent = sum.degraded != null ? sum.degraded : '–';
+  document.getElementById('hcDead').textContent     = sum.dead     != null ? sum.dead     : '–';
+  document.getElementById('hcTotal').textContent    = sum.total    != null ? sum.total    : '–';
+  var ua = document.getElementById('hcUnassessed');
+  if(ua) ua.textContent = unassessed;
+
+  var legend = document.getElementById('phLegend');
+  if(legend) legend.innerHTML =
+      '<span>' + phDot('healthy') + 'healthy</span>'
+    + '<span>' + phDot('degraded') + 'degraded</span>'
+    + '<span>' + phDot('dead') + 'dead</span>'
+    + '<span>' + phDot(null) + 'no data — in the chain, never assessed</span>'
+    + '<span>· not registered for that profile</span>'
+    + '<span>Click a cell for actions</span>';
+
+  if(PH.sel) phPanel(PH.sel.prof, PH.sel.prov);
+}
+
+// ── Profile view: the chain IN ORDER, with each step's status ─────────────
+// The matrix answers "which providers work for this profile". This answers the
+// question an operator actually asks when a profile is misbehaving: "walk my
+// chain top to bottom — what will it try, in what order, and where will it stop?"
+// Chain order is not derivable from the matrix (it is a set of pairs), so it has
+// to be read from the configured chain.
+function phSelectProfile(profId){
+  var prof = null;
+  PH.profs.forEach(function(p){ if(phId(p) === profId) prof = p; });
+  if(prof === null) return;
+  if(!PH.sel || PH.sel.prof !== prof || PH.sel.prov) PH.notice = null;
+  PH.sel = {prof: prof, prov: null};
+  phRender();
+  var host = document.getElementById('phCellPanel');
+  if(host && host.scrollIntoView) host.scrollIntoView({block:'nearest'});
+}
+
+function phProfilePanel(prof, host){
+  var steps = PH.chains[prof] || [];
+  var h = '<div class="ph-cp-head">profile <b>' + phEsc(prof) + '</b> — chain in order'
+        + ' <span class="ph-tag">' + steps.length + ' step' + (steps.length===1?'':'s') + '</span></div>';
+
+  if(!steps.length){
+    h += '<p class="ph-cp-msg">This profile has no chain — it cannot call anything.</p>';
+    h += '<div class="ph-cp-actions"><button class="btn-sm" onclick="phClose()">Close</button></div>';
+    host.innerHTML = h; host.style.display = ''; return;
+  }
+
+  h += '<ol class="ph-chain">';
+  steps.forEach(function(s, i){
+    var prov = s.provider, model = s.model || '';
+    var es = PH.cells[prof + '|' + prov] || [];
+    var worst = phWorst(es);
+    var st = worst ? worst.h.status : null;
+    var ls = worst ? worst.h.last_success : null;
+    var age = phAge(ls);
+    h += '<li><span class="ph-dot ' + (worst ? 'ph-dot-' + st : 'ph-dot-none') + '"></span>'
+      +  '<span class="ph-chain-step">' + (i+1) + '. <b>' + phEsc(prov) + '</b>'
+      +  (model ? ' <span class="mono">' + phEsc(model) + '</span>' : '')
+      +  '</span>'
+      +  '<span class="ph-chain-state">'
+      +  (worst ? phEsc(st) : 'no data — never assessed')
+      +  (age ? ' · last success ' + phEsc(age) : '') + '</span></li>';
+  });
+  h += '</ol>';
+  h += '<p class="ph-cp-msg">Steps are tried top to bottom. A step whose provider is not'
+    +  ' available is skipped and the chain advances — so a descending order of status here'
+    +  ' is what a fallback actually costs.</p>';
+  h += '<div class="ph-cp-actions"><button class="btn-sm" onclick="phClose()">Close</button></div>';
+  if(PH.notice){
+    h += '<div class="ph-cp-msg" style="color:'
+      + (PH.notice.cls === 'ok' ? 'hsl(var(--green-fg))'
+       : PH.notice.cls === 'err' ? 'hsl(var(--red-fg))'
+       : 'hsl(var(--muted-foreground))') + '">' + phEsc(PH.notice.text) + '</div>';
+  }
+  host.innerHTML = h;
+  host.style.display = '';
+}
+
+// Pick the row that BEST represents a (profile, provider) pair.
+//
+// Worst status governs, because that is the risk. But among EQUAL statuses the
+// FRESHEST wins: l2|local-sparks has two healthy rows — the retired
+// https://dgx.local.curci.cc/v1 (last success 2026-10-04) and the live
+// http://192.168.1.107:18300/v1 (seconds ago). Picking by array order showed
+// "healthy · last success 28d ago" for a step that was serving traffic at that
+// moment, which reads as a stalled provider when nothing is wrong.
+function phWorst(es){
+  if(!es || !es.length) return null;
+  return es.slice().sort(function(a, b){
+    var d = phSev(b.h.status) - phSev(a.h.status);
+    if(d) return d;
+    var ta = Date.parse(a.h.last_success) || 0, tb = Date.parse(b.h.last_success) || 0;
+    return tb - ta;
+  })[0];
+}
+
+function phAge(iso){
+  if(!iso) return '';
+  var t = Date.parse(iso);
+  if(isNaN(t)) return '';
+  var s = Math.round((Date.now() - t)/1000);
+  if(s < 90) return s + 's ago';
+  if(s < 5400) return Math.round(s/60) + 'm ago';
+  if(s < 172800) return Math.round(s/3600) + 'h ago';
+  return Math.round(s/86400) + 'd ago';
+}
+
+function phSelect(sid){
+  var pair = PH.index[sid];
+  if(!pair) return;
+  // Switching cells clears any previous action result, so a "Done" from one
+  // pair can never be read as belonging to another.
+  if(!PH.sel || PH.sel.prof !== pair.prof || PH.sel.prov !== pair.prov) PH.notice = null;
+  PH.sel = pair;
+  phRender();
+  var host = document.getElementById('phCellPanel');
+  if(host && host.scrollIntoView) host.scrollIntoView({block:'nearest'});
+}
+
+function phClose(){
+  PH.sel = null;
+  PH.notice = null;
+  var host = document.getElementById('phCellPanel');
+  if(host) host.style.display = 'none';
+  phRender();
+}
+
+function phPanel(prof, prov){
+  var host = document.getElementById('phCellPanel');
+  if(!host) return;
+  if(!prov){ phProfilePanel(prof, host); return; }
+  var es = PH.cells[prof + '|' + prov] || [];
+  var model = phModel(prof, prov);
+  var inChain = model !== '' || (PH.chains[prof] || []).some(function(s){ return s.provider === prov; });
+  // Same rule as the cell: the pair is as healthy as its WORST row. Using
+  // entries[0] here made the cell read "dead" and the panel header "degraded"
+  // for the same click.
+  var worst = phWorst(es);
+
+  var h = '<div class="ph-cp-head"><b>' + phEsc(prof) + '</b> / <b>' + phEsc(prov) + '</b> '
+        + (worst ? phDot(worst.h.status) + phEsc(worst.h.status) : '<span class="ph-dot ph-dot-none"></span>no data')
+        + (es.length > 1 ? ' <span class="ph-tag">worst of ' + es.length + ' endpoints</span>' : '')
+        + (inChain ? '' : ' <span class="ph-tag">not in this profile\'s chain</span>')
+        + '</div>';
+
+  if(es.length){
+    // One block per endpoint. Two rows for the same provider are two different
+    // base URLs, so each block carries its own heading — otherwise the labels
+    // repeat and there is no way to tell which values belong together.
+    h += '<div class="ph-eps">';
+    es.forEach(function(e){
+      h += '<div class="ph-ep">';
+      if(es.length > 1)
+        h += '<div class="ph-ep-head">' + phDot(e.h.status) + ' <span class="mono">' + phEsc(e.h.base_url || '—') + '</span></div>';
+      h += '<dl class="ph-facts">';
+      h += '<div><dt>Status</dt><dd>' + phEsc(e.h.status) + '</dd></div>';
+      h += '<div><dt>Consecutive failures</dt><dd>' + phEsc(e.h.failures) + '</dd></div>';
+      h += '<div><dt>Last success</dt><dd>' + phEsc(e.h.last_success || 'never') + '</dd></div>';
+      h += '<div><dt>Last failure</dt><dd>' + phEsc(e.h.last_failure || '—') + '</dd></div>';
+      h += '<div><dt>Cooldown until</dt><dd>' + phEsc(e.h.tripped_until || '—') + '</dd></div>';
+      h += '<div><dt>Manual override</dt><dd>' + phEsc(e.h.manual_override || '—') + '</dd></div>';
+      if(e.h.last_failure_reason)
+        h += '<div style="grid-column:1/-1"><dt>Reason</dt><dd>' + phEsc(e.h.last_failure_reason) + '</dd></div>';
+      h += '</dl></div>';
+    });
+    h += '</div>';
+    if(!inChain)
+      h += '<p class="ph-cp-msg" style="color:hsl(var(--amber-fg))">This pair has a health row but the provider is no longer in this profile\'s chain — the row outlived the config.</p>';
+  } else {
+    h += '<p class="ph-cp-msg">No health row for this pair. The provider is in the chain'
+      +  (model ? ' at step model <span class="mono">' + phEsc(model) + '</span>' : '')
+      +  ', but it has never carried a request for this profile and nothing probes it.'
+      +  ' It is unassessed, not healthy.</p>';
+  }
+
+  var base = phBase(prof, prov);
+  h += '<div class="ph-cp-actions">';
+  if(es.length) h += '<button class="btn-sm" onclick="phAct(\'reset\')" title="Clear this pair\'s breaker state to healthy">Reset breaker</button>';
+  h += '<button class="btn-sm" onclick="phAct(\'test\')" title="Send one minimal completion to this provider\'s base URL now">Test connection</button>';
+  if(inChain){
+    h += '<button class="btn-sm" onclick="phAct(\'degrade\')" title="Force this pair to degraded until reset">Degrade</button>';
+    h += '<button class="btn-sm" onclick="phAct(\'kill\')" title="Force this pair to dead until reset">Kill</button>';
+    h += '<button class="btn-sm" onclick="phAct(\'resume\')" title="Clear a manual override and return to health tracking">Resume</button>';
+  }
+  h += '<button class="btn-sm" onclick="phClose()">Close</button></div>';
+  // The result of an action lives in PH.notice, not just in the DOM: a reload
+  // (which reloadProviderHealth triggers after every action) rebuilds this panel
+  // and would otherwise wipe the answer 6 s after showing it. Same class of bug
+  // as a save confirmation cleared by the table refresh that follows it.
+  if(PH.notice){
+    h += '<div class="ph-cp-msg" id="phCpMsg" style="color:'
+      + (PH.notice.cls === 'ok' ? 'hsl(var(--green-fg))'
+       : PH.notice.cls === 'err' ? 'hsl(var(--red-fg))'
+       : 'hsl(var(--muted-foreground))') + '">' + phEsc(PH.notice.text) + '</div>';
+  } else {
+    h += '<div class="ph-cp-msg" id="phCpMsg">Actions are audited and apply to '
+      +  phEsc(prof + ' / ' + prov) + ' only'
+      +  (base ? ' (<span class="mono">' + phEsc(base) + '</span>)' : '') + '.</div>';
+  }
+
+  host.innerHTML = h;
+  host.style.display = '';
+}
+
+function phAct(kind){
+  var s = PH.sel;
+  if(!s) return;
+  var base = phBase(s.prof, s.prov);
+  var p;
+  if(kind === 'reset')
+    p = api('POST','/api/circuit-breaker/reset',{provider:s.prov, base_url:base, profile:s.prof});
+  else if(kind === 'test')
+    p = api('POST','/api/providers/test',{provider:s.prov, api_base:base});
+  else
+    p = api('POST','/api/providers/' + encodeURIComponent(s.prov) + '/toggle',{profile:s.prof, action:kind});
+
+  phMsg('Working…', '');
+  p.then(function(d){
+    var ok = !!(d && !d.error && (d.ok || d.status || d.success || d.latency_ms != null));
+    var text = (ok ? 'Done' : 'Not applied') + ' — ' + JSON.stringify(d).slice(0, 400);
+    phMsg(text, ok ? 'ok' : 'err');
+    loadProviderHealth();
+  }).catch(function(e){
+    phMsg('Request failed: ' + e, 'err');
+  });
+}
+
+function phMsg(text, cls){
+  // Panel state first, DOM second: the panel is rebuilt on every reload.
+  PH.notice = {text: text, cls: cls};
+  var el = document.getElementById('phCpMsg');
+  if(!el) return;
+  el.textContent = text;
+  el.style.color = cls === 'ok' ? 'hsl(var(--green-fg))'
+                 : cls === 'err' ? 'hsl(var(--red-fg))'
+                 : 'hsl(var(--muted-foreground))';
 }
 
 function uptimeBar(pct){
@@ -267,134 +624,6 @@ function loadFailovers(){
   });
 }
 
-// ── Profile-grouped provider health (lcp-stack pattern, like Keys page) ────
-var PROV_COLS = '<colgroup><col style="width:16%"><col style="width:10%"><col style="width:12%"><col style="width:12%"><col style="width:12%"><col style="width:7%"><col style="width:17%"><col style="width:14%"></colgroup>';
-var PROV_HDR = '<tr class="lcp-stack-header"><th scope="col">Provider</th><th scope="col">Status</th><th scope="col">Uptime 24h</th><th scope="col">Uptime 7d</th><th scope="col">Uptime 30d</th><th scope="col" style="text-align:center">Failures</th><th scope="col">Last Error</th><th scope="col"></th></tr>';
-
-function provBadge(st){
-  var cls = st === 'healthy' ? 'badge-success' : st === 'degraded' ? 'badge-warning' : 'badge-error';
-  return '<span class="badge '+cls+'">'+esc(st)+'</span>';
-}
-
-function provSelect(prov, prof, st){
-  var p = prov.replace(/'/g,"\\'"), f = prof.replace(/'/g,"\\'");
-  var html = '<select class="btn-sm prov-override" onclick="event.stopPropagation()" onchange="if(this.value){toggleProviderState(\''+p+'\',\''+f+'\',this.value);this.value=\'\'}" style="width:100%;max-width:118px;min-width:0;padding:0.2rem 0.25rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.6875rem;cursor:pointer;text-overflow:ellipsis" title="Circuit breaker override">';
-  html += '<option value="">Override…</option>';
-  html += '<option value="degrade">Degrade</option>';
-  html += '<option value="kill">Kill</option>';
-  if(st !== 'healthy'){ html += '<option value="resume">Resume</option>'; }
-  html += '</select>';
-  return html;
-}
-
-function provMidCells(h){
-  var reason = h.last_failure_reason || '—';
-  if(reason.length > 70) reason = reason.slice(0,67)+'…';
-  return '<td>'+provBadge(h.status)+'</td>'+
-    '<td>'+uptimeBar(h.uptime_24h)+'</td>'+
-    '<td>'+uptimeBar(h.uptime_7d)+'</td>'+
-    '<td>'+uptimeBar(h.uptime_30d)+'</td>'+
-    '<td style="text-align:center">'+h.failures+'</td>'+
-    '<td class="mono" style="font-size:0.6875rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(h.last_failure_reason||'')+'">'+esc(reason)+'</td>';
-}
-
-function provDetailRow(h, dsid, show){
-  var html = '<tr class="hdet" id="hdet-'+dsid+'" data-id="'+dsid+'" style="display:'+(show?'table-row':'none')+'"><td colspan="8" style="padding:0">';
-  html += '<div style="background:hsl(var(--secondary)/0.15);border-top:1px solid hsl(var(--card-border));border-bottom:1px solid hsl(var(--card-border));padding:0.75rem 1rem;font-size:0.75rem">';
-  html += '<div style="font-weight:600;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.05em;color:hsl(var(--muted-foreground));margin-bottom:0.25rem">Last Error</div>';
-  html += '<pre style="white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.6875rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);padding:0.5rem;margin:0 0 0.75rem;max-height:120px;overflow:auto">'+esc(h.last_failure_reason||'—')+'</pre>';
-  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem">';
-  html += '<div><div style="font-size:0.6rem;color:hsl(var(--muted-foreground));text-transform:uppercase;margin-bottom:0.25rem">Failure Breakdown (24h)</div>'+failureBars(h.failures_24h||{})+'</div>';
-  html += '<div><div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">';
-  html += '<div><div style="font-size:0.6rem;color:hsl(var(--muted-foreground));text-transform:uppercase;margin-bottom:0.125rem">Status</div><div>'+esc(h.status)+'</div></div>';
-  html += '<div><div style="font-size:0.6rem;color:hsl(var(--muted-foreground));text-transform:uppercase;margin-bottom:0.125rem">Failures</div><div>'+h.failures+'</div></div>';
-  html += '<div><div style="font-size:0.6rem;color:hsl(var(--muted-foreground));text-transform:uppercase;margin-bottom:0.125rem">Last Failure</div><div class="mono" style="font-size:0.625rem">'+esc(h.last_failure||'—')+'</div></div>';
-  html += '<div><div style="font-size:0.6rem;color:hsl(var(--muted-foreground));text-transform:uppercase;margin-bottom:0.125rem">Last Success</div><div class="mono" style="font-size:0.625rem">'+esc(h.last_success||'—')+'</div></div>';
-  html += '<div><div style="font-size:0.6rem;color:hsl(var(--muted-foreground));text-transform:uppercase;margin-bottom:0.125rem">Base URL</div><div class="mono" style="word-break:break-all;font-size:0.625rem">'+esc(h.base_url||'—')+'</div></div>';
-  html += '<div><div style="font-size:0.6rem;color:hsl(var(--muted-foreground));text-transform:uppercase;margin-bottom:0.125rem">Cooldown Until</div><div class="mono" style="font-size:0.625rem">'+esc(h.tripped_until||'—')+'</div></div>';
-  html += '</div></div>';
-  html += '</div>';
-  html += '</div></td></tr>';
-  return html;
-}
-
-// Latest active provider for a profile's collapsed row: healthiest first,
-// then most-recently-active as the tiebreaker.
-function pickActiveProv(entries){
-  var rank = {healthy:0, degraded:1, dead:2};
-  return entries.slice().sort(function(a,b){
-    var ra = rank[a.h.status]!=null?rank[a.h.status]:3, rb = rank[b.h.status]!=null?rank[b.h.status]:3;
-    if(ra !== rb) return ra - rb;
-    var ta = a.h.last_success || a.h.last_failure || '';
-    var tb = b.h.last_success || b.h.last_failure || '';
-    return tb > ta ? 1 : -1;
-  })[0];
-}
-
-function loadProviderHealth(){
-  api('GET','/api/providers/health').then(function(d){
-    var ps = d.providers || {};
-    var sum = d.summary || {};
-    var keys = Object.keys(ps).sort();
-    var html = '';
-    if (keys.length === 0) {
-      html = '<div class="empty">No provider health data yet — send a request to populate.</div>';
-    } else {
-      // Group by profile.
-      var groups = {};
-      keys.forEach(function(k){
-        var h = ps[k];
-        // Read provider/profile from the entry, not from the dict key. Two configs
-        // can share a provider+profile with different base URLs, and the key then
-        // carries a discriminator ("opencode/l2 (opencode.ai/inference/openai)")
-        // that is not part of the profile name.
-        var prov = h.provider || k.split('/')[0];
-        var prof = h.profile || k.split('/')[1] || prov;
-        if(!groups[prof]) groups[prof] = [];
-        groups[prof].push({prov:prov, prof:prof, h:h});
-      });
-      Object.keys(groups).sort().forEach(function(prof){
-        var entries = groups[prof];
-        var act = pickActiveProv(entries);
-        var sid = 'ph-' + prof.replace(/[^a-zA-Z0-9]/g, '_');
-        var open = !!_provOpen[sid];
-        var ah = act.h;
-
-        html += '<table class="lcp-stack">'+PROV_COLS+'<thead>'+PROV_HDR+'</thead>';
-        html += '<tbody class="key-stack'+(open?' expanded':'')+'" id="'+sid+'" aria-expanded="'+open+'">';
-
-        // Collapsed trigger row = the profile's latest active provider.
-        html += '<tr class="lcp-stack-trigger" onclick="toggleProvProfile(\''+sid+'\')" title="Click to '+(open?'collapse':'expand')+' '+esc(prof)+' providers">';
-        html += '<td><b>'+esc(prof)+'</b> <span style="font-size:0.625rem;color:hsl(var(--muted-foreground))">'+esc(act.prov)+'</span> <span class="lcp-stack-count">'+entries.length+'</span> <span class="lcp-stack-chevron">▾</span></td>';
-        html += provMidCells(ah);
-        html += '<td></td>';
-        html += '</tr>';
-
-        // Expanded body: one row (+ optional detail) per provider.
-        entries.forEach(function(e){
-          var h = e.h;
-          var dsid = ('h' + e.prov + '-' + e.prof).replace(/[^a-zA-Z0-9]/g, '_');
-          var detOpen = open && !!_hdetOpen[dsid];
-          var manual = h.manual_override ? ' <span style="font-size:0.5625rem;color:hsl(var(--amber-fg));text-transform:uppercase">manual</span>' : '';
-          html += '<tr class="lcp-stack-body health-trigger" style="cursor:pointer" onclick="toggleHealthDetail(\''+dsid+'\')" title="Click to expand details">';
-          html += '<td><b>'+esc(e.prov)+'</b>'+manual+' <span class="lcp-stack-chevron" id="hchev-'+dsid+'">'+(detOpen?'▴':'▾')+'</span></td>';
-          html += provMidCells(h);
-          html += '<td style="white-space:nowrap">'+provSelect(e.prov, e.prof, h.status)+'</td>';
-          html += '</tr>';
-          html += provDetailRow(h, dsid, detOpen);
-        });
-
-        html += '</tbody></table>';
-      });
-    }
-    document.getElementById('providerHealthBody').innerHTML = html;
-    if(document.getElementById('healthSummary')) document.getElementById('healthSummary').textContent = '';
-    document.getElementById('hcHealthy').textContent = sum.healthy != null ? sum.healthy : 0;
-    document.getElementById('hcDegraded').textContent = sum.degraded != null ? sum.degraded : 0;
-    document.getElementById('hcDead').textContent = sum.dead != null ? sum.dead : 0;
-    document.getElementById('hcTotal').textContent = sum.total != null ? sum.total : keys.length;
-  });
-}
 
 loadPresets();
 loadProviderHealth();
@@ -981,4 +1210,108 @@ async function probeAllCaps() {
 loadCaps();
 applyHashTab();
 {% endraw %}</script>
+<script>
+// ── Active assessment control bar ─────────────────────────────────────────
+// The matrix says what the state IS. This says how often that is established,
+// and lets it be established now — because an operator staring at a stale cell
+// should not have to wait out the interval to find out if it is still true.
+
+var PH_PROBE = {loaded: false, saving: false};
+
+function phLoadProbe(){
+  api('GET','/api/providers/probe').then(function(d){
+    var p = (d && d.prober) || {};
+    var st = document.getElementById('phProbeState');
+    if(!st) return;
+    if(!d || d.ok === false){
+      st.innerHTML = '<b>Prober status unavailable</b> — ' + phEsc((d && d.error) || 'unknown');
+      return;
+    }
+    PH_PROBE.loaded = true;
+    var iv = p.interval_seconds || 60;
+    var sel = document.getElementById('phProbeInterval');
+    // Keep the select honest if the stored value is not one of the presets.
+    if(sel && !Array.prototype.some.call(sel.options, function(o){ return +o.value === iv; })){
+      var o = document.createElement('option');
+      o.value = iv; o.textContent = iv + ' s (custom)';
+      sel.appendChild(o);
+    }
+    if(sel) sel.value = String(iv);
+    var en = document.getElementById('phProbeEnabled');
+    if(en) en.checked = !!p.enabled;
+
+    var last = p.last_cycle_at ? new Date(p.last_cycle_at) : null;
+    var age = last ? Math.round((Date.now() - last.getTime())/1000) : null;
+    var when = age === null ? 'not yet run'
+             : (age < 90 ? age + ' s ago' : Math.round(age/60) + ' min ago');
+    st.innerHTML = (p.enabled
+        ? '<b>Assessing</b> every <b>' + iv + ' s</b>'
+        : '<b>Probing off</b> — health is only written by real traffic')
+      + ' · ' + phEsc(p.tracked) + ' pairs tracked'
+      + ' · last cycle ' + phEsc(when)
+      + (p.running ? '' : ' · <b>thread not running</b>');
+
+    var sk = p.skipped || {};
+    var keys = Object.keys(sk);
+    var covered = p.covered_by_traffic || 0;
+    var msg = document.getElementById('phProbeMsg');
+    if(msg){
+      var bits = [];
+      if(covered) bits.push(covered + ' covered by real traffic (not probed — no cost, no new information)');
+      if(keys.length) bits.push(keys.length + ' not probed: '
+        + keys.slice(0,2).map(function(k){ return sk[k]; }).join('; ')
+        + (keys.length > 2 ? ' (+' + (keys.length-2) + ' more)' : ''));
+      msg.textContent = bits.join(' · ');
+    }
+  }).catch(function(){});
+}
+
+function phSaveProbe(){
+  if(PH_PROBE.saving) return;
+  PH_PROBE.saving = true;
+  var iv = +(document.getElementById('phProbeInterval').value || 60);
+  var en = document.getElementById('phProbeEnabled').checked;
+  var msg = document.getElementById('phProbeMsg');
+  api('POST','/api/providers/probe',{action:'config', interval_seconds:iv, enabled:en})
+    .then(function(d){
+      PH_PROBE.saving = false;
+      if(msg) msg.textContent = (d && d.ok)
+        ? 'Saved — assesses every ' + ((d.effective && d.effective.interval_seconds) || iv) + ' s from the next cycle'
+        : 'Not saved: ' + ((d && d.error) || 'unknown error');
+      phLoadProbe();
+    }).catch(function(e){
+      PH_PROBE.saving = false;
+      if(msg) msg.textContent = 'Not saved: ' + e;
+    });
+}
+
+function phProbeNow(){
+  var btn = document.getElementById('phProbeNow');
+  var msg = document.getElementById('phProbeMsg');
+  if(btn){ btn.disabled = true; btn.textContent = 'Checking…'; }
+  api('POST','/api/providers/probe',{action:'check'}).then(function(d){
+    if(btn){ btn.disabled = false; btn.textContent = 'Check now'; }
+    var rs = (d && d.results) || [];
+    var ok = rs.filter(function(r){ return r.ok && !r.skipped; }).length;
+    var sk = rs.filter(function(r){ return r.skipped; }).length;
+    var fa = rs.length - ok - sk;
+    if(msg) msg.textContent = 'Checked ' + rs.length + ': ' + ok + ' reachable, '
+      + fa + ' failing, ' + sk + ' skipped';
+    loadProviderHealth();
+  }).catch(function(e){
+    if(btn){ btn.disabled = false; btn.textContent = 'Check now'; }
+    if(msg) msg.textContent = 'Check failed: ' + e;
+  });
+}
+
+(function wireProbeBar(){
+  var sel = document.getElementById('phProbeInterval');
+  var en = document.getElementById('phProbeEnabled');
+  var now = document.getElementById('phProbeNow');
+  if(sel) sel.addEventListener('change', phSaveProbe);
+  if(en) en.addEventListener('change', phSaveProbe);
+  if(now) now.addEventListener('click', phProbeNow);
+})();
+</script>
+
 {% endif %}

@@ -32,12 +32,51 @@
 .empty-state h3 { color: hsl(var(--foreground)); margin-bottom: 0.5rem; }
 .active-count { background: hsl(var(--red-fg) / 0.15); color: hsl(var(--red-fg)); padding: 0.12rem 0.5rem; border-radius: 9999px; font-size: 0.68rem; font-weight: 700; margin-left: 0.35rem; display: none; }
 .active-count.show { display: inline; }
+/* Thresholds panel — collapsible, one group per provider. */
+.threshold-panel { margin-bottom: 1rem; }
+.threshold-panel > summary { cursor: pointer; padding: 0.6rem 0.75rem; font-weight: 600; font-size: 0.85rem; }
+.threshold-panel > summary .sub { font-weight: 400; color: hsl(var(--muted-foreground)); margin-left: 0.5rem; font-size: 0.75rem; }
+.threshold-body { padding: 0 0.75rem 0.85rem; }
+.threshold-toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin: 0.5rem 0 0.75rem; }
+.threshold-status { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
+.threshold-status.ok { color: hsl(var(--green-fg, 140 60% 45%)); }
+.threshold-status.err { color: hsl(var(--red-fg)); }
+.provider-group { border: 1px solid hsl(var(--card-border)); border-radius: var(--radius); margin-bottom: 0.5rem; background: hsl(var(--card) / 0.35); }
+.provider-group > summary { cursor: pointer; padding: 0.5rem 0.7rem; font-size: 0.78rem; font-weight: 600; display: flex; gap: 0.5rem; align-items: center; }
+.provider-group > summary .tag { font-weight: 400; font-size: 0.68rem; color: hsl(var(--muted-foreground)); }
+.provider-group > summary .tag.warn { color: hsl(var(--amber-fg, 40 90% 55%)); }
+.threshold-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+.threshold-table th { text-align: left; padding: 0.35rem 0.5rem; color: hsl(var(--muted-foreground)); font-size: 0.65rem; text-transform: uppercase; border-bottom: 1px solid hsl(var(--card-border)); }
+.threshold-table td { padding: 0.32rem 0.5rem; border-bottom: 1px solid hsl(var(--card-border) / 0.3); vertical-align: middle; }
+.threshold-table input[type=number] { width: 5.5rem; padding: 0.2rem 0.35rem; font-family: inherit; font-size: 0.75rem; background: hsl(var(--background)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--card-border)); border-radius: var(--radius); }
+.threshold-table input:disabled { opacity: 0.45; }
+.threshold-table .muted { color: hsl(var(--muted-foreground)); }
+.threshold-table .dir { font-size: 0.68rem; color: hsl(var(--muted-foreground)); }
+.threshold-table .customised { font-size: 0.65rem; color: hsl(var(--muted-foreground)); margin-left: 0.35rem; }
 </style>
 {% endblock %}
 
 {% block content %}
 <h1>Alerts</h1>
 <p class="subtitle">Alert history — budget breaches, provider status, circuit breaker events</p>
+
+<details class="card threshold-panel" id="thresholdPanel">
+  <summary>Credit and allowance thresholds <span class="sub" id="thresholdSummary">per provider — floors the provider watch applies</span></summary>
+  <div class="threshold-body">
+    <p class="subtitle" style="margin-top:0.25rem">
+      Each provider is checked on the windows its own cost plugin reports. The provider watch
+      (cron, every 30 minutes) reads these floors, so a change here is what it fires on at its
+      next pass. A balance is bad when it falls <strong>below</strong> its floor; an allowance is bad
+      when it goes <strong>above</strong> it.
+    </p>
+    <div class="threshold-toolbar">
+      <button class="btn-sm" id="thresholdSave" onclick="saveThresholds()">Save thresholds</button>
+      <button class="btn-sm" onclick="resetThresholdInputs()">Revert edits</button>
+      <span class="threshold-status" id="thresholdStatus"></span>
+    </div>
+    <div id="thresholdGroups"><p class="threshold-status">Loading…</p></div>
+  </div>
+</details>
 
 <div class="alerts-toolbar" id="alertToolbar">
   <div class="segmented">
@@ -172,7 +211,169 @@ function ackAlert(dedupKey) {
 
 function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+// ── credit / allowance thresholds ───────────────────────────────────────────
+// Read and written through /api/alerts/thresholds, the same payload the provider
+// watch reads, so this panel cannot drift from what actually fires.
+var thresholdData = null;
+
+function setThresholdStatus(msg, cls) {
+  var el = document.getElementById('thresholdStatus');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.className = 'threshold-status' + (cls ? ' ' + cls : '');
+}
+
+function loadThresholds(after) {
+  // `after(ok)` runs LAST, after the table is re-rendered: renderThresholds() clears the
+  // status line, so a message written before the reload is wiped before it can be read.
+  api('GET', '/api/alerts/thresholds').then(function(d) {
+    if (!d || d.error) {
+      setThresholdStatus('Could not load thresholds: ' + ((d && d.error) || 'no data'), 'err');
+      if (after) after(false);
+      return;
+    }
+    thresholdData = d;
+    renderThresholds();
+    if (after) after(true);
+  });
+}
+
+function renderThresholds() {
+  var host = document.getElementById('thresholdGroups');
+  if (!host || !thresholdData) return;
+  var providers = thresholdData.providers || {};
+  var names = Object.keys(providers).sort();
+  if (names.length === 0) {
+    host.innerHTML = '<p class="threshold-status">No providers are configured yet.</p>';
+    return;
+  }
+  var html = '';
+  var total = 0;
+  names.forEach(function(name) {
+    var p = providers[name];
+    var windows = p.windows || [];
+    total += windows.length;
+    var tags = '<span class="tag">' + windows.length + ' window' + (windows.length === 1 ? '' : 's') + '</span>';
+    if (!p.plugin) tags += ' <span class="tag warn">no cost plugin — nothing to read</span>';
+    if (!p.configured) tags += ' <span class="tag warn">plugin payloads but not a configured provider</span>';
+    html += '<details class="provider-group">' +
+      '<summary>' + escapeHtml(name) + ' ' + tags + '</summary>' +
+      '<table class="threshold-table">' +
+      '<caption class="sr-only">Credit floors for ' + escapeHtml(name) + '</caption>' +
+      '<thead><tr><th scope="col">Window</th><th scope="col">Vendor reports</th>' +
+      '<th scope="col">Warn</th><th scope="col">Critical</th><th scope="col">On</th>' +
+      '<th scope="col"><span class="sr-only">Actions</span></th></tr></thead>' +
+      '<tbody>' + windows.map(function(w) { return thresholdRow(name, w); }).join('') + '</tbody>' +
+      '</table></details>';
+  });
+  host.innerHTML = html;
+  var sub = document.getElementById('thresholdSummary');
+  if (sub) sub.textContent = names.length + ' providers, ' + total + ' windows — floors the provider watch applies';
+  setThresholdStatus('');
+}
+
+function thresholdRow(name, w) {
+  var id = 'thr-' + name + '-' + w.window;
+  var dir = w.direction === 'below' ? 'bad when below' : 'bad when above';
+  var reported;
+  if (w.reported === null || w.reported === undefined) {
+    reported = '<span class="muted">not reported</span>';
+  } else {
+    reported = Number(w.reported).toFixed(2) + ' ' + escapeHtml(w.reported_unit || '');
+    if (w.stale) {
+      // A number nobody re-read is not a current number — say when it was read.
+      var age = (w.age_min === null || w.age_min === undefined)
+        ? 'age unknown' : (w.age_min >= 2880 ? Math.round(w.age_min / 1440) + ' days old'
+                                            : (w.age_min >= 120 ? Math.round(w.age_min / 60) + ' h old'
+                                                                : Math.round(w.age_min) + ' min old'));
+      reported += '<br><span class="muted tag warn">stale: ' + age + '</span>';
+    } else if (w.age_min !== null && w.age_min !== undefined) {
+      reported += '<br><span class="muted">read ' + Math.round(w.age_min) + ' min ago</span>';
+    }
+  }
+  var dis = w.published ? '' : ' disabled';
+  return '<tr>' +
+    '<td>' + escapeHtml(w.label) + '<br><span class="dir">' + escapeHtml(w.window) + ' &middot; ' + dir +
+      (w.customised ? '<span class="customised">customised</span>' : '') + '</span></td>' +
+    '<td>' + reported + (w.published ? '' : '<br><span class="muted">vendor publishes no such window</span>') + '</td>' +
+    '<td><input type="number" step="0.01" min="0" id="' + id + '-warn" value="' + w.warn + '"' + dis +
+      ' aria-label="' + escapeHtml(name) + ' ' + escapeHtml(w.label) + ' warning floor"></td>' +
+    '<td><input type="number" step="0.01" min="0" id="' + id + '-crit" value="' + w.critical + '"' + dis +
+      ' aria-label="' + escapeHtml(name) + ' ' + escapeHtml(w.label) + ' critical floor"></td>' +
+    '<td><input type="checkbox" id="' + id + '-en"' + (w.enabled ? ' checked' : '') + dis +
+      ' aria-label="' + escapeHtml(name) + ' ' + escapeHtml(w.label) + ' enabled"></td>' +
+    '<td><button class="ack-btn" type="button" onclick="useThresholdDefault(\'' + name + '\',\'' + w.window +
+      '\')"' + dis + '>Default</button></td>' +
+    '</tr>';
+}
+
+function thresholdInputs(name, window_) {
+  var p = (thresholdData.providers || {})[name];
+  if (!p) return null;
+  for (var i = 0; i < (p.windows || []).length; i++) {
+    if (p.windows[i].window === window_) return { spec: p.windows[i], name: name, window: window_ };
+  }
+  return null;
+}
+
+function useThresholdDefault(name, window_) {
+  var found = thresholdInputs(name, window_);
+  if (!found) return;
+  document.getElementById('thr-' + name + '-' + window_ + '-warn').value = found.spec.default_warn;
+  document.getElementById('thr-' + name + '-' + window_ + '-crit').value = found.spec.default_critical;
+  setThresholdStatus('Unsaved: ' + name + '/' + window_ + ' reset to defaults');
+}
+
+function resetThresholdInputs() {
+  renderThresholds();
+  setThresholdStatus('Edits reverted');
+}
+
+function collectThresholds() {
+  var payload = {};
+  var providers = (thresholdData || {}).providers || {};
+  var bad = null;
+  Object.keys(providers).forEach(function(name) {
+    var p = providers[name];
+    (p.windows || []).forEach(function(w) {
+      if (!w.published) return;  // no number to floor: the vendor does not report it
+      var id = 'thr-' + name + '-' + w.window;
+      var warnEl = document.getElementById(id + '-warn');
+      var critEl = document.getElementById(id + '-crit');
+      var enEl = document.getElementById(id + '-en');
+      var warn = parseFloat(warnEl.value);
+      var crit = parseFloat(critEl.value);
+      if (isNaN(warn) || isNaN(crit)) { bad = name + '/' + w.window + ': enter both floors'; return; }
+      if (w.direction === 'below' && crit > warn) { bad = name + '/' + w.window + ': critical must be at or below warn (bad when low)'; return; }
+      if (w.direction === 'above' && crit < warn) { bad = name + '/' + w.window + ': critical must be at or above warn (bad when high)'; return; }
+      payload[name] = payload[name] || {};
+      payload[name][w.window] = { warn: warn, critical: crit, enabled: !!(enEl && enEl.checked) };
+    });
+  });
+  return { thresholds: payload, error: bad };
+}
+
+function saveThresholds() {
+  var collected = collectThresholds();
+  if (collected.error) { setThresholdStatus(collected.error, 'err'); return; }
+  var saveBtn = document.getElementById('thresholdSave');
+  if (saveBtn) saveBtn.disabled = true;
+  api('PUT', '/api/alerts/thresholds', { thresholds: collected.thresholds }).then(function(d) {
+    if (saveBtn) saveBtn.disabled = false;
+    if (!d || d.error) { setThresholdStatus('Not saved: ' + ((d && d.error) || 'no response'), 'err'); return; }
+    var n = 0;
+    Object.keys(collected.thresholds).forEach(function(k) { n += Object.keys(collected.thresholds[k]).length; });
+    // Reload first, then confirm: the reload re-renders the table and clearing the status
+    // is part of that, so the confirmation must be the last write.
+    loadThresholds(function() {
+      setThresholdStatus('Saved ' + n + ' floor' + (n === 1 ? '' : 's')
+        + ' — the watch applies them at its next run', 'ok');
+    });
+  });
+}
+
 loadAlerts();
 setInterval(loadAlerts, 30000); // auto-refresh every 30s
+loadThresholds();
 </script>
 {% endblock %}

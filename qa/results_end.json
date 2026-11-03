@@ -1,0 +1,1287 @@
+{
+  "base": "http://192.168.1.198:8735",
+  "suite": "LCP staging QA sweep",
+  "cases": [
+    {
+      "id": "cr-001",
+      "group": "cron-sources",
+      "title": "cron view counts sane",
+      "ok": true
+    },
+    {
+      "id": "cr-002",
+      "group": "cron-sources",
+      "title": "cron ops list empty-pending",
+      "ok": true
+    },
+    {
+      "id": "cr-003",
+      "group": "cron-sources",
+      "title": "ops spool dir writable (POST surface)",
+      "ok": true
+    },
+    {
+      "id": "cr-010",
+      "group": "cron-sources",
+      "title": "reject: unknown action",
+      "ok": true
+    },
+    {
+      "id": "cr-011",
+      "group": "cron-sources",
+      "title": "reject: unknown profile",
+      "ok": true
+    },
+    {
+      "id": "cr-012",
+      "group": "cron-sources",
+      "title": "reject: create without prompt/script",
+      "ok": true
+    },
+    {
+      "id": "cr-013",
+      "group": "cron-sources",
+      "title": "reject: script with slash",
+      "ok": true
+    },
+    {
+      "id": "cr-014",
+      "group": "cron-sources",
+      "title": "reject: edit empty fields",
+      "ok": true
+    },
+    {
+      "id": "cr-015",
+      "group": "cron-sources",
+      "title": "reject: bad deliver",
+      "ok": true
+    },
+    {
+      "id": "cr-016",
+      "group": "cron-sources",
+      "title": "reject: workdir outside /your/data",
+      "ok": true
+    },
+    {
+      "id": "cr-020",
+      "group": "cron-sources",
+      "title": "create op accepted (backups)",
+      "ok": true
+    },
+    {
+      "id": "ms-x-01",
+      "group": "misc",
+      "title": "conversations per=all single page",
+      "ok": true
+    },
+    {
+      "id": "ms-x-02",
+      "group": "misc",
+      "title": "requests per=all",
+      "ok": true
+    },
+    {
+      "id": "ms-x-03",
+      "group": "misc",
+      "title": "provider-decisions per=all",
+      "ok": true
+    },
+    {
+      "id": "ms-x-04",
+      "group": "misc",
+      "title": "tasks states=in_progress+completed paginates (per=15 p2)",
+      "ok": true
+    },
+    {
+      "id": "ms-x-05",
+      "group": "misc",
+      "title": "tasks states=all per=all has 0 dup keys",
+      "ok": true
+    },
+    {
+      "id": "ms-x-06",
+      "group": "misc",
+      "title": "search q=zgx matches at least 1",
+      "ok": true
+    },
+    {
+      "id": "ms-x-07",
+      "group": "misc",
+      "title": "search q=infra matches >= tag count for that text",
+      "ok": true
+    },
+    {
+      "id": "ms-x-08",
+      "group": "misc",
+      "title": "conversations newest has last_seen within 48h",
+      "ok": true
+    },
+    {
+      "id": "ms-x-09",
+      "group": "misc",
+      "title": "logs decisions tab ledger rows exist",
+      "ok": true
+    },
+    {
+      "id": "ms-x-10",
+      "group": "misc",
+      "title": "setup page reachable (admin group)",
+      "ok": true
+    },
+    {
+      "id": "gw-001",
+      "group": "gateway",
+      "title": "fleet summary payload",
+      "ok": true
+    },
+    {
+      "id": "gw-002",
+      "group": "gateway",
+      "title": "providers health 200",
+      "ok": true
+    },
+    {
+      "id": "gw-003",
+      "group": "gateway",
+      "title": "fleet has all profiles",
+      "ok": true
+    },
+    {
+      "id": "gw-004",
+      "group": "gateway",
+      "title": "routing status endpoint",
+      "ok": true
+    },
+    {
+      "id": "gw-010",
+      "group": "gateway",
+      "title": "decisions view has funnel + ledger",
+      "ok": true
+    },
+    {
+      "id": "gw-011",
+      "group": "gateway",
+      "title": "decisions ledger rows have actors",
+      "ok": true
+    },
+    {
+      "id": "gw-020",
+      "group": "gateway",
+      "title": "classifications index present",
+      "ok": true
+    },
+    {
+      "id": "gw-021",
+      "group": "gateway",
+      "title": "classifications index has by_label map",
+      "ok": true
+    },
+    {
+      "id": "gw-022",
+      "group": "gateway",
+      "title": "cron snapshot exists and fresh",
+      "ok": true
+    },
+    {
+      "id": "gw-023",
+      "group": "gateway",
+      "title": "conversations table populated with LLM summaries",
+      "ok": true
+    },
+    {
+      "id": "gw-030",
+      "group": "gateway",
+      "title": "chat completion (stream off) returns 200/201",
+      "ok": true
+    },
+    {
+      "id": "gw-031",
+      "group": "gateway",
+      "title": "chat completion with tools payload routes",
+      "ok": true
+    },
+    {
+      "id": "gw-032",
+      "group": "gateway",
+      "title": "unknown profile rejected (400, measured)",
+      "ok": true
+    },
+    {
+      "id": "gw-033",
+      "group": "gateway",
+      "title": "malformed body rejected 400",
+      "ok": true
+    },
+    {
+      "id": "gw-034",
+      "group": "gateway",
+      "title": "routing decisions recorded for the probe",
+      "ok": true
+    },
+    {
+      "id": "lc-001",
+      "group": "lifecycle",
+      "title": "sources GET is configured",
+      "ok": true
+    },
+    {
+      "id": "lc-002",
+      "group": "lifecycle",
+      "title": "sources PUT rejects relative path",
+      "ok": true
+    },
+    {
+      "id": "lc-003",
+      "group": "lifecycle",
+      "title": "sources PUT rejects bad version",
+      "ok": true
+    },
+    {
+      "id": "lc-004",
+      "group": "lifecycle",
+      "title": "sources GET exposes documented fields",
+      "ok": true
+    },
+    {
+      "id": "lc-010",
+      "group": "lifecycle",
+      "title": "setup shows module registry",
+      "ok": true
+    },
+    {
+      "id": "lc-011",
+      "group": "lifecycle",
+      "title": "workspace work-status endpoint healthy",
+      "ok": true
+    },
+    {
+      "id": "lc-012",
+      "group": "lifecycle",
+      "title": "work status reports liveness rather than lying",
+      "ok": true
+    },
+    {
+      "id": "lc-020",
+      "group": "lifecycle",
+      "title": "unknown route 404",
+      "ok": true
+    },
+    {
+      "id": "lc-021",
+      "group": "lifecycle",
+      "title": "traversal in path rejected",
+      "ok": true
+    },
+    {
+      "id": "lc-022",
+      "group": "lifecycle",
+      "title": "json content type enforced",
+      "ok": true
+    },
+    {
+      "id": "lc-023",
+      "group": "lifecycle",
+      "title": "API error responses are JSON",
+      "ok": true
+    },
+    {
+      "id": "lc-030",
+      "group": "lifecycle",
+      "title": "alerts API 200",
+      "ok": true
+    },
+    {
+      "id": "lc-031",
+      "group": "lifecycle",
+      "title": "usage stats 200",
+      "ok": true
+    },
+    {
+      "id": "lg-01",
+      "group": "logs-convo",
+      "title": "Logs tab conversations renders",
+      "ok": true
+    },
+    {
+      "id": "lg-02",
+      "group": "logs-convo",
+      "title": "Logs tab requests renders",
+      "ok": true
+    },
+    {
+      "id": "lg-03",
+      "group": "logs-convo",
+      "title": "Logs tab providers renders",
+      "ok": true
+    },
+    {
+      "id": "lg-04",
+      "group": "logs-convo",
+      "title": "Logs tab decisions renders",
+      "ok": true
+    },
+    {
+      "id": "lg-005",
+      "group": "logs-convo",
+      "title": "requests tab renders with rows",
+      "ok": true
+    },
+    {
+      "id": "lg-006",
+      "group": "logs-convo",
+      "title": "requests API rows have conversation links when stamped",
+      "ok": true
+    },
+    {
+      "id": "lg-010",
+      "group": "logs-convo",
+      "title": "conversations exist with names",
+      "ok": true
+    },
+    {
+      "id": "lg-011",
+      "group": "logs-convo",
+      "title": "conversations paginate",
+      "ok": true
+    },
+    {
+      "id": "lg-012",
+      "group": "logs-convo",
+      "title": "profile filter works",
+      "ok": true
+    },
+    {
+      "id": "lg-013",
+      "group": "logs-convo",
+      "title": "LLM summaries present (summary_source=llm rows)",
+      "ok": true
+    },
+    {
+      "id": "lg-020",
+      "group": "logs-convo",
+      "title": "detail returns chronological events",
+      "ok": true
+    },
+    {
+      "id": "lg-021",
+      "group": "logs-convo",
+      "title": "detail requires cid",
+      "ok": true
+    },
+    {
+      "id": "lg-022",
+      "group": "logs-convo",
+      "title": "detail unknown cid returns events empty (not 500)",
+      "ok": true
+    },
+    {
+      "id": "lg-030",
+      "group": "logs-convo",
+      "title": "decisions view accessible",
+      "ok": true
+    },
+    {
+      "id": "lg-040",
+      "group": "logs-convo",
+      "title": "provider decisions list has rows",
+      "ok": true
+    },
+    {
+      "id": "lg-041",
+      "group": "logs-convo",
+      "title": "provider decisions paginate",
+      "ok": true
+    },
+    {
+      "id": "ms-001",
+      "group": "misc",
+      "title": "retired /work/decisions page 404",
+      "ok": true
+    },
+    {
+      "id": "ms-002",
+      "group": "misc",
+      "title": "retired /work/conversations page 404",
+      "ok": true
+    },
+    {
+      "id": "ms-req-3",
+      "group": "misc",
+      "title": "requests per=3",
+      "ok": true
+    },
+    {
+      "id": "ms-pro-3",
+      "group": "misc",
+      "title": "provider-decisions per=3",
+      "ok": true
+    },
+    {
+      "id": "ms-req-7",
+      "group": "misc",
+      "title": "requests per=7",
+      "ok": true
+    },
+    {
+      "id": "ms-pro-7",
+      "group": "misc",
+      "title": "provider-decisions per=7",
+      "ok": true
+    },
+    {
+      "id": "ms-conv-1",
+      "group": "misc",
+      "title": "newest page names are not bare fallbacks",
+      "ok": true
+    },
+    {
+      "id": "ms-conv-2",
+      "group": "misc",
+      "title": "LLM summary coverage > 500 conversations",
+      "ok": true
+    },
+    {
+      "id": "ms-conv-3",
+      "group": "misc",
+      "title": "conversations page shows names in table",
+      "ok": true
+    },
+    {
+      "id": "ms-svc-1",
+      "group": "misc",
+      "title": "convo-summarize timer active",
+      "ok": true
+    },
+    {
+      "id": "ms-svc-2",
+      "group": "misc",
+      "title": "convo-sync timer active",
+      "ok": true
+    },
+    {
+      "id": "ms-svc-3",
+      "group": "misc",
+      "title": "classify timer active",
+      "ok": true
+    },
+    {
+      "id": "ms-svc-4",
+      "group": "misc",
+      "title": "cron snapshot service ran recently",
+      "ok": true
+    },
+    {
+      "id": "ms-svc-5",
+      "group": "misc",
+      "title": "lcp-staging container running",
+      "ok": true
+    },
+    {
+      "id": "ms-svc-6",
+      "group": "misc",
+      "title": "convo summarizer lock released (no stuck run)",
+      "ok": true
+    },
+    {
+      "id": "ms-fx-1",
+      "group": "misc",
+      "title": "streaming chat returns SSE",
+      "ok": true
+    },
+    {
+      "id": "ms-fx-2",
+      "group": "misc",
+      "title": "chat with unknown model never 5xx (chain fallback or 4xx)",
+      "ok": true
+    },
+    {
+      "id": "ms-nav-1",
+      "group": "misc",
+      "title": "exactly 4 nav groups",
+      "ok": true
+    },
+    {
+      "id": "ms-nav-2",
+      "group": "misc",
+      "title": "Tasks link present once in nav",
+      "ok": true
+    },
+    {
+      "id": "pg-001",
+      "group": "pages",
+      "title": "Dashboard",
+      "ok": true
+    },
+    {
+      "id": "pg-002",
+      "group": "pages",
+      "title": "Usage page",
+      "ok": true
+    },
+    {
+      "id": "pg-003",
+      "group": "pages",
+      "title": "Logs unified",
+      "ok": true
+    },
+    {
+      "id": "pg-004",
+      "group": "pages",
+      "title": "Logs conversations tab",
+      "ok": true
+    },
+    {
+      "id": "pg-005",
+      "group": "pages",
+      "title": "Logs requests tab",
+      "ok": true
+    },
+    {
+      "id": "pg-006",
+      "group": "pages",
+      "title": "Logs providers tab",
+      "ok": true
+    },
+    {
+      "id": "pg-007",
+      "group": "pages",
+      "title": "Logs decisions tab",
+      "ok": true
+    },
+    {
+      "id": "pg-008",
+      "group": "pages",
+      "title": "Alerts page",
+      "ok": true
+    },
+    {
+      "id": "pg-009",
+      "group": "pages",
+      "title": "Providers page",
+      "ok": true
+    },
+    {
+      "id": "pg-010",
+      "group": "pages",
+      "title": "Models page",
+      "ok": true
+    },
+    {
+      "id": "pg-011",
+      "group": "pages",
+      "title": "Profiles page",
+      "ok": true
+    },
+    {
+      "id": "pg-012",
+      "group": "pages",
+      "title": "API Keys page",
+      "ok": true
+    },
+    {
+      "id": "pg-013",
+      "group": "pages",
+      "title": "Tasks page",
+      "ok": true
+    },
+    {
+      "id": "pg-014",
+      "group": "pages",
+      "title": "Fleet page",
+      "ok": true
+    },
+    {
+      "id": "pg-015",
+      "group": "pages",
+      "title": "Cron page",
+      "ok": true
+    },
+    {
+      "id": "pg-016",
+      "group": "pages",
+      "title": "Work config page",
+      "ok": true
+    },
+    {
+      "id": "pg-017",
+      "group": "pages",
+      "title": "Setup page",
+      "ok": true
+    },
+    {
+      "id": "pg-018",
+      "group": "pages",
+      "title": "Nav groups ordered Work/Gateway/Monitor/Admin",
+      "ok": true
+    },
+    {
+      "id": "api-001",
+      "group": "api",
+      "title": "/api/setup",
+      "ok": true
+    },
+    {
+      "id": "api-002",
+      "group": "api",
+      "title": "/api/daily-costs",
+      "ok": true
+    },
+    {
+      "id": "api-003",
+      "group": "api",
+      "title": "/api/providers",
+      "ok": true
+    },
+    {
+      "id": "api-004",
+      "group": "api",
+      "title": "/api/models/registry",
+      "ok": true
+    },
+    {
+      "id": "api-005",
+      "group": "api",
+      "title": "/api/profiles",
+      "ok": true
+    },
+    {
+      "id": "api-006",
+      "group": "api",
+      "title": "/api/work/tasks?lite=1&per=5",
+      "ok": true
+    },
+    {
+      "id": "api-007",
+      "group": "api",
+      "title": "/api/work/tasks/detail?task=in_progress%2Flcp-pentest-fixes",
+      "ok": true
+    },
+    {
+      "id": "api-008",
+      "group": "api",
+      "title": "/api/work/tasks?states=all&per=5",
+      "ok": true
+    },
+    {
+      "id": "api-009",
+      "group": "api",
+      "title": "/api/work/conversations?per=5",
+      "ok": true
+    },
+    {
+      "id": "api-010",
+      "group": "api",
+      "title": "/api/work/cron",
+      "ok": true
+    },
+    {
+      "id": "api-011",
+      "group": "api",
+      "title": "/api/work/cron/ops",
+      "ok": true
+    },
+    {
+      "id": "api-012",
+      "group": "api",
+      "title": "/api/work/sources",
+      "ok": true
+    },
+    {
+      "id": "api-013",
+      "group": "api",
+      "title": "/api/work/fleet",
+      "ok": true
+    },
+    {
+      "id": "api-014",
+      "group": "api",
+      "title": "/api/work/status",
+      "ok": true
+    },
+    {
+      "id": "rs-idem-_api_work_tasks_lite_1&states_in_progres",
+      "group": "resilience",
+      "title": "idempotent /api/work/tasks?lite=1&states=in_progress&per=5",
+      "ok": true
+    },
+    {
+      "id": "rs-idem-_api_work_cron",
+      "group": "resilience",
+      "title": "idempotent /api/work/cron",
+      "ok": true
+    },
+    {
+      "id": "rs-idem-_api_work_conversations_per_5",
+      "group": "resilience",
+      "title": "idempotent /api/work/conversations?per=5",
+      "ok": true
+    },
+    {
+      "id": "rs-idem-_api_work_fleet",
+      "group": "resilience",
+      "title": "idempotent /api/work/fleet",
+      "ok": true
+    },
+    {
+      "id": "rs-idem-_api_work_sources",
+      "group": "resilience",
+      "title": "idempotent /api/work/sources",
+      "ok": true
+    },
+    {
+      "id": "rs-idem-_api_work_cron_ops",
+      "group": "resilience",
+      "title": "idempotent /api/work/cron/ops",
+      "ok": true
+    },
+    {
+      "id": "rs-clamp-1",
+      "group": "resilience",
+      "title": "per=0/page=0 clamps safely (not 500)",
+      "ok": true
+    },
+    {
+      "id": "rs-clamp-2",
+      "group": "resilience",
+      "title": "invalid states falls back (not 500)",
+      "ok": true
+    },
+    {
+      "id": "rs-clamp-3",
+      "group": "resilience",
+      "title": "negative pagination clamps (not 500)",
+      "ok": true
+    },
+    {
+      "id": "rs-clamp-4",
+      "group": "resilience",
+      "title": "huge per/page clamps (not 500)",
+      "ok": true
+    },
+    {
+      "id": "rs-json-11",
+      "group": "resilience",
+      "title": "JSON error body for /api/work/tasks/detail?task=in_progress%2Fmi",
+      "ok": true
+    },
+    {
+      "id": "rs-json-12",
+      "group": "resilience",
+      "title": "unknown conversation cid -> 200 JSON (by design)",
+      "ok": true
+    },
+    {
+      "id": "rs-json-13",
+      "group": "resilience",
+      "title": "cron op malformed body -> 400 JSON",
+      "ok": true
+    },
+    {
+      "id": "rs-op-1",
+      "group": "resilience",
+      "title": "op reject: action missing",
+      "ok": true
+    },
+    {
+      "id": "rs-op-2",
+      "group": "resilience",
+      "title": "op reject: profile empty",
+      "ok": true
+    },
+    {
+      "id": "rs-op-3",
+      "group": "resilience",
+      "title": "op reject: job_id too long",
+      "ok": true
+    },
+    {
+      "id": "rs-op-4",
+      "group": "resilience",
+      "title": "op reject: repeat negative",
+      "ok": true
+    },
+    {
+      "id": "rs-op-5",
+      "group": "resilience",
+      "title": "op reject: prompt over 8k",
+      "ok": true
+    },
+    {
+      "id": "rs-op-6",
+      "group": "resilience",
+      "title": "op reject: no-agent without script",
+      "ok": true
+    },
+    {
+      "id": "rs-op-7",
+      "group": "resilience",
+      "title": "op reject: skill with slash",
+      "ok": true
+    },
+    {
+      "id": "rs-op-8",
+      "group": "resilience",
+      "title": "op reject: schedule empty",
+      "ok": true
+    },
+    {
+      "id": "rs-para-1",
+      "group": "resilience",
+      "title": "5 parallel lite fetches all succeed",
+      "ok": true
+    },
+    {
+      "id": "ts-001",
+      "group": "tasks",
+      "title": "lite rows exist and carry keys",
+      "ok": true
+    },
+    {
+      "id": "ts-002",
+      "group": "tasks",
+      "title": "lite rows have NO plan_html",
+      "ok": true
+    },
+    {
+      "id": "ts-003",
+      "group": "tasks",
+      "title": "states default = in_progress only",
+      "ok": true
+    },
+    {
+      "id": "ts-004",
+      "group": "tasks",
+      "title": "states=all returns more than in_progress",
+      "ok": true
+    },
+    {
+      "id": "ts-005",
+      "group": "tasks",
+      "title": "multiselect states in_progress+completed",
+      "ok": true
+    },
+    {
+      "id": "ts-006",
+      "group": "tasks",
+      "title": "per=all returns every task on one page",
+      "ok": true
+    },
+    {
+      "id": "ts-010",
+      "group": "tasks",
+      "title": "per=20 pages math (states=all)",
+      "ok": true
+    },
+    {
+      "id": "ts-011",
+      "group": "tasks",
+      "title": "page clamp: page 999 -> last page",
+      "ok": true
+    },
+    {
+      "id": "ts-012",
+      "group": "tasks",
+      "title": "page >= pages has rows (last page non-empty)",
+      "ok": true
+    },
+    {
+      "id": "ts-013",
+      "group": "tasks",
+      "title": "page 1 and page 2 do not overlap",
+      "ok": true
+    },
+    {
+      "id": "ts-020",
+      "group": "tasks",
+      "title": "q matches plan text (full walk fallback)",
+      "ok": true
+    },
+    {
+      "id": "ts-021",
+      "group": "tasks",
+      "title": "q=zzzqqqxx returns zero",
+      "ok": true
+    },
+    {
+      "id": "ts-022",
+      "group": "tasks",
+      "title": "empty q returns unfiltered",
+      "ok": true
+    },
+    {
+      "id": "ts-023",
+      "group": "tasks",
+      "title": "search + tag combined",
+      "ok": true
+    },
+    {
+      "id": "ts-030",
+      "group": "tasks",
+      "title": "tag=infrastructure count equals by_label",
+      "ok": true
+    },
+    {
+      "id": "ts-031",
+      "group": "tasks",
+      "title": "unknown tag returns zero",
+      "ok": true
+    },
+    {
+      "id": "ts-032",
+      "group": "tasks",
+      "title": "all 10 known labels present in by_label",
+      "ok": true
+    },
+    {
+      "id": "ts-040",
+      "group": "tasks",
+      "title": "detail returns full heavy payload (dynamic key)",
+      "ok": true
+    },
+    {
+      "id": "ts-041",
+      "group": "tasks",
+      "title": "detail invalid key -> 400",
+      "ok": true
+    },
+    {
+      "id": "ts-042",
+      "group": "tasks",
+      "title": "detail missing key -> 404",
+      "ok": true
+    },
+    {
+      "id": "ts-043",
+      "group": "tasks",
+      "title": "detail missing task param -> 400",
+      "ok": true
+    },
+    {
+      "id": "ts-044",
+      "group": "tasks",
+      "title": "detail key round-trips with lite key",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-01",
+      "group": "workload",
+      "title": "detail in_progress/naptune-staging-l1-qa",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-02",
+      "group": "workload",
+      "title": "detail in_progress/l1-staging-qa-sweep",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-03",
+      "group": "workload",
+      "title": "detail in_progress/email-report-workflow",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-04",
+      "group": "workload",
+      "title": "detail in_progress/mimo-style-run-dashboard",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-05",
+      "group": "workload",
+      "title": "detail in_progress/runboard-lcp-merge",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-06",
+      "group": "workload",
+      "title": "detail in_progress/searxng-degraded-engines",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-07",
+      "group": "workload",
+      "title": "detail completed/daily-journal",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-08",
+      "group": "workload",
+      "title": "detail completed/ezb-weekly-expense-report",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-09",
+      "group": "workload",
+      "title": "detail completed/google-tasks-automation",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-10",
+      "group": "workload",
+      "title": "detail completed/reddit-daily-digest",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-11",
+      "group": "workload",
+      "title": "detail cancelled/uk-container-restart-monitoring",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-12",
+      "group": "workload",
+      "title": "detail cancelled/uk-api-migration",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-13",
+      "group": "workload",
+      "title": "detail cancelled/skill-eval-round-20250624",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-14",
+      "group": "workload",
+      "title": "detail cancelled/pve03-transplant-x99",
+      "ok": true
+    },
+    {
+      "id": "wl-detail-15",
+      "group": "workload",
+      "title": "detail cancelled/pi-agent-setup",
+      "ok": true
+    },
+    {
+      "id": "wl-convo-01",
+      "group": "workload",
+      "title": "conversation detail c3588dccb07",
+      "ok": true
+    },
+    {
+      "id": "wl-convo-02",
+      "group": "workload",
+      "title": "conversation detail c935866f471",
+      "ok": true
+    },
+    {
+      "id": "wl-convo-03",
+      "group": "workload",
+      "title": "conversation detail c6c7d242917",
+      "ok": true
+    },
+    {
+      "id": "wl-cov-pg-5-1",
+      "group": "workload",
+      "title": "conversations per=5 page=1",
+      "ok": true
+    },
+    {
+      "id": "wl-cov-pg-5-2",
+      "group": "workload",
+      "title": "conversations per=5 page=2",
+      "ok": true
+    },
+    {
+      "id": "wl-cov-pg-10-1",
+      "group": "workload",
+      "title": "conversations per=10 page=1",
+      "ok": true
+    },
+    {
+      "id": "wl-cov-pg-10-2",
+      "group": "workload",
+      "title": "conversations per=10 page=2",
+      "ok": true
+    },
+    {
+      "id": "wl-cov-pg-25-1",
+      "group": "workload",
+      "title": "conversations per=25 page=1",
+      "ok": true
+    },
+    {
+      "id": "wl-cov-pg-25-2",
+      "group": "workload",
+      "title": "conversations per=25 page=2",
+      "ok": true
+    },
+    {
+      "id": "wl-task-pg-10-1",
+      "group": "workload",
+      "title": "tasks litep=1 per=10 page=1",
+      "ok": true
+    },
+    {
+      "id": "wl-task-pg-10-2",
+      "group": "workload",
+      "title": "tasks litep=1 per=10 page=2",
+      "ok": true
+    },
+    {
+      "id": "wl-task-pg-10-3",
+      "group": "workload",
+      "title": "tasks litep=1 per=10 page=3",
+      "ok": true
+    },
+    {
+      "id": "wl-task-pg-20-1",
+      "group": "workload",
+      "title": "tasks litep=1 per=20 page=1",
+      "ok": true
+    },
+    {
+      "id": "wl-task-pg-20-2",
+      "group": "workload",
+      "title": "tasks litep=1 per=20 page=2",
+      "ok": true
+    },
+    {
+      "id": "wl-task-pg-20-3",
+      "group": "workload",
+      "title": "tasks litep=1 per=20 page=3",
+      "ok": true
+    },
+    {
+      "id": "wl-task-pg-50-1",
+      "group": "workload",
+      "title": "tasks litep=1 per=50 page=1",
+      "ok": true
+    },
+    {
+      "id": "wl-task-pg-50-2",
+      "group": "workload",
+      "title": "tasks litep=1 per=50 page=2",
+      "ok": true
+    },
+    {
+      "id": "wl-task-pg-50-3",
+      "group": "workload",
+      "title": "tasks litep=1 per=50 page=3",
+      "ok": true
+    },
+    {
+      "id": "wl-state-new",
+      "group": "workload",
+      "title": "states=new",
+      "ok": true
+    },
+    {
+      "id": "wl-state-in_progress-new",
+      "group": "workload",
+      "title": "states=in_progress,new",
+      "ok": true
+    },
+    {
+      "id": "wl-state-new-completed-cancelled",
+      "group": "workload",
+      "title": "states=new,completed,cancelled",
+      "ok": true
+    },
+    {
+      "id": "wl-state-in_progress-new-completed",
+      "group": "workload",
+      "title": "states=in_progress,new,completed",
+      "ok": true
+    },
+    {
+      "id": "wl-state-cancelled",
+      "group": "workload",
+      "title": "states=cancelled",
+      "ok": true
+    },
+    {
+      "id": "wl-tag-infrastructure-in_progress",
+      "group": "workload",
+      "title": "tag=infrastructure states=in_progress",
+      "ok": true
+    },
+    {
+      "id": "wl-tag-infrastructure-completed",
+      "group": "workload",
+      "title": "tag=infrastructure states=completed",
+      "ok": true
+    },
+    {
+      "id": "wl-tag-automation-in_progress",
+      "group": "workload",
+      "title": "tag=automation states=in_progress",
+      "ok": true
+    },
+    {
+      "id": "wl-tag-automation-completed",
+      "group": "workload",
+      "title": "tag=automation states=completed",
+      "ok": true
+    },
+    {
+      "id": "wl-tag-research-in_progress",
+      "group": "workload",
+      "title": "tag=research states=in_progress",
+      "ok": true
+    },
+    {
+      "id": "wl-tag-research-completed",
+      "group": "workload",
+      "title": "tag=research states=completed",
+      "ok": true
+    },
+    {
+      "id": "wl-tag-dashboard-ui-in_progress",
+      "group": "workload",
+      "title": "tag=dashboard-ui states=in_progress",
+      "ok": true
+    },
+    {
+      "id": "wl-tag-dashboard-ui-completed",
+      "group": "workload",
+      "title": "tag=dashboard-ui states=completed",
+      "ok": true
+    }
+  ],
+  "pass": 206,
+  "fail": 0,
+  "error": 0,
+  "groups": {
+    "cron-sources": [
+      11,
+      11
+    ],
+    "misc": [
+      29,
+      29
+    ],
+    "gateway": [
+      15,
+      15
+    ],
+    "lifecycle": [
+      13,
+      13
+    ],
+    "logs-convo": [
+      16,
+      16
+    ],
+    "pages": [
+      18,
+      18
+    ],
+    "api": [
+      14,
+      14
+    ],
+    "resilience": [
+      22,
+      22
+    ],
+    "tasks": [
+      22,
+      22
+    ],
+    "workload": [
+      46,
+      46
+    ]
+  }
+}

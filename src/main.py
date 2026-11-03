@@ -170,6 +170,26 @@ def main():
     except Exception:  # noqa: BLE001 — never block boot
         logger.warning("refresher_start_failed", error=True)
 
+    # Active provider health probing. Without it, health is written only by real
+    # traffic, so an idle provider in a chain is never assessed and reports
+    # healthy/100% uptime because nothing ever tested it (measured 2026-11-01:
+    # 16 of 20 rows last exercised over an hour earlier, one 63 days earlier).
+    try:
+        from .api.health_prober import get_health_prober
+        from .api.circuit_breaker import get_circuit_breaker
+        from .api.cost_cache import get_settings
+        from .api.credential_store import get_credential_store
+        get_health_prober(config=config,
+                          # The CALLABLE, never a store built here: the runtime
+                          # is not bound yet at this point, and a store captured
+                          # now keeps a private cache that never sees the
+                          # operator's later writes.
+                          settings=get_settings,
+                          breaker=get_circuit_breaker(config),
+                          credential_store=get_credential_store(engine)).start()
+    except Exception:  # noqa: BLE001 — a prober must never stop the gateway
+        logger.warning("health_prober_start_failed", error=True)
+
     server = create_server(config, engine, port)
     t0 = _startup_step("server_create", t0)
 

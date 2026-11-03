@@ -62,6 +62,12 @@ from ..api.models import get_session, Request as RequestModel, Budget, ApiKey, F
 from ..api.prompt_cache import get_prompt_cache
 from ..api.token_verifier import get_token_verifier
 from ..api.runtime import resolve_service
+from ..api.wire_anthropic import (
+    ANTHROPIC_API_VERSION,
+    ANTHROPIC_MESSAGES_PATH,
+    is_anthropic_model,
+    to_anthropic,
+)
 from ..ui.dashboard import render_dashboard
 
 logger = get_logger("lcp.server")
@@ -437,6 +443,10 @@ class HealthEndpoints:
     config: Any
     engine: Any
     _send_json: Any
+    # Provided by the composed handler (LCPHandler), same as the other endpoint
+    # classes: declared here so the annotations agree with run time.
+    _read_body: Any
+    _audit: Any
     send_response: Any
     send_header: Any
     end_headers: Any
@@ -514,6 +524,89 @@ class HealthEndpoints:
         cb.reset(provider, base_url, profile)
         self._audit("circuit_breaker.reset", provider=provider, profile=profile)
         self._send_json({"ok": True, "provider": provider, "profile": profile})
+
+    # ── Active health probing (health_prober.py) ──────────────────────────
+
+    def _prober(self):
+        from ..api.health_prober import get_health_prober
+        from ..api.cost_cache import get_settings
+        return get_health_prober(
+            config=self.config,
+            settings=resolve_service("settings", fallback=get_settings),
+            breaker=resolve_service("circuit_breaker", fallback=get_circuit_breaker),
+            credential_store=self._credentials(),
+        )
+
+    def _credentials(self):
+        engine = getattr(self, "engine", None)
+        return resolve_service("credential_store", fallback=lambda: get_credential_store(engine))
+
+    def _serve_health_probe_status(self):
+        """GET /api/providers/probe — is the prober running, and on what cadence?
+
+        Reports what it would assess as well as what it last did, because the
+        actionable question is "which configured pairs has nothing ever tested".
+        """
+        try:
+            from ..api.health_prober import probe_once_targets
+            p = self._prober()
+            payload = {"ok": True, "prober": p.status(),
+                       "targets": probe_once_targets(self.config)}
+        except Exception as exc:  # noqa: BLE001 - never 500 the health page
+            payload = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        self._send_json(payload)
+
+    def _serve_health_probe_action(self):
+        """POST /api/providers/probe — {"action": "check"} or {"action": "config", ...}.
+
+        ``check`` runs one cycle now instead of waiting for the interval, because
+        an operator looking at a stale cell wants it assessed immediately.
+        ``config`` moves the cadence; both are audited.
+        """
+        from ..api.health_prober import SETTINGS_KEY, load_probe_config
+
+        try:
+            body = self._read_body()
+        except Exception:
+            self._send_json({"error": "invalid JSON body"}, 400)
+            return
+        action = (body or {}).get("action")
+
+        if action == "check":
+            try:
+                results = self._prober().probe_now()
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": f"{type(exc).__name__}: {exc}"}, 500)
+                return
+            self._audit("providers.health_probe_check", probed=len(results))
+            self._send_json({"ok": True, "results": results})
+            return
+
+        if action == "config":
+            from ..api.cost_cache import get_settings
+            settings = resolve_service("settings", fallback=get_settings)
+            if settings is None:
+                self._send_json({"error": "settings store unavailable"}, 503)
+                return
+            cur = load_probe_config(settings)
+            want = {"enabled": body.get("enabled", cur["enabled"]),
+                    "interval_seconds": body.get("interval_seconds", cur["interval_seconds"]),
+                    "timeout_seconds": body.get("timeout_seconds", cur["timeout_seconds"])}
+            if not isinstance(want["enabled"], bool):
+                self._send_json({"error": "'enabled' must be true or false"}, 400)
+                return
+            try:
+                settings.set(SETTINGS_KEY, json.dumps(want))
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": f"could not save: {exc}"}, 500)
+                return
+            applied = load_probe_config(settings)
+            self._audit("providers.health_probe_config", **applied)
+            self._send_json({"ok": True, "effective": applied,
+                             "note": "applies from the next cycle; no restart"})
+            return
+
+        self._send_json({"error": "action must be 'check' or 'config'"}, 400)
 
     # ── Provider health / failover / failure endpoints ────────────────────
 
@@ -1310,13 +1403,29 @@ class ProviderEndpoints:
             self._send_json({"error": f"api_base not allowed: {ssrf_reason}"}, 400)
             return
 
-        url = f"{api_base}/chat/completions"
         test_model = model or "gpt-3.5-turbo"
-        test_body = json.dumps({
-            "model": test_model,
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 5,
-        }).encode()
+        # Claude models on providers such as commandcode answer 403 on
+        # /chat/completions and only speak the Anthropic Messages API. The Test
+        # button therefore has to select the same wire format the proxy path
+        # does, or a perfectly working Claude route reports as broken here.
+        test_anthropic = is_anthropic_model(test_model)
+        if test_anthropic:
+            url = f"{api_base}{ANTHROPIC_MESSAGES_PATH}"
+            # 64, not 5: Claude 5 emits a `thinking` block ahead of the answer and
+            # a tiny budget is consumed entirely by it — measured, and it still
+            # returns 200 with no visible text, so a 5-token probe proves nothing.
+            test_body = json.dumps(to_anthropic({
+                "model": test_model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 64,
+            }, test_model)).encode()
+        else:
+            url = f"{api_base}/chat/completions"
+            test_body = json.dumps({
+                "model": test_model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 5,
+            }).encode()
 
         logger.info(
             "provider_test_start",
@@ -1329,7 +1438,11 @@ class ProviderEndpoints:
         start_ts = time.monotonic()
         headers = _browser_headers(api_base)
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            if test_anthropic:
+                headers["x-api-key"] = api_key
+                headers["anthropic-version"] = ANTHROPIC_API_VERSION
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
         req = urllib.request.Request(url, data=test_body, headers=headers)
         try:
             ctx = ssl.create_default_context()
@@ -1997,11 +2110,13 @@ class KeyEndpoints:
 # ── Alert Management ─────────────────────────────────────────────────────────
 
 class AlertEndpoints:
-    """Alert listing, config, webhook testing."""
+    """Alert listing, config, webhook testing, credit/allowance floors."""
 
     path: Any
+    config: Any
     _send_json: Any
     _read_body: Any
+    _audit: Any
 
     def _serve_alerts_list(self):
         am = resolve_service("alert_manager", fallback=get_alert_manager)
@@ -2034,6 +2149,101 @@ class AlertEndpoints:
         config = am.update_config(body)
         self._audit("alerts.config_update")
         self._send_json({"ok": True, "config": config})
+
+    # ── credit / allowance floors ─────────────────────────────────────────
+    # The Alerts page's Thresholds panel and the L2 provider watch read the SAME
+    # payload, so what the panel shows is what the watch applies. Floors live in the
+    # settings store (one overrides object), never in the watch script.
+
+    def _serve_alert_thresholds(self):
+        """Per-provider, per-window floors + which windows the vendor reports."""
+        from ..api import alert_thresholds as at
+        from ..api.cost_cache import cached_plugin_payloads, get_cost_cache, get_settings
+        settings = resolve_service("settings", fallback=get_settings)
+        registry = resolve_service("pricing", fallback=get_registry)
+        cache = resolve_service("cost_cache", fallback=get_cost_cache)
+        if cache is None:
+            balances = registry.fetch_all_balances()
+            subs = registry.fetch_all_subscriptions()
+        else:
+            balances = cached_plugin_payloads(cache, "balance", registry)
+            subs = cached_plugin_payloads(cache, "subscription", registry)
+        configured = sorted((self.config.providers or {}).keys()) if self.config else []
+        stored = at.load(settings)
+        merged = at.effective(settings)
+        providers: dict[str, dict] = {}
+        # Every provider that is configured, plus any the plugin cache still carries
+        # (a payload for a provider no longer in the config is a real finding), plus any
+        # provider that already has a stored floor.
+        for name in sorted(set(configured) | set(balances) | set(subs) | set(stored)):
+            published = at.published_windows(name, balances, subs)
+            rows = []
+            for window in at.windows_for(name, balances, subs):
+                spec = at.WINDOWS[window]
+                floor = (merged.get(name) or {}).get(window) or {}
+                value, unit = at.reported_value(name, window, balances, subs)
+                source_payload = ((balances if window in ("balance", "available_credits")
+                                   else subs).get(name) or {})
+                age_min, is_stale = at.staleness(source_payload)
+                rows.append({
+                    "window": window,
+                    "label": spec["label"],
+                    "hint": spec["hint"],
+                    "unit": spec["unit"],
+                    "direction": spec["direction"],
+                    "warn": floor.get("warn", spec["warn"]),
+                    "critical": floor.get("critical", spec["critical"]),
+                    "enabled": bool(floor.get("enabled", True)),
+                    "default_warn": spec["warn"],
+                    "default_critical": spec["critical"],
+                    "customised": window in (stored.get(name) or {}),
+                    "published": window in published,
+                    "reported": value,
+                    "reported_unit": unit,
+                    # A number nobody re-read is not a current number: the panel must not
+                    # show a six-day-old 0.00 as if it just came from the vendor.
+                    "stale": is_stale,
+                    "age_min": round(age_min, 1) if age_min is not None else None,
+                    "fetched_at": source_payload.get("fetched_at"),
+                    "read_error": source_payload.get("_error") or source_payload.get("_stale_error"),
+                })
+            providers[name] = {
+                "configured": name in configured,
+                "plugin": bool(balances.get(name) or subs.get(name)),
+                "windows": rows,
+            }
+        self._send_json({
+            "providers": providers,
+            "configured_providers": configured,
+            "note": at.DEFAULTS_NOTE,
+            "settings_key": at.SETTINGS_KEY,
+        })
+
+    def _serve_alert_thresholds_update(self):
+        """Persist floors. Body: ``{"thresholds": {...}}`` (or the object itself)."""
+        from ..api import alert_thresholds as at
+        from ..api.cost_cache import get_settings
+        try:
+            body = self._read_body()
+        except Exception:
+            self._send_json({"error": "invalid JSON body"}, 400)
+            return
+        settings = resolve_service("settings", fallback=get_settings)
+        payload = body.get("thresholds") if isinstance(body, dict) else body
+        try:
+            # Validate FIRST: a floor that could never fire is the operator's mistake and
+            # must be reported as such even if the store happens to be unavailable.
+            normalised = at.validate(payload or {})
+        except at.ThresholdError as exc:
+            self._send_json({"error": str(exc)}, 400)
+            return
+        if settings is None:
+            self._send_json({"error": "no settings store available"}, 503)
+            return
+        written = at.persist(settings, normalised)
+        self._audit("alerts.thresholds_update")
+        self._send_json({"ok": True, "thresholds": written,
+                         "effective": at.effective(settings)})
 
     def _serve_alert_acknowledge(self, alert_id: str):
         am = resolve_service("alert_manager", fallback=get_alert_manager)

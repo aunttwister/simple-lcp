@@ -12,7 +12,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 from .capabilities import prepare_body
 from .circuit_breaker import get_circuit_breaker
@@ -34,6 +34,16 @@ from .exceptions import (
 from .logging_config import get_logger
 from .models import get_session, Request as RequestModel
 from .router import get_dynamic_router
+from .wire_anthropic import (
+    ANTHROPIC_API_VERSION,
+    ANTHROPIC_MESSAGES_PATH,
+    ANTHROPIC_USER_AGENT,
+    anthropic_error,
+    from_anthropic,
+    is_anthropic_model,
+    sse_to_openai,
+    to_anthropic,
+)
 
 logger = get_logger("lcp.pipeline")
 
@@ -621,6 +631,40 @@ def calculate_cost(provider: str, model: str, body: dict, response_body: dict | 
 
 # ── Request Forwarding ───────────────────────────────────────────────────────
 
+#: Wire formats a provider step can speak. ``openai`` is the historical
+#: (and still default) ``/chat/completions`` + Bearer shape; ``anthropic`` is
+#: the Messages API shape required by ``claude-*`` on providers such as
+#: commandcode (which answers 403 on /chat/completions for those models).
+OPENAI_WIRE = "openai"
+ANTHROPIC_WIRE = "anthropic"
+
+
+def _select_wire_format(provider_cfg: dict, body: dict) -> str:
+    """Pick the wire format for this hop.
+
+    An explicit ``wire`` key on the provider step wins (``anthropic``/``messages``
+    or ``openai``/``chat``); the operator sets it when a model id alone is not
+    enough to tell. Otherwise the model id decides: anything ``claude*`` /
+    ``anthropic*`` speaks the Messages API.
+
+    Defaults to the OpenAI wire — an unknown or absent step never changes the
+    historical behavior.
+    """
+    override = provider_cfg.get("wire") if isinstance(provider_cfg, dict) else None
+    if isinstance(override, str):
+        value = override.strip().lower()
+        if value in ("anthropic", "messages", "anthropic_messages", "anthropic_messages_api"):
+            return ANTHROPIC_WIRE
+        if value in ("openai", "chat", "chat_completions", "openai_chat"):
+            return OPENAI_WIRE
+    model = ""
+    if isinstance(body, dict):
+        model = body.get("model") or ""
+    if not model and isinstance(provider_cfg, dict):
+        model = provider_cfg.get("model") or ""
+    return ANTHROPIC_WIRE if is_anthropic_model(model) else OPENAI_WIRE
+
+
 def forward_request(provider_cfg: dict, body: dict, config, session_id: str | None = None):
     """Forward a request to a provider.
 
@@ -655,16 +699,46 @@ def forward_request(provider_cfg: dict, body: dict, config, session_id: str | No
 
     streaming = body.get("stream", False)
 
-    url = f"{provider_cfg['base_url']}/chat/completions"
-    data = json.dumps(body).encode("utf-8")
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "LLMControlPlane/1.0",
-    }
-    if session_id:
-        headers["x-opencode-session"] = session_id
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    # Wire format for this hop. The OpenAI branch below must stay byte-identical
+    # to the pre-Anthropic implementation (same URL, same headers in the same
+    # order, same payload) — production risk has to be confined to the new
+    # branch. tests/test_wire_anthropic.py asserts exactly that.
+    wire = _select_wire_format(provider_cfg, body)
+    anthropic_wire = wire == ANTHROPIC_WIRE
+    wire_model = body.get("model") or provider_cfg.get("model") or ""
+
+    if anthropic_wire:
+        # Anthropic Messages API: POST {base}/messages with x-api-key +
+        # anthropic-version (Bearer is rejected). The body must be translated:
+        # system hoisted, tool_use/tool_result blocks, NO temperature,
+        # max_tokens guaranteed. See src/api/wire_anthropic.py.
+        url = f"{provider_cfg['base_url']}{ANTHROPIC_MESSAGES_PATH}"
+        outbound_body = to_anthropic(body, wire_model)
+        data = json.dumps(outbound_body).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            # Same product identity the OpenAI path sends. Verified by live probe
+            # (2026-11-02) that it is accepted on /messages; an earlier invented UA
+            # drew a Cloudflare "error code: 1010" that reads like a bad key, which
+            # is why this is overridable per provider step rather than assumed.
+            "User-Agent": provider_cfg.get("user_agent") or ANTHROPIC_USER_AGENT,
+            "anthropic-version": ANTHROPIC_API_VERSION,
+        }
+        if session_id:
+            headers["x-opencode-session"] = session_id
+        if api_key:
+            headers["x-api-key"] = api_key
+    else:
+        url = f"{provider_cfg['base_url']}/chat/completions"
+        data = json.dumps(body).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "LLMControlPlane/1.0",
+        }
+        if session_id:
+            headers["x-opencode-session"] = session_id
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
 
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     _read_timeout = _upstream_read_timeout()
@@ -690,25 +764,44 @@ def forward_request(provider_cfg: dict, body: dict, config, session_id: str | No
                     ) from e
                 finally:
                     resp.close()
-            return chunk_reader(), resp.status
+            # ``reader`` is a byte iterator on both wires; annotate loosely so the
+            # OpenAI/Anthropic union does not widen this function's inferred
+            # return type (callers unpack it as a chunk iterable when streaming).
+            reader: Any = chunk_reader()
+            if anthropic_wire:
+                # Translate Anthropic SSE -> OpenAI SSE incrementally so clients
+                # and the streaming cost accountant keep reading one format.
+                reader = sse_to_openai(reader)
+            return reader, resp.status
         else:
             raw = resp.read()
             resp.close()
             response_body = json.loads(raw.decode("utf-8"))
+            if anthropic_wire:
+                # Anthropic message -> OpenAI completion, so cost accounting and
+                # every client keep the shape they already handle.
+                response_body = from_anthropic(response_body, wire_model)
             return response_body, resp.status
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8", errors="replace")[:500]
         status = e.code
+        # Anthropic errors use their own envelope ({"type":"error","error":{...}}),
+        # so translate them into a human message for the exception text. On the
+        # OpenAI wire ``human_error`` IS the raw body, so the messages below stay
+        # byte-identical to the pre-Anthropic implementation.
+        human_error = error_body
+        if anthropic_wire:
+            human_error = anthropic_error(status, error_body)[0]
         # Insufficient balance / credits error — provider-side funding issue.
         # Must be detected BEFORE the generic 4xx / auth branches so it gets a
         # dedicated exception that trips the circuit breaker (a drained account
         # won't self-heal, so fall back + break rather than retry).
         if _is_credits_error(error_body, status):
             raise ProviderCreditsError(
-                f"Provider {provider_cfg['provider']} out of credits: {error_body}"
+                f"Provider {provider_cfg['provider']} out of credits: {human_error}"
             )
         if status == 401 or status == 403:
-            reason = error_body.strip() if error_body.strip() else f"HTTP {status}"
+            reason = human_error.strip() if human_error.strip() else f"HTTP {status}"
             raise ProviderAuthError(
                 f"Provider {provider_cfg['provider']} rejected auth: {reason}"
             )
@@ -724,18 +817,18 @@ def forward_request(provider_cfg: dict, body: dict, config, session_id: str | No
             # everything.
             if _is_bare_4xx(error_body):
                 raise ProviderInternalError(
-                    f"Provider {provider_cfg['provider']} HTTP {status}: {error_body}"
+                    f"Provider {provider_cfg['provider']} HTTP {status}: {human_error}"
                 )
             raise ProviderBadRequestError(
-                f"Provider {provider_cfg['provider']} HTTP {status}: {error_body}"
+                f"Provider {provider_cfg['provider']} HTTP {status}: {human_error}"
             )
         elif status >= 500:
             # 5xx — provider-side transient failure. Distinct from auth so the
             # circuit breaker and retry logic can treat it appropriately.
             raise ProviderInternalError(
-                f"Provider {provider_cfg['provider']} HTTP {status}: {error_body}"
+                f"Provider {provider_cfg['provider']} HTTP {status}: {human_error}"
             )
-        raise ProviderAuthError(f"Provider {provider_cfg['provider']} HTTP {status}: {error_body}")
+        raise ProviderAuthError(f"Provider {provider_cfg['provider']} HTTP {status}: {human_error}")
     except urllib.error.URLError as e:
         raise ProviderTimeoutError(f"Provider {provider_cfg['provider']} unreachable: {e.reason}")
     except TimeoutError as e:
@@ -1196,7 +1289,9 @@ def _engine_db_path(engine) -> "str | None":
 def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict,
                 success: bool, error_type: str | None, tools_blocked: list[str],
                 error_detail: str | None = None,
-                conversation_id: str | None = None) -> None:
+                conversation_id: str | None = None,
+                agent_generated: bool | None = None,
+                agent_identity: str | None = None) -> None:
     """Record cost data to SQLite and track against budgets.
 
     ``conversation_id`` (optional): the client's real per-conversation id
@@ -1204,6 +1299,13 @@ def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict
     decisions written during this call, so the unified Conversations view can
     group request + provider logs by conversation. NULL (no header present /
     legacy) is later covered by the deterministic burst backfill.
+
+    ``agent_generated`` / ``agent_identity`` (optional): the caller's own declaration
+    (``X-Agent-Generated`` / ``X-Agent-Identity``). Stored as a **tri-state** —
+    True/False/None — because "the caller said it is not an agent" and "the caller said
+    nothing" are different facts, and a NULL counted as ``0`` would let every unlabelled
+    request be read as a person. Persisted only; nothing here changes routing, cost or
+    which provider serves the call.
     """
     cost = cost_info.get("cost", 0)
     ts = datetime.now(timezone.utc).isoformat()
@@ -1211,6 +1313,9 @@ def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict
     # CUR-270: record what served this, not just what we asked for. `provider`/`model`
     # stay the raw strings; these ids are the resolved identity, NULL when unknowable.
     identity = _stamp_identity(provider, model, ts, engine)
+
+    # None stays None; a declaration is stored as 1/0 so a SQL `= 1` filter is unambiguous.
+    generated_flag = None if agent_generated is None else (1 if agent_generated else 0)
 
     rid = None
     with get_session(engine) as session:
@@ -1232,6 +1337,8 @@ def record_cost(engine, profile: str, model: str, provider: str, cost_info: dict
             deployment_id=identity["deployment_id"],
             release_id=identity["release_id"],
             registry_version=identity["registry_version"],
+            agent_generated=generated_flag,
+            agent_identity=(agent_identity or None),
         )
         session.add(req)
         session.commit()
