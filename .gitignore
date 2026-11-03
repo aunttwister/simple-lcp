@@ -55,3 +55,7 @@ data/*.json
 # Secret-bearing backups of .env (untracked, must never be committed)
 .env.bak*
 .env.*.bak*
+
+# QA runtime logs - written by the QA run; the results*.json
+# beside them are artifacts and stay tracked.
+qa/*.log
