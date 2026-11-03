@@ -108,13 +108,29 @@ def test_ungraded_taxonomy_cannot_be_activated_then_used(store, monkeypatch):
     assert _classify("l2", monkeypatch, cfg).taxonomy_id == "op-v1", "in force once graded"
 
 
+def test_the_decision_model_carries_the_taxonomy_columns():
+    """Portable guard for the defect that actually bit live: the ORM model had no such attribute, so
+    the stamp vanished between the decision dict and the table while every in-process check passed.
+    This one runs in both trees, which the writer test below cannot."""
+    from src.api.models import RoutingDecision
+    cols = {c.name for c in RoutingDecision.__table__.columns}
+    assert {"taxonomy_id", "taxonomy_version"} <= cols, sorted(cols)
+    assert RoutingDecision.__table__.columns["taxonomy_id"].nullable is True
+    assert RoutingDecision.__table__.columns["taxonomy_version"].nullable is True
+
+
 def test_the_writer_actually_persists_the_taxonomy(tmp_path):
     """The dict key is not the column. Verified live: a real request wrote a decision row with
     taxonomy_id NULL because the writer names every column explicitly and the ORM model had no such
-    attribute - so the stamp silently vanished between the dict and the table."""
+    attribute - so the stamp silently vanished between the dict and the table.
+
+    Skipped where the preflight gate does not exist (prod has none; its writer is the router's).
+    """
     import sqlalchemy as sa
     from src.api.models import Base
-    from src.api.preflight import record_decision
+    record_decision = pytest.importorskip(
+        "src.api.preflight", reason="no preflight gate in this tree"
+    ).record_decision
 
     db = str(tmp_path / "d.db")
     eng = sa.create_engine("sqlite:///" + db)
