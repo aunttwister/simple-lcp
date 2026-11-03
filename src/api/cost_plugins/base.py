@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional, Any
 
+from ..provider_type import type_of
+
 if TYPE_CHECKING:  # pragma: no cover — runtime import only for type hints
     from ..component import Component
     from ..runtime import Runtime
@@ -87,6 +89,30 @@ class CostPlugin(ABC):
     def provider_name(self) -> str:
         """Lowercase provider identifier, e.g. 'deepseek', 'opencode'."""
         ...
+
+    # ── Provider binding ───────────────────────────────────────────────────
+    # One vendor can be configured more than once — two Command Code accounts are
+    # 'commandcode' and 'commandcode2'. ``provider_name`` is the VENDOR identity: it
+    # selects the plugin class, the pricing table and the alert-window policy.
+    # ``provider`` is the CONFIGURED provider name this instance speaks for: the
+    # credential slot it reads and the ``requests.provider`` value it aggregates.
+    # The two are equal unless the instance was bound with :meth:`bind_provider`.
+
+    @property
+    def provider(self) -> str:
+        """Configured provider this instance serves (defaults to the vendor name)."""
+        return getattr(self, "_provider", None) or self.provider_name
+
+    #: Settable so a plugin may declare the provider it serves as a plain attribute
+    #: (``self.provider = "..."``) as well as through :meth:`bind_provider`.
+    @provider.setter
+    def provider(self, value: str) -> None:
+        self._provider = value
+
+    def bind_provider(self, provider: str) -> "CostPlugin":
+        """Serve configured provider *provider* instead of the vendor name."""
+        self._provider = provider
+        return self
 
     # ── Model support ──────────────────────────────────────────────────────
 
@@ -285,12 +311,40 @@ class PluginRegistry:
     # ── Registration ──────────────────────────────────────────────────────
 
     def register(self, plugin: CostPlugin) -> None:
-        """Register a plugin instance."""
-        name = plugin.provider_name
+        """Register a plugin instance, keyed by the CONFIGURED provider it serves."""
+        name = plugin.provider
         if name in self._plugins:
             raise ValueError(f"Plugin for provider '{name}' is already registered")
         self._plugins[name] = plugin
         plugin.on_startup()
+
+    def add_bound(self, provider: str, plugin: CostPlugin) -> bool:
+        """Register *plugin* re-pointed at configured provider *provider*.
+
+        Returns False (registering nothing) when that name is already taken, so
+        wiring is idempotent. Used to give a second account of one vendor its own
+        instance — same vendor logic, its own credential slot and its own rows.
+        """
+        if provider in self._plugins:
+            return False
+        self.register(plugin.bind_provider(provider))
+        return True
+
+    def forget(self, provider: str) -> bool:
+        """Drop the instance registered for *provider*; True when one was removed.
+
+        The cost endpoints iterate the registry, so a provider deleted from the
+        config would otherwise keep reporting credits (and keep its tab in the
+        Usage payload) until the next restart.
+        """
+        plugin = self._plugins.pop(provider, None)
+        if plugin is None:
+            return False
+        try:
+            plugin.on_shutdown()
+        except Exception:  # noqa: BLE001 — teardown must never break the caller
+            pass
+        return True
 
     # ── Lookup ────────────────────────────────────────────────────────────
 
@@ -307,6 +361,16 @@ class PluginRegistry:
     def providers(self) -> list[str]:
         """Return provider names of all registered plugins."""
         return list(self._plugins.keys())
+
+    @property
+    def types(self) -> dict[str, str]:
+        """Return ``{registered provider name: vendor type}``.
+
+        The mapping exists for callers that must apply a per-vendor policy to a
+        provider whose name is not the vendor's (e.g. alert windows).
+        """
+        return {name: plugin.provider_name for name, plugin in self._plugins.items()}
+
 
     @property
     def presets(self) -> dict[str, dict]:
@@ -442,6 +506,8 @@ class CostPluginsComponent(Component):
         super().__init__()
         self._extra_plugins = extra_plugins or []
         self._registry: Optional[PluginRegistry] = None
+        self._config: Any = None
+        self._factories: dict = {}
 
     @property
     def registry(self) -> PluginRegistry:
@@ -453,28 +519,87 @@ class CostPluginsComponent(Component):
     def service(self) -> PluginRegistry:
         return self.registry
 
-    def setup(self, rt: "Runtime") -> Optional[Any]:
+    def _build_factories(self, engine: Any) -> dict:
+        """One builder per vendor, for the plugins whose data source is an account.
+
+        A provider entry's ``type`` selects one of these by name, which is what lets a
+        second account of the same vendor ('commandcode2', type 'commandcode') get its
+        own bound instance — its own credential slot, its own rows — instead of being
+        treated as a vendor the cost layer has never heard of.
+        """
+        # Imported here, not at module level: every one of these imports ``.base``.
         from .deepseek import DeepSeekCostPlugin
         from .opencode import OpenCodeCostPlugin
         from .llamacpp import LlamaCppCostPlugin
         from .commandcode import CommandCodeCostPlugin
+        from .anthropic import AnthropicCostPlugin
+
+        return {
+            "deepseek": lambda: DeepSeekCostPlugin(),
+            "opencode": lambda: OpenCodeCostPlugin(engine=engine),
+            "llamacpp": lambda: LlamaCppCostPlugin(),
+            "commandcode": lambda: CommandCodeCostPlugin(engine=engine),
+            "anthropic": lambda: AnthropicCostPlugin(),
+        }
+
+    def _wire_typed_providers(self, registry: PluginRegistry) -> list[str]:
+        """Bind an instance for every configured provider of a known vendor type.
+
+        Providers whose type names no known vendor stay unregistered, exactly as
+        before this existed. Returns the provider names added.
+        """
+        added: list[str] = []
+        for pname in sorted((getattr(self._config, "providers", None) or {})):
+            builder = self._factories.get(type_of(self._config, pname))
+            if builder is not None and registry.add_bound(pname, builder()):
+                added.append(pname)
+        return added
+
+    def ensure_provider(self, provider: str) -> bool:
+        """Wire a provider created or edited AFTER boot into the live registry.
+
+        The registry is built once at boot, so without this a provider added later —
+        or one whose ``type`` was just set — has no plugin at all: it reads no
+        credits and "Refresh now" for it does nothing until the process restarts.
+        Returns True when an instance was registered.
+        """
+        if self._registry is None:
+            return False
+        builder = self._factories.get(type_of(self._config, provider))
+        if builder is None:
+            return False
+        return self._registry.add_bound(provider, builder())
+
+    def drop_provider(self, provider: str) -> bool:
+        """Remove a deleted provider's instance from the live registry."""
+        if self._registry is None:
+            return False
+        return self._registry.forget(provider)
+
+    def setup(self, rt: "Runtime") -> Optional[Any]:
         # NOTE: this list — not the plugins' own module-level
         # `get_registry().register(...)` calls — is what the running server
         # actually uses. `get_registry()` returns the module singleton, which a
         # bound Runtime never consults (`resolve_service("pricing")` returns
         # THIS registry). A plugin registered only at import time therefore
         # works in ad-hoc scripts and is invisible in the UI. Keep both in sync.
-        from .anthropic import AnthropicCostPlugin
 
         engine = rt.resolve("engine")
+        self._factories = self._build_factories(engine)
         registry = PluginRegistry()
-        registry.register(DeepSeekCostPlugin())
-        registry.register(OpenCodeCostPlugin(engine=engine))
-        registry.register(LlamaCppCostPlugin())
-        registry.register(CommandCodeCostPlugin(engine=engine))
-        registry.register(AnthropicCostPlugin())
+        for builder in self._factories.values():
+            registry.register(builder())
         for p in self._extra_plugins:
             registry.register(p)
+
+        # Every configured provider whose type is a vendor served by one of the
+        # factories gets its OWN instance (its own credential slot, its own
+        # ``requests.provider`` rows).
+        try:
+            self._config = rt.resolve("config")
+        except Exception:  # noqa: BLE001 — nothing published → vendor set only
+            self._config = None
+        self._wire_typed_providers(registry)
         self._registry = registry
 
         def _dispose() -> None:

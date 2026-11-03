@@ -271,8 +271,13 @@ class CommandCodeCostPlugin(CostPlugin):
     Cost history comes from the gateway's ``requests`` table.
     """
 
-    def __init__(self, engine: Any = None) -> None:
+    def __init__(self, engine: Any = None, provider: Optional[str] = None) -> None:
         self._engine = engine
+        # The configured provider this instance serves. Defaults to the vendor name,
+        # so a one-account install is unchanged; a second Command Code account binds
+        # its own name here and thereby reads its OWN credential slot (its API key)
+        # and aggregates its OWN rows from the requests table.
+        self._provider = provider or "commandcode"
 
     def set_engine(self, engine: Any) -> None:
         """Bind the gateway SQLAlchemy engine for DB queries."""
@@ -282,6 +287,8 @@ class CommandCodeCostPlugin(CostPlugin):
 
     @property
     def provider_name(self) -> str:
+        # The VENDOR identity — the plugin class, its pricing table and the alert
+        # windows all key off this. Which ACCOUNT it reports on is `self.provider`.
         return "commandcode"
 
     @property
@@ -370,7 +377,7 @@ class CommandCodeCostPlugin(CostPlugin):
                     func.coalesce(func.sum(RequestModel.cost), 0).label("cost"),
                     func.count(RequestModel.id).label("request_count"),
                 ).filter(
-                    RequestModel.provider == "commandcode",
+                    RequestModel.provider == self.provider,
                     RequestModel.success == 1,
                 )
 
@@ -387,7 +394,7 @@ class CommandCodeCostPlugin(CostPlugin):
                 result.append({
                     "date": r.day,
                     "model": r.model or "unknown",
-                    "provider": r.provider or "commandcode",
+                    "provider": r.provider or self.provider,
                     "prompt_tokens": int(r.prompt_tokens),
                     "completion_tokens": int(r.completion_tokens),
                     "cache_hit_tokens": int(r.cache_hit_tokens),
@@ -396,10 +403,10 @@ class CommandCodeCostPlugin(CostPlugin):
                     "request_count": int(r.request_count),
                 })
 
-            logger.debug("usage_fetched", provider="commandcode", days=len(result))
+            logger.debug("usage_fetched", provider=self.provider, days=len(result))
             return result
         except Exception as exc:
-            logger.warning("usage_query_failed", provider="commandcode", error=str(exc))
+            logger.warning("usage_query_failed", provider=self.provider, error=str(exc))
             return []
 
     # ── Balance (not available) ────────────────────────────────────────────
@@ -435,7 +442,7 @@ class CommandCodeCostPlugin(CostPlugin):
                         func.coalesce(func.sum(RequestModel.cost), 0).label("cost"),
                         func.count(RequestModel.id).label("requests"),
                     ).filter(
-                        RequestModel.provider == "commandcode",
+                        RequestModel.provider == self.provider,
                         RequestModel.success == 1,
                         RequestModel.timestamp >= cutoff,
                     ).first()
@@ -451,7 +458,7 @@ class CommandCodeCostPlugin(CostPlugin):
 
             return result
         except Exception as exc:
-            logger.warning("summary_query_failed", provider="commandcode", error=str(exc))
+            logger.warning("summary_query_failed", provider=self.provider, error=str(exc))
             return None
 
     # ── Subscription (from Command Code billing API) ──────────────────────
@@ -524,8 +531,8 @@ class CommandCodeCostPlugin(CostPlugin):
                 from ..credential_store import get_credential_store
                 store = get_credential_store()
                 if store is not None:
-                    api_key = _store_str(store, "get", "commandcode")
-                    cookie = _store_str(store, "get_cookie", "commandcode")
+                    api_key = _store_str(store, "get", self.provider)
+                    cookie = _store_str(store, "get_cookie", self.provider)
             except Exception:
                 api_key = cookie = ""
             if not api_key and not cookie:
