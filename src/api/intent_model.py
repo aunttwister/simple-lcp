@@ -160,7 +160,11 @@ def _build_openai_payload(message: str, labels: list, model: Optional[str]) -> d
     payload = {
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0,
-        "max_tokens": 16,
+        "max_tokens": 32,
+        # GLM-family served on vLLM thinks by default and would burn the token
+        # budget on reasoning_content before answering; strict-OpenAI endpoints
+        # ignore the extra field.
+        "chat_template_kwargs": {"enable_thinking": False},
     }
     if model:
         payload["model"] = model
