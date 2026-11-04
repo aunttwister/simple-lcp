@@ -279,6 +279,7 @@ class SettingsStore:
     INTENT_MODEL_URL_KEY = "intent_model_url"
     INTENT_MODEL_FORMAT_KEY = "intent_model_format"
     INTENT_MODEL_API_KEY_KEY = "intent_model_api_key"
+    INTENT_MODEL_MODEL_KEY = "intent_model_model"
     INTENT_MODEL_TIMEOUT_KEY = "intent_model_timeout_ms"
     INTENT_MODEL_MIN_SCORE_KEY = "intent_model_min_score"
     INTENT_MODEL_ENABLED_KEY = "intent_model_enabled"
@@ -320,6 +321,16 @@ class SettingsStore:
     def set_intent_model_api_key(self, key: str, profile: Optional[str] = None) -> None:
         self.set(self._profile_key(self.INTENT_MODEL_API_KEY_KEY, profile), (key or "").strip())
 
+    def get_intent_model_model(self, profile: Optional[str] = None,
+                               default: Optional[str] = None) -> Optional[str]:
+        """Model name for openai-format endpoints (chat.completions)."""
+        return self._intent_str(self.INTENT_MODEL_MODEL_KEY, default, profile)
+
+    def set_intent_model_model(self, model: str, profile: Optional[str] = None) -> None:
+        # No munging here on purpose (model-identity guard): the value is stored
+        # verbatim and `_intent_str` strips on read.
+        self.set(self._profile_key(self.INTENT_MODEL_MODEL_KEY, profile), (model or ""))
+
     def get_intent_model_timeout_ms(self, profile: Optional[str] = None) -> int:
         raw = self._intent_str(self.INTENT_MODEL_TIMEOUT_KEY, None, profile)
         try:
@@ -357,7 +368,8 @@ class SettingsStore:
     def clear_intent_model(self, profile: Optional[str] = None) -> None:
         """Drop every per-profile intent-model override (the profile inherits)."""
         for base in (self.INTENT_MODEL_URL_KEY, self.INTENT_MODEL_FORMAT_KEY,
-                     self.INTENT_MODEL_API_KEY_KEY, self.INTENT_MODEL_TIMEOUT_KEY,
+                     self.INTENT_MODEL_API_KEY_KEY, self.INTENT_MODEL_MODEL_KEY,
+                     self.INTENT_MODEL_TIMEOUT_KEY,
                      self.INTENT_MODEL_MIN_SCORE_KEY, self.INTENT_MODEL_ENABLED_KEY):
             self._clear_key(self._profile_key(base, profile))
 

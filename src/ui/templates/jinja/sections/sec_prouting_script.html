@@ -172,6 +172,7 @@
     var eff = (d && d.effective) || {};
     el('prouImUrl').value = eff.url || '';
     el('prouImFormat').value = eff.format || 'lcp-v1';
+    el('prouImModel').value = eff.model || '';
     el('prouImTimeout').value = eff.timeout_ms || 3000;
     el('prouImMinScore').value = (eff.min_score == null ? 0 : eff.min_score);
     el('prouImEnabled').checked = !!eff.enabled;
@@ -210,6 +211,7 @@
     var body = {
       url: url,  // an empty URL clears this profile's override -> inherits global
       format: el('prouImFormat').value,
+      model: (el('prouImModel').value || '').trim(),
       timeout_ms: parseInt(el('prouImTimeout').value, 10) || 3000,
       min_score: parseFloat(el('prouImMinScore').value) || 0,
       profile: PROFILE

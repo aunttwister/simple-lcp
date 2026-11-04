@@ -285,6 +285,7 @@ def _classify_task_detail_body(
                     taxonomy_id=getattr(tax, "id", None),
                     taxonomy_version=getattr(tax, "version", None),
                     min_score=_settings.get_intent_model_min_score(profile=profile),
+                    model=getattr(_settings, "get_intent_model_model", lambda *a, **k: None)(profile=profile),
                 )
                 if remote_res is not None:
                     return ClassifyResult(

@@ -3133,6 +3133,7 @@ class SettingsEndpoints:
                     "url": settings.get_intent_model_url(profile=p),
                     "format": settings.get_intent_model_format(profile=p),
                     "api_key_set": bool(settings.get_intent_model_api_key(profile=p)),
+                    "model": settings.get_intent_model_model(profile=p),
                     "timeout_ms": settings.get_intent_model_timeout_ms(profile=p),
                     "min_score": settings.get_intent_model_min_score(profile=p),
                     "enabled": settings.get_intent_model_enabled(profile=p),
@@ -3182,6 +3183,8 @@ class SettingsEndpoints:
                 settings.set_intent_model_format(str(body["format"]), profile=profile)
             if "api_key" in body:
                 settings.set_intent_model_api_key(str(body["api_key"]), profile=profile)
+            if "model" in body:
+                settings.set_intent_model_model(str(body["model"]), profile=profile)
             if "timeout_ms" in body:
                 settings.set_intent_model_timeout_ms(int(body["timeout_ms"]), profile=profile)
             if "min_score" in body:
@@ -3195,8 +3198,8 @@ class SettingsEndpoints:
             self._send_json({"error": str(exc)}, 400)
             return
         self._audit("intent_model.config_update", profile=profile,
-                    fields=sorted(k for k in ("url", "format", "api_key", "timeout_ms",
-                                              "min_score", "enabled") if k in body))
+                    fields=sorted(k for k in ("url", "format", "api_key", "model",
+                                              "timeout_ms", "min_score", "enabled") if k in body))
         self._send_json({"ok": True, "profile": profile})
 
 

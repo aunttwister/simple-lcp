@@ -37,7 +37,12 @@ class Mock(BaseHTTPRequestHandler):
             resp = {"label": body["labels"][0], "score": 0.87,
                     "scores": {body["labels"][0]: 0.87, body["labels"][1]: 0.09}}
         elif self.path == "/openai":
-            resp = {"choices": [{"message": {"content": f'The intent is "{body["labels"][1]}", confidence 0.72.'}}]}
+            # chat.completions request: recover the label set from the prompt.
+            prompt = body["messages"][0]["content"]
+            import re as _re
+            m = _re.search(r"intents: ([^\n]+)\.", prompt)
+            labels = [x.strip() for x in m.group(1).split(",")] if m else []
+            resp = {"choices": [{"message": {"content": f'The intent is "{labels[1] if len(labels) > 1 else "unknown"}", confidence 0.72.'}}]}
         elif self.path == "/foreign":
             resp = {"label": "not_in_label_space", "score": 0.99}
         elif self.path == "/garbage":
