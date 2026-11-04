@@ -149,6 +149,24 @@ def _parse_openai(body: str, labels: list) -> Optional[IntentModelResult]:
                              raw=content[:2000])
 
 
+def _build_openai_payload(message: str, labels: list, model: Optional[str]) -> dict:
+    """A chat.completions request that asks for exactly one label back."""
+    prompt = (
+        "Classify the following message into exactly one of these intents: "
+        + ", ".join(labels)
+        + ". Reply with the single intent name and nothing else.\n\nMessage: "
+        + message.strip()
+    )
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+        "max_tokens": 16,
+    }
+    if model:
+        payload["model"] = model
+    return payload
+
+
 def classify_remote(message: str, labels: list, url: str,
                     fmt: str = DEFAULT_FORMAT,
                     api_key: Optional[str] = None,
@@ -156,11 +174,15 @@ def classify_remote(message: str, labels: list, url: str,
                     profile: Optional[str] = None,
                     taxonomy_id: Optional[str] = None,
                     taxonomy_version: Optional[int] = None,
-                    min_score: float = 0.0) -> Optional[IntentModelResult]:
+                    min_score: float = 0.0,
+                    model: Optional[str] = None) -> Optional[IntentModelResult]:
     """Classify *message* against the remote intent model. None on ANY failure.
 
     This is the request-path entry point. It validates the answer against
-    *labels*, applies *min_score*, and never raises.
+    *labels*, applies *min_score*, and never raises. For ``openai`` the URL is
+    the full chat-completions URL and *model* names the served model; for
+    ``lcp-v1`` the URL is the intent endpoint and the body is the contract
+    documented in the module docstring.
     """
     if not (url and message and message.strip() and labels):
         return None
@@ -171,13 +193,16 @@ def classify_remote(message: str, labels: list, url: str,
         _reject("unknown_format", fmt=fmt)
         return None
 
-    payload = {
-        "message": message.strip(),
-        "labels": list(labels),
-        "profile": profile,
-        "taxonomy_id": taxonomy_id,
-        "taxonomy_version": taxonomy_version,
-    }
+    if fmt == "openai":
+        payload = _build_openai_payload(message, labels, model)
+    else:
+        payload = {
+            "message": message.strip(),
+            "labels": list(labels),
+            "profile": profile,
+            "taxonomy_id": taxonomy_id,
+            "taxonomy_version": taxonomy_version,
+        }
     try:
         status, body = _post_json(url, payload, api_key, timeout_ms / 1000.0)
     except Exception as exc:  # noqa: BLE001 — the request path must not break
