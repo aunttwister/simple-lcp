@@ -2679,3 +2679,18 @@ input:disabled {
 }
 .task-pager-jump input:focus-visible { border-color: hsl(var(--ring)); }
 .task-pager-jump .muted { font-size: 0.7rem; }
+
+/* ── Mobile touch targets (L2 mobile responsiveness) ─────────────────────────
+   Measured at 390px on 2026-11-04: sidebar links 37px, the ☰ draw-toggle 36px,
+   profile Action buttons 26px, tab-page links 19px, alert chips 22px. All below
+   the 44px mobile tap standard (Apple HIG) and, for most, below WCAG 2.2's
+   24px non-exempt minimum. Raising the padding/length of the highest-traffic
+   controls on touch devices only; desktop layout is untouched. */
+@media (max-width: 768px) {
+  .sidebar-nav a { padding-top: 0.72rem; padding-bottom: 0.72rem; }
+  .sidebar-toggle { width: 44px; height: 44px; }
+  .btn-sm { min-height: 44px; padding-top: 0.6rem; padding-bottom: 0.6rem; }
+  .tab-btn, .page-tabs .tab-btn { min-height: 44px; padding-top: 0.65rem; padding-bottom: 0.65rem; display: inline-flex; align-items: center; }
+  .sidebar-nav a { min-height: 44px; display: flex; align-items: center; }
+  .segmented button, .ack-btn { min-height: 40px; display: inline-flex; align-items: center; }
+}
