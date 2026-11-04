@@ -250,37 +250,52 @@ def _classify_task_detail_body(
             tool_count=tool_count,
         )
 
-    # 1. SEMANTIC classification — the SOLE task classifier. Meaning
-    #    (embedding similarity to per-task exemplar centroids) determines the
-    #    task type. There is deliberately NO keyword fallback: keyword lists
-    #    are brittle, hardcode vocabulary, and drift across harnesses and
-    #    phrasings (a typo like "ake a plan" misses every planning keyword).
-    #    When the embedder is unavailable or the top score is below the
-    #    confidence gate, we fall through to the structural degraded-mode
-    #    heuristics below (agentic prompt / tool count / token count / casual).
+    # 1. REMOTE intent model — the SOLE task classifier (CUR-327). The local
+    #    bge-small embedder is obsoleted from the decision path: classification
+    #    is a call to the configured endpoint, contract-declared in the config
+    #    (src/api/intent_model.py). When no URL is set, the endpoint is
+    #    unreachable, or the answer fails validation, we fall through to the
+    #    structural degraded-mode heuristics below — there is deliberately NO
+    #    local fallback, which would defeat the point of obsoleting it.
+    remote_res = None
     semantic: Optional[list] = None
     min_score: Optional[float] = None
     sem_available = False
     try:
-        from .task_classifier import get_semantic_classifier
-        # The taxonomy is resolved ONCE by the wrapper and passed in: the label space governs which
-        # centroids exist, so resolving it any later would classify in the wrong space first.
-        clf = get_semantic_classifier(tax)
-        if clf is not None and intent_lc.strip():
-            sem_available = True
-            min_score = clf.min_score
-            scores = clf.top_scores(intent_lc.strip(), 5)
-            if scores:
-                semantic = [(t, round(s, 4)) for t, s in scores]
-                if scores[0][1] >= clf.min_score:
+        from .intent_model import classify_remote
+        from .cost_cache import get_settings
+        _settings = get_settings()
+        if _settings is not None and _settings.get_intent_model_enabled(profile=profile) \
+                and intent_lc.strip():
+            url = _settings.get_intent_model_url(profile=profile)
+            if url:
+                # The label space is the taxonomy's (resolved once by the wrapper);
+                # the builtin taxonomy is TASK_EXEMPLARS expressed as data.
+                if tax is not None and getattr(tax, "acts", None):
+                    labels = list(tax.acts.keys())
+                else:
+                    from .task_classifier import TASK_EXEMPLARS
+                    labels = list(TASK_EXEMPLARS.keys())
+                remote_res = classify_remote(
+                    intent_lc, labels, url,
+                    fmt=_settings.get_intent_model_format(profile=profile),
+                    api_key=_settings.get_intent_model_api_key(profile=profile),
+                    timeout_ms=_settings.get_intent_model_timeout_ms(profile=profile),
+                    profile=profile,
+                    taxonomy_id=getattr(tax, "id", None),
+                    taxonomy_version=getattr(tax, "version", None),
+                    min_score=_settings.get_intent_model_min_score(profile=profile),
+                )
+                if remote_res is not None:
                     return ClassifyResult(
-                        task=scores[0][0], path="semantic",
+                        task=remote_res.label, path="remote",
                         intent_text=intent_text, intent_meta=intent_meta,
-                        semantic=semantic, min_score=min_score,
+                        semantic=remote_res.semantic_pairs(),
+                        min_score=_settings.get_intent_model_min_score(profile=profile),
                         sem_available=True, tool_count=tool_count,
                     )
     except Exception:  # noqa: BLE001 — never let classification break routing
-        pass
+        remote_res = None
 
     # 2. Agentic system prompt — the generic agent preamble.
     for kw in TASK_SIGNALS["agentic_multi_step"]:

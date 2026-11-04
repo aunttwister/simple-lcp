@@ -274,6 +274,93 @@ class SettingsStore:
     def clear_routing_rules(self, profile: Optional[str] = None) -> None:
         self._clear_key(self._profile_key(self.ROUTING_RULES_KEY, profile))
 
+    # ── Intent decision model (CUR-327: remote classifier, global + per-profile) ──
+
+    INTENT_MODEL_URL_KEY = "intent_model_url"
+    INTENT_MODEL_FORMAT_KEY = "intent_model_format"
+    INTENT_MODEL_API_KEY_KEY = "intent_model_api_key"
+    INTENT_MODEL_TIMEOUT_KEY = "intent_model_timeout_ms"
+    INTENT_MODEL_MIN_SCORE_KEY = "intent_model_min_score"
+    INTENT_MODEL_ENABLED_KEY = "intent_model_enabled"
+    INTENT_MODEL_FORMATS = ("lcp-v1", "openai", "jev")
+
+    def _intent_str(self, base: str, default: Optional[str],
+                    profile: Optional[str]) -> Optional[str]:
+        """Effective string setting: per-profile override, else global, else default."""
+        raw = self.get(self._profile_key(base, profile), None)
+        if raw is None and profile:
+            raw = self.get(base, None)
+        if raw is None or not str(raw).strip():
+            return default
+        return str(raw).strip()
+
+    def get_intent_model_url(self, profile: Optional[str] = None,
+                             default: Optional[str] = None) -> Optional[str]:
+        return self._intent_str(self.INTENT_MODEL_URL_KEY, default, profile)
+
+    def set_intent_model_url(self, url: str, profile: Optional[str] = None) -> None:
+        url = (url or "").strip()
+        if not url:
+            raise ValueError("intent model URL must not be empty")
+        self.set(self._profile_key(self.INTENT_MODEL_URL_KEY, profile), url)
+
+    def get_intent_model_format(self, profile: Optional[str] = None) -> str:
+        raw = self._intent_str(self.INTENT_MODEL_FORMAT_KEY, None, profile)
+        return raw if raw in self.INTENT_MODEL_FORMATS else "lcp-v1"
+
+    def set_intent_model_format(self, fmt: str, profile: Optional[str] = None) -> None:
+        if fmt not in self.INTENT_MODEL_FORMATS:
+            raise ValueError(f"invalid intent-model format {fmt!r}; expected {self.INTENT_MODEL_FORMATS}")
+        self.set(self._profile_key(self.INTENT_MODEL_FORMAT_KEY, profile), fmt)
+
+    def get_intent_model_api_key(self, profile: Optional[str] = None,
+                                 default: Optional[str] = None) -> Optional[str]:
+        return self._intent_str(self.INTENT_MODEL_API_KEY_KEY, default, profile)
+
+    def set_intent_model_api_key(self, key: str, profile: Optional[str] = None) -> None:
+        self.set(self._profile_key(self.INTENT_MODEL_API_KEY_KEY, profile), (key or "").strip())
+
+    def get_intent_model_timeout_ms(self, profile: Optional[str] = None) -> int:
+        raw = self._intent_str(self.INTENT_MODEL_TIMEOUT_KEY, None, profile)
+        try:
+            v = int(float(raw)) if raw is not None else 3000
+        except (TypeError, ValueError):
+            v = 3000
+        return min(60000, max(100, v))
+
+    def set_intent_model_timeout_ms(self, value: int, profile: Optional[str] = None) -> None:
+        self.set(self._profile_key(self.INTENT_MODEL_TIMEOUT_KEY, profile),
+                 str(min(60000, max(100, int(value)))))
+
+    def get_intent_model_min_score(self, profile: Optional[str] = None) -> float:
+        raw = self._intent_str(self.INTENT_MODEL_MIN_SCORE_KEY, None, profile)
+        try:
+            return min(1.0, max(0.0, float(raw))) if raw is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    def set_intent_model_min_score(self, value: float, profile: Optional[str] = None) -> None:
+        self.set(self._profile_key(self.INTENT_MODEL_MIN_SCORE_KEY, profile),
+                 str(min(1.0, max(0.0, float(value)))))
+
+    def get_intent_model_enabled(self, profile: Optional[str] = None,
+                                 default: bool = False) -> bool:
+        raw = self._intent_str(self.INTENT_MODEL_ENABLED_KEY, None, profile)
+        if raw is None:
+            return default
+        return raw.lower() in ("1", "true", "yes", "on")
+
+    def set_intent_model_enabled(self, enabled: bool, profile: Optional[str] = None) -> None:
+        self.set(self._profile_key(self.INTENT_MODEL_ENABLED_KEY, profile),
+                 "1" if enabled else "0")
+
+    def clear_intent_model(self, profile: Optional[str] = None) -> None:
+        """Drop every per-profile intent-model override (the profile inherits)."""
+        for base in (self.INTENT_MODEL_URL_KEY, self.INTENT_MODEL_FORMAT_KEY,
+                     self.INTENT_MODEL_API_KEY_KEY, self.INTENT_MODEL_TIMEOUT_KEY,
+                     self.INTENT_MODEL_MIN_SCORE_KEY, self.INTENT_MODEL_ENABLED_KEY):
+            self._clear_key(self._profile_key(base, profile))
+
     def _clear_key(self, key: str) -> None:
         """Delete a settings row if it exists (ignore when absent)."""
         try:
