@@ -135,8 +135,8 @@ class TestBuildRuntime:
         names = [call.args[0].name for call in rt.register.call_args_list]
         assert names == [
             "settings", "cost_cache", "refresher", "circuit_breaker",
-            "key_manager", "credential_store", "alert_manager",
-            "dynamic_router", "memory", "cost_plugins",
+            "key_manager", "credential_store", "provider_type_store",
+            "alert_manager", "dynamic_router", "memory", "cost_plugins",
             "prompt_cache", "token_verifier", "reasoning_store",
         ]
         rt.start.assert_called_once()
@@ -162,7 +162,8 @@ class TestBuildRuntime:
 
             src.main.build_runtime(MagicMock(), boot_config, "/data/costs.db", "/data")
 
-        router_comp = rt.register.call_args_list[7].args[0]
+        router_comp = next(call.args[0] for call in rt.register.call_args_list
+                           if call.args[0].name == "dynamic_router")
         assert router_comp._db_path == "/data/costs.db"
         assert router_comp._enabled is True
         assert router_comp._cost_bias == 0.3
@@ -185,7 +186,8 @@ class TestBuildRuntime:
 
             src.main.build_runtime(MagicMock(), boot_config, "/data/costs.db", "/data")
 
-        router_comp = rt.register.call_args_list[7].args[0]
+        router_comp = next(call.args[0] for call in rt.register.call_args_list
+                           if call.args[0].name == "dynamic_router")
         assert router_comp._enabled is False
         assert router_comp._cost_bias == 0.15
 
@@ -208,8 +210,8 @@ class TestBuildRuntimeRealBoot:
 
         try:
             for name in ("settings", "cost_cache", "refresher", "circuit_breaker",
-                         "key_manager", "credential_store", "alert_manager",
-                         "dynamic_router", "memory", "cost_plugins",
+                         "key_manager", "credential_store", "provider_type_store",
+                         "alert_manager", "dynamic_router", "memory", "cost_plugins",
                          "prompt_cache", "token_verifier", "reasoning_store"):
                 assert rt.is_active(name) is True, f"{name} inactive"
 

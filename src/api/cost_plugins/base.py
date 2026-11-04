@@ -550,7 +550,12 @@ class CostPluginsComponent(Component):
         """
         added: list[str] = []
         for pname in sorted((getattr(self._config, "providers", None) or {})):
-            builder = self._factories.get(type_of(self._config, pname))
+            _t = type_of(self._config, pname)
+            # `local` (the hard self-hosted type) and `llamacpp` (the legacy
+            # name) share one plugin; `local` maps to the llamacpp key so the
+            # two never double-register the same plugin.
+            key = "llamacpp" if _t == "local" else _t
+            builder = self._factories.get(key)
             if builder is not None and registry.add_bound(pname, builder()):
                 added.append(pname)
         return added
@@ -565,7 +570,9 @@ class CostPluginsComponent(Component):
         """
         if self._registry is None:
             return False
-        builder = self._factories.get(type_of(self._config, provider))
+        _t = type_of(self._config, provider)
+        key = "llamacpp" if _t == "local" else _t
+        builder = self._factories.get(key)
         if builder is None:
             return False
         return self._registry.add_bound(provider, builder())

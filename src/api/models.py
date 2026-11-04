@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     Float,
     ForeignKey,
@@ -100,6 +101,42 @@ class ProviderCredential(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     provider = Column(String, unique=True, nullable=False, index=True)
     encrypted_key = Column(Text, nullable=False)  # Fernet token (ciphertext)
+    created_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
+
+
+#: The ONLY provider types the system recognises. Declared once, mirrored by the
+#: ``provider_types`` table's CHECK constraint and the Config/JS type axis, so a
+#: type can never drift between layers. `local` is a first-class type for a
+#: self-hosted engine — it has no billing API and renders its own panel.
+PROVIDER_TYPES = ("commandcode", "opencode", "deepseek", "local")
+
+
+class ProviderType(Base):
+    """The hard provider-type axis (alembic 029).
+
+    One row per configured provider, holding its **type** as a CHECK-constrained
+    column. This is what makes a provider's type a *type* and not some free-text
+    string in the gateway config blob: the DB refuses an unknown value, the
+    write path can only store one of the four, and every layer (UI, registry,
+    alert policy) reads the same row.
+
+    The row is the source of truth while it exists. A provider with no row is
+    inferred from its name (the compat shim for entries written before the
+    table was added); the row is what turns an *inferred* answer into a
+    *declared* hard one.
+    """
+    __tablename__ = "provider_types"
+    __table_args__ = (
+        CheckConstraint(
+            f"type IN {tuple(PROVIDER_TYPES)}",
+            name="ck_provider_types_type",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    provider = Column(String, unique=True, nullable=False, index=True)
+    type = Column(String, nullable=False)
     created_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
     updated_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
 

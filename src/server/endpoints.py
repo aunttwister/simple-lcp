@@ -84,6 +84,22 @@ def _credential_store_for(handler):
     )
 
 
+def _provider_type_store_for(handler):
+    """Resolve the provider-type store from the active runtime, else a lazy
+    store against the handler's engine (standalone/tests). ``None`` when there
+    is no runtime store AND no usable engine — the same degradation as the
+    credential store, so a mock/standalone handler never explodes on the
+    unbound mapper."""
+    from ..api.provider_type_store import ProviderTypeStore, get_provider_type_store
+    store = get_provider_type_store(getattr(handler, "engine", None))
+    if store is not None:
+        return store
+    engine = getattr(handler, "engine", None)
+    if engine is not None:
+        return ProviderTypeStore(engine)
+    return None
+
+
 # Networks a provider test/discover fetch must never reach unless explicitly
 # allowlisted (SSRF guard, CWE-918). Covers RFC1918, loopback, link-local
 # (includes the cloud metadata address 169.254.169.254), CGNAT, multicast,
@@ -1358,20 +1374,19 @@ class ProviderEndpoints:
         cfg = self.config
         providers = {}
         store = resolve_service("credential_store", fallback=get_credential_store)
+        tstore = _provider_type_store_for(self)
         for name, pdata in cfg.providers.items():
             providers[name] = {
                 "api_base": pdata.get("api_base", ""),
                 "models": pdata.get("models", []),
-                # The vendor family this entry belongs to, resolved (declared →
-                # inferred). Every UI panel and every vendor-plugin lookup keys
-                # on this instead of the literal name, which is what makes a
-                # second account of a vendor a first-class provider.
+                # The vendor family this entry belongs to, resolved (hard row →
+                # declared → inferred). Every UI panel and every vendor-plugin
+                # lookup keys on this instead of the literal name, which is what
+                # makes a second account of a vendor a first-class provider.
                 "type": _resolved_provider_type(cfg, name),
-                "type_declared": (
-                    isinstance(pdata.get("type"), str)
-                    and pdata.get("type", "").strip().lower()
-                    in _provider_types()
-                ),
+                # A type is DECLARED when the hard provider_types row exists;
+                # an inferred/boot-backfilled answer is a name-derived shim.
+                "type_declared": bool(tstore and tstore.get(name)),
                 "has_api_key": bool(store and store.has(name)),
             }
         profile_chains = {}
@@ -1459,10 +1474,19 @@ class ProviderEndpoints:
             "api_base": body.get("api_base", ""),
             "models": body.get("models", []),
         }
-        if ptype:
-            provider_data["type"] = ptype
         cfg.raw.setdefault("providers", {})[name] = provider_data
         cfg.save()
+        # The type is a HARD value in the provider_types table (alembic 029),
+        # not a free-text string in the config blob. Write the row here so the
+        # provider is on the type axis from creation; an absent/empty type means
+        # it is inferred from the name.
+        tstore = _provider_type_store_for(self)
+        if tstore is not None:
+            try:
+                tstore.set(name, ptype or "")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("provider_type_write_failed", provider=name,
+                               error=str(exc))
         # Best-effort: learn each model's real served context window so the
         # context-aware router + /v1/models know the true capacity.
         _auto_learn_model_contexts(cfg, name, provider_data.get("api_base", ""))
@@ -1509,12 +1533,17 @@ class ProviderEndpoints:
             if not ok:
                 self._send_json({"error": type_err}, 400)
                 return
-            # An explicit empty value clears the declaration, returning the
+            # The type is stored in the HARD provider_types table, never in the
+            # config blob. An explicit empty value clears the row, returning the
             # entry to name inference — the way back from a wrong type.
-            if ptype:
-                pdata["type"] = ptype
-            else:
-                pdata.pop("type", None)
+            tstore = _provider_type_store_for(self)
+            if tstore is not None:
+                try:
+                    tstore.set(name, ptype or "")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("provider_type_write_failed", provider=name,
+                                   error=str(exc))
+            pdata.pop("type", None)
         if "api_base" in body:
             pdata["api_base"] = body["api_base"]
         if "models" in body:
@@ -1567,6 +1596,14 @@ class ProviderEndpoints:
         store = _credential_store_for(self)
         if store is not None:
             store.set(name, "")
+        # Drop the hard provider-type row for the deleted provider.
+        tstore = _provider_type_store_for(self)
+        if tstore is not None:
+            try:
+                tstore.drop(name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("provider_type_drop_failed", provider=name,
+                               error=str(exc))
         # Cascade: a provider's persisted circuit-breaker health is otherwise
         # immortal — attach_engine() materializes EVERY provider_health row at
         # boot, so /health and /api/providers/health kept listing the deleted
@@ -1661,6 +1698,18 @@ class ProviderEndpoints:
             except Exception as exc:  # noqa: BLE001 — rename must not fail wholesale
                 logger.warning("provider_rename_credential_move_failed",
                                provider=name, new_name=new_name, error=str(exc))
+
+        # Move the hard provider-type row to the new name (delete + rewrite):
+        # the row keys on the provider name, so it must follow the rename.
+        tstore = _provider_type_store_for(self)
+        if tstore is not None:
+            try:
+                old_type = tstore.get(name) or ""
+                tstore.drop(name)
+                tstore.set(new_name, old_type)
+            except Exception as exc:  # noqa: BLE001 — rename must not fail wholesale
+                logger.warning("provider_type_rename_failed", provider=name,
+                               new_name=new_name, error=str(exc))
 
         # Drop the live plugin under the old identity and bind it under the new.
         _unwire_provider_plugin(name)

@@ -231,6 +231,8 @@ class ApiHandler:
     def make(self, config, path="/", method="GET", body=None):
         from src.server import LCPHandler
 
+        engine = getattr(config, "_engine", None) if not isinstance(config, MagicMock) else None
+
         class H(LCPHandler):
             def __init__(self):
                 self.path = path
@@ -251,6 +253,7 @@ class ApiHandler:
                 if body:
                     self.headers["Content-Length"] = str(len(raw_bytes))
                 self.log_error = MagicMock()
+                self.engine = engine
 
         h = H()
         h.config = config
@@ -271,8 +274,15 @@ class ApiHandler:
 
 
 @pytest.fixture
-def live_cfg():
-    """A real Config with the prod-shaped provider list (names only, no types)."""
+def live_cfg(tmp_path):
+    """A real Config + engine with the prod-shaped provider list (names only, no types).
+
+    The handler carries a real engine so the provider-type store is a live,
+    DB-backed object (the type axis is the ``provider_types`` table, not the
+    config blob).
+    """
+    from src.api.models import Base, get_engine
+
     cfg = Config(store=None)
     cfg.raw["providers"] = {
         "opencode": {"api_base": "https://opencode.ai/zen/v1", "models": ["m1"]},
@@ -283,7 +293,11 @@ def live_cfg():
     }
     cfg.raw["profiles"] = {"l2": {"chain": [{"provider": "local-sparks", "model": "GLM-5.3-Flash-EXL3"}]}}
     cfg.save = MagicMock()
-    return cfg
+    cfg._engine = get_engine(str(tmp_path / "prov.db"))
+    Base.metadata.create_all(cfg._engine)
+    cfg._store = None
+    yield cfg
+    cfg._engine.dispose()
 
 
 class TestProvidersListApi:
@@ -298,7 +312,10 @@ class TestProvidersListApi:
         assert all(p["type_declared"] is False for p in provs.values())
 
     def test_a_declared_type_is_marked_declared(self, live_cfg):
-        live_cfg.raw["providers"]["local-sparks"]["type"] = "local"
+        # A type written through the store becomes a DB row (hard) and is
+        # reported as declared; the config blob itself stays untyped.
+        from src.api.provider_type_store import ProviderTypeStore
+        ProviderTypeStore(live_cfg._engine).set("local-sparks", "local")
         h = ApiHandler().make(live_cfg, "/api/providers")
         h._serve_providers_list()
         body = ApiHandler.json_of(h)
@@ -317,11 +334,15 @@ class TestProvidersListApi:
 
 class TestProviderWriteApi:
     def test_create_stores_a_valid_type(self, live_cfg):
+        from src.api.provider_type_store import ProviderTypeStore
         h = ApiHandler().make(live_cfg, "/api/providers", "POST", {
             "name": "local-zgx", "api_base": "http://192.168.1.108:18300/v1",
             "models": ["m"], "type": "local"})
         h._serve_provider_create()
-        assert live_cfg.raw["providers"]["local-zgx"]["type"] == "local"
+        # The type is a hard DB row, not a config-blob string.
+        assert "local-zgx" in live_cfg.raw["providers"]
+        assert "type" not in live_cfg.raw["providers"]["local-zgx"]
+        assert ProviderTypeStore(live_cfg._engine).get("local-zgx") == "local"
 
     def test_create_rejects_an_unknown_type_and_writes_nothing(self, live_cfg):
         h = ApiHandler().make(live_cfg, "/api/providers", "POST", {
@@ -338,17 +359,22 @@ class TestProviderWriteApi:
         assert "type" not in live_cfg.raw["providers"]["plainbox"]
 
     def test_update_sets_a_type(self, live_cfg):
+        from src.api.provider_type_store import ProviderTypeStore
         h = ApiHandler().make(live_cfg, "/api/providers/local-sparks", "PUT",
                               {"type": "local", "api_base": "http://h/v1"})
         h._serve_provider_update("local-sparks")
-        assert live_cfg.raw["providers"]["local-sparks"]["type"] == "local"
+        assert "type" not in live_cfg.raw["providers"]["local-sparks"]
+        assert ProviderTypeStore(live_cfg._engine).get("local-sparks") == "local"
 
     def test_update_with_empty_type_clears_the_declaration(self, live_cfg):
-        live_cfg.raw["providers"]["local-sparks"]["type"] = "local"
+        from src.api.provider_type_store import ProviderTypeStore
+        store = ProviderTypeStore(live_cfg._engine)
+        store.set("local-sparks", "local")   # a declared hard row first
         h = ApiHandler().make(live_cfg, "/api/providers/local-sparks", "PUT",
                               {"type": "", "api_base": "http://h/v1"})
         h._serve_provider_update("local-sparks")
-        assert "type" not in live_cfg.raw["providers"]["local-sparks"]
+        # Empty clears the DB row → the provider is back to name inference.
+        assert store.get("local-sparks") is None
 
     def test_update_rejects_an_unknown_type(self, live_cfg):
         h = ApiHandler().make(live_cfg, "/api/providers/deepseek", "PUT",
@@ -358,11 +384,14 @@ class TestProviderWriteApi:
         assert "type" not in live_cfg.raw["providers"]["deepseek"]
 
     def test_update_leaves_the_type_alone_when_absent(self, live_cfg):
-        live_cfg.raw["providers"]["deepseek"]["type"] = "deepseek"
+        from src.api.provider_type_store import ProviderTypeStore
+        store = ProviderTypeStore(live_cfg._engine)
+        store.set("deepseek", "deepseek")   # an existing hard row
         h = ApiHandler().make(live_cfg, "/api/providers/deepseek", "PUT",
                               {"api_base": "https://new/v1"})
         h._serve_provider_update("deepseek")
-        assert live_cfg.raw["providers"]["deepseek"]["type"] == "deepseek"
+        # No type in the request → the existing row is untouched.
+        assert store.get("deepseek") == "deepseek"
 
 
 # ══════════════════════════════════════════════════════════════ engine endpoint

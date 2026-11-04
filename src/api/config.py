@@ -376,13 +376,25 @@ def infer_provider_type(name: str) -> str:
 
 
 def provider_type_of(name: str, entry: Any = None) -> str:
-    """Declared `type` when it is one of PROVIDER_TYPES, else inferred, else ``""``.
+    """Resolve a provider's type with the hard store first.
 
-    A declared-but-unknown type is *not* propagated as-is: the UI would then
-    branch on a value nothing handles. It falls back to inference so a typo
-    degrades to the old behaviour instead of an empty panel.
+    Precedence (the single rule every layer reads):
+      1. the ``provider_types`` DB row (hard, CHECK-constrained) when reachable;
+      2. a ``type`` declared in the config entry when it is one of PROVIDER_TYPES;
+      3. infer_provider_type(name) — a compatibility shim, never ``""`` for a
+         name that infers, and a typo degrades to inference instead of an
+         empty panel.
     """
     declared = ""
+    try:
+        from .provider_type_store import get_provider_type_store
+        store = get_provider_type_store(None)
+        if store is not None:
+            got = store.get(name)
+            if got:
+                return got
+    except Exception:  # noqa: BLE001 — never let type resolution be the breaker
+        pass
     if isinstance(entry, dict):
         raw = entry.get("type")
         if isinstance(raw, str) and raw.strip().lower() in PROVIDER_TYPES:
@@ -753,11 +765,13 @@ class Config:
         return self._data["providers"]
 
     def provider_type(self, name: str) -> str:
-        """The vendor family of *name*: declared `type`, else inferred, else ``""``.
+        """The vendor family of *name*: hard DB row, else declared, else inferred.
 
         The single accessor every consumer uses (UI, alert windows, cost/credit
         plugins), so "what kind of provider is this" is answered in exactly one
-        place instead of by a literal-name comparison per call site.
+        place instead of by a literal-name comparison per call site. The hard
+        ``provider_types`` row is authoritative when present; a provider with no
+        row is inferred from its name (the compat shim for pre-table entries).
         """
         return provider_type_of(name, self._data.get("providers", {}).get(name))
 
