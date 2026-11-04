@@ -154,3 +154,56 @@ def _reset_active_runtime():
     import src.api.runtime as runtime
     yield
     runtime._active_runtime = None
+
+
+@pytest.fixture(autouse=True)
+def _remote_intent_model(monkeypatch):
+    """Point the intent decision model at the local-classifier oracle.
+
+    The local bge-small classifier is obsoleted from the decision path
+    (CUR-327): classification is a remote HTTP call now. The router tests
+    assert the semantic answers, so the oracle serves the SAME classifier
+    behind the lcp-v1 wire contract — the tests verify the outcomes through
+    the path production uses. Tests that exercise the structural fallback
+    still work: the oracle applies the classifier's own gate, so sub-gate
+    messages fall through exactly as before.
+
+    Two layers, so boot/identity tests keep holding:
+      1. class level — a REAL SettingsStore answers the intent-model queries
+         from the oracle (``get_settings() is store`` stays true);
+      2. module level — when no store exists at all (pure unit tests), the
+         accessor returns the oracle duck-type instead of None.
+
+    A test can still opt out by patching get_settings or the class methods
+    inside itself.
+    """
+    import sys as _sys
+    import os as _os
+    _sys.path.insert(0, _os.path.dirname(__file__))
+    from tests import _intent_oracle  # noqa:PLC0415
+    import importlib  # noqa:PLC0415
+
+    oracle_methods = {
+        "get_intent_model_enabled": lambda self, profile=None, default=False: True,
+        "get_intent_model_url": lambda self, profile=None, default=None: _intent_oracle.oracle_base_url(),
+        "get_intent_model_format": lambda self, profile=None: "lcp-v1",
+        "get_intent_model_api_key": lambda self, profile=None, default=None: None,
+        "get_intent_model_timeout_ms": lambda self, profile=None: 10000,
+        "get_intent_model_min_score": lambda self, profile=None: _intent_oracle.oracle_min_score(),
+    }
+
+    for _mod_name in ("src.api.cost_cache", "api.cost_cache"):
+        try:
+            _cc = importlib.import_module(_mod_name)
+        except ImportError:
+            continue
+        store_cls = getattr(_cc, "SettingsStore", None)
+        if store_cls is not None:
+            for _name, _fn in oracle_methods.items():
+                monkeypatch.setattr(store_cls, _name, _fn, raising=False)
+        orig = _cc.get_settings
+
+        def _patched(_orig=orig):
+            return _orig() or _intent_oracle.OracleSettings()
+
+        monkeypatch.setattr(_cc, "get_settings", _patched, raising=True)
