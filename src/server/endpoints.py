@@ -2958,6 +2958,9 @@ class SettingsEndpoints:
     config: Any
     _send_json: Any
     _read_body: Any
+    path: Any
+    command: Any
+    _audit: Any
 
     def _serve_settings_api(self):
         """GET /api/settings — default TTL, per-provider TTLs, cache entries."""
@@ -3154,6 +3157,100 @@ class SettingsEndpoints:
         from ..api.router import routing_status
         self._send_json(routing_status(self.config))
 
+
+    def _serve_intent_model_api(self):
+        """GET /api/intent_model[?profile=X] — effective intent-model config.
+
+        POST /api/intent_model {url?, format?, api_key?, timeout_ms?,
+        min_score?, enabled?, profile?, clear_profile?} — persist for a scope.
+
+        Mirrors /api/routing/policy: a ``profile`` scopes the change to that
+        profile's override (``intent_model_*:<profile>``); without it the
+        GLOBAL baseline is set, which every non-overriding profile inherits.
+        The response never contains the api_key — only whether one is set.
+        """
+        from ..api.cost_cache import get_settings
+        settings = resolve_service("settings", fallback=get_settings)
+        if settings is None:
+            self._send_json({"error": "settings store not initialized"}, 500)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        profile = (qs.get("profile", [None])[0] or "").strip() or None
+
+        if self.command == "GET":
+            def scope(p):
+                return {
+                    "url": settings.get_intent_model_url(profile=p),
+                    "format": settings.get_intent_model_format(profile=p),
+                    "api_key_set": bool(settings.get_intent_model_api_key(profile=p)),
+                    "model": settings.get_intent_model_model(profile=p),
+                    "timeout_ms": settings.get_intent_model_timeout_ms(profile=p),
+                    "min_score": settings.get_intent_model_min_score(profile=p),
+                    "enabled": settings.get_intent_model_enabled(profile=p),
+                }
+            prof = scope(profile)
+            glob = scope(None)
+            if profile:
+                prof["has_override"] = any(
+                    settings.get(f"{k}:{profile}", None) is not None
+                    for k in (settings.INTENT_MODEL_URL_KEY, settings.INTENT_MODEL_ENABLED_KEY)
+                )
+            else:
+                prof["has_override"] = False
+            self._send_json({"profile": profile, "effective": prof, "global": glob,
+                             "contract": {
+                                 "request": {"method": "POST", "body": {
+                                     "message": "string", "labels": ["from the profile taxonomy"],
+                                     "profile": "string", "taxonomy_id": "string",
+                                     "taxonomy_version": "int"}},
+                                 "response_lcp_v1": {"label": "one of labels", "score": "0-1",
+                                                     "scores": "optional map"},
+                                 "response_openai": "choices[0].message.content names exactly one label",
+                             }})
+            return
+
+        try:
+            body = self._read_body()
+        except Exception:
+            self._send_json({"error": "invalid JSON body"}, 400)
+            return
+        profile = (body.get("profile") or "").strip() or None
+        if body.get("clear_profile") is True and profile:
+            settings.clear_intent_model(profile)
+            self._audit("intent_model.clear", profile=profile)
+            self._send_json({"ok": True, "cleared": profile})
+            return
+        try:
+            if "url" in body:
+                url = str(body["url"]).strip()
+                if url:
+                    settings.set_intent_model_url(url, profile=profile)
+                elif profile:
+                    # An empty URL on save clears the profile's URL override so it
+                    # inherits the global baseline again (per-profile key only).
+                    settings._clear_key(settings._profile_key(settings.INTENT_MODEL_URL_KEY, profile))
+            if "format" in body:
+                settings.set_intent_model_format(str(body["format"]), profile=profile)
+            if "api_key" in body:
+                settings.set_intent_model_api_key(str(body["api_key"]), profile=profile)
+            if "model" in body:
+                settings.set_intent_model_model(str(body["model"]), profile=profile)
+            if "timeout_ms" in body:
+                settings.set_intent_model_timeout_ms(int(body["timeout_ms"]), profile=profile)
+            if "min_score" in body:
+                settings.set_intent_model_min_score(float(body["min_score"]), profile=profile)
+            if "enabled" in body:
+                if not isinstance(body["enabled"], bool):
+                    self._send_json({"error": "enabled must be a boolean"}, 400)
+                    return
+                settings.set_intent_model_enabled(body["enabled"], profile=profile)
+        except (ValueError, TypeError) as exc:
+            self._send_json({"error": str(exc)}, 400)
+            return
+        self._audit("intent_model.config_update", profile=profile,
+                    fields=sorted(k for k in ("url", "format", "api_key", "model",
+                                              "timeout_ms", "min_score", "enabled") if k in body))
+        self._send_json({"ok": True, "profile": profile})
 
 # ── Usage Stats API ──────────────────────────────────────────────────────────
 

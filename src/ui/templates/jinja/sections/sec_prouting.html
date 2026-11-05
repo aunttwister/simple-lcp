@@ -90,6 +90,67 @@
   </div>
   <p class="pd-note" id="prouGateStatus"></p>
 
+  <h2 class="pd-sect">Intent decision model <span class="pd-sect-note">what classifies this profile's requests</span></h2>
+  <p class="pd-note">
+    The model that decides this profile's intent is a <b>remote endpoint</b> — the local
+    built-in classifier is obsolete. Set the endpoint here for this profile, or leave it
+    empty to inherit the global baseline. When nothing is configured (or the endpoint is
+    unreachable), requests fall through to the structural heuristics and the decision is
+    recorded with <span class="mono">path</span> showing why.
+  </p>
+  <p class="pd-note">
+    <b>What LCP sends</b> — <span class="mono">POST</span> to the URL:
+    <span class="mono">{"message": "&lt;the request&gt;", "labels": ["&lt;this profile's taxonomy&gt;"],
+    "profile": "{{ profile.name }}", "taxonomy_id": "...", "taxonomy_version": N}</span>
+    with <span class="mono">Authorization: Bearer &lt;key&gt;</span> when a key is set.<br>
+    <b>What LCP expects back</b> — format <span class="mono">lcp-v1</span>:
+    <span class="mono">{"label": "&lt;one of labels&gt;", "score": 0..1, "scores": {…}}</span>;
+    format <span class="mono">openai</span>: any chat.completions body whose
+    <span class="mono">choices[0].message.content</span> names exactly one of the labels.
+    Format <span class="mono">jev</span> is reserved until a jev endpoint exists to measure.
+  </p>
+  <div class="prou-grid">
+    <div>
+      <label class="prou-label">Endpoint URL</label>
+      <input id="prouImUrl" type="url" placeholder="http://192.168.1.107:18400/v1/intent" style="min-width:16rem">
+    </div>
+    <div>
+      <label class="prou-label">Format</label>
+      <select id="prouImFormat">
+        <option value="lcp-v1">lcp-v1</option>
+        <option value="openai">openai</option>
+        <option value="jev">jev (reserved)</option>
+      </select>
+    </div>
+    <div>
+      <label class="prou-label">API key (optional)</label>
+      <input id="prouImKey" type="password" placeholder="unchanged if blank" autocomplete="off">
+    </div>
+    <div>
+      <label class="prou-label">Model (openai format)</label>
+      <input id="prouImModel" type="text" placeholder="e.g. GLM-5.3-Flash-EXL3">
+    </div>
+    <div>
+      <label class="prou-label">Timeout ms</label>
+      <input id="prouImTimeout" type="number" min="100" max="60000" step="100" value="3000">
+    </div>
+    <div>
+      <label class="prou-label">Min score</label>
+      <input id="prouImMinScore" type="number" min="0" max="1" step="0.05" value="0">
+    </div>
+    <div class="prou-grid-action">
+      <label class="toggle" id="prouImEnabledWrap">
+        <input type="checkbox" id="prouImEnabled" onchange="prouImSaveEnabled(this)">
+        <span class="toggle-track" aria-hidden="true"></span>
+        <span class="toggle-label" id="prouImEnabledLabel">OFF</span>
+      </label>
+      <button class="btn-sm btn-primary" onclick="prouImSave()">Save</button>
+      <button class="btn-sm" onclick="prouImClearOverride()" title="Drop this profile's intent-model settings and inherit the global baseline">Clear override</button>
+    </div>
+  </div>
+  <p class="pd-note" id="prouImStatus"></p>
+  <p class="pd-note" id="prouImInherited"></p>
+
   <h2 class="pd-sect">Rules <span class="pd-sect-note">pin a task to a model</span></h2>
   <p class="pd-note">
     A rule matches a task the classifier recognised and either prefers a model for it

@@ -1424,6 +1424,10 @@ def _build_routes() -> RouteTable:
            lambda h, p: h._serve_routing_policy_api())
     t.post("api.routing.rules", exact("/api/routing/rules"),
            lambda h, p: h._serve_routing_rules_api())
+    t.get("api.intent_model.config", prefix("/api/intent_model"),
+          lambda h, p: h._serve_intent_model_api())
+    t.post("api.intent_model.config", exact("/api/intent_model"),
+           lambda h, p: h._serve_intent_model_api())
 
     t.post("api.circuit-breaker.reset", prefix("/api/circuit-breaker/reset"),
            lambda h, p: h._serve_circuit_breaker_reset())

@@ -162,7 +162,85 @@
     persistRules();
   };
 
+  // ── Intent decision model (CUR-327) ──────────────────────────────────────
+  // Per-profile override of the global baseline; blank URL + cleared override
+  // means "inherit". The key field is write-only: the server never returns it.
+  var IM_API = '/api/intent_model';
+  var imKeyDirty = false;
+
+  function imApply(d) {
+    var eff = (d && d.effective) || {};
+    el('prouImUrl').value = eff.url || '';
+    el('prouImFormat').value = eff.format || 'lcp-v1';
+    el('prouImModel').value = eff.model || '';
+    el('prouImTimeout').value = eff.timeout_ms || 3000;
+    el('prouImMinScore').value = (eff.min_score == null ? 0 : eff.min_score);
+    el('prouImEnabled').checked = !!eff.enabled;
+    el('prouImEnabledLabel').textContent = eff.enabled
+      ? 'ON \u2014 classify via ' + (eff.url || 'the global endpoint')
+      : 'OFF \u2014 structural heuristics only';
+    var inh = el('prouImInherited');
+    if (PROFILE && d && d.global && !d.effective.url) {
+      inh.textContent = d.global.url
+        ? 'No endpoint set for this profile \u2014 inheriting the global baseline (' + d.global.url + ').'
+        : 'No endpoint set for this profile, and no global baseline either.';
+    } else {
+      inh.textContent = '';
+    }
+  }
+
+  function imLoad() {
+    api('GET', IM_API + '?profile=' + encodeURIComponent(PROFILE)).then(imApply)
+      .catch(function (e) { say(el('prouImStatus'), 'Load failed: ' + (e.message || e)); });
+  }
+
+  window.prouImSaveEnabled = function (box) {
+    var on = box.checked;
+    say(el('prouImStatus'), 'Saving\u2026');
+    api('POST', IM_API, { enabled: on, profile: PROFILE }).then(function (d) {
+      if (d && d.error) { box.checked = !on; say(el('prouImStatus'), d.error); return; }
+      el('prouImEnabledLabel').textContent = on
+        ? 'ON \u2014 classify via ' + (el('prouImUrl').value || 'the global endpoint')
+        : 'OFF \u2014 structural heuristics only';
+      say(el('prouImStatus'), 'Saved.', true);
+    });
+  };
+
+  window.prouImSave = function () {
+    var url = (el('prouImUrl').value || '').trim();
+    var body = {
+      url: url,  // an empty URL clears this profile's override -> inherits global
+      format: el('prouImFormat').value,
+      model: (el('prouImModel').value || '').trim(),
+      timeout_ms: parseInt(el('prouImTimeout').value, 10) || 3000,
+      min_score: parseFloat(el('prouImMinScore').value) || 0,
+      profile: PROFILE
+    };
+    if (imKeyDirty) body.api_key = el('prouImKey').value;
+    say(el('prouImStatus'), 'Saving\u2026');
+    api('POST', IM_API, body).then(function (d) {
+      if (d && d.error) { say(el('prouImStatus'), d.error); return; }
+      el('prouImKey').value = '';
+      imKeyDirty = false;
+      imLoad();
+      say(el('prouImStatus'), 'Saved \u2014 applies to new requests immediately.', true);
+    }).catch(function (e) { say(el('prouImStatus'), 'Save failed: ' + (e.message || e)); });
+  };
+
+  window.prouImClearOverride = function () {
+    if (!confirm('Drop this profile\u2019s intent-model settings and inherit the global baseline?')) return;
+    api('POST', IM_API, { profile: PROFILE, clear_profile: true }).then(function (d) {
+      if (d && d.error) { say(el('prouImStatus'), d.error); return; }
+      imLoad();
+      say(el('prouImStatus'), 'Override cleared \u2014 inheriting the global baseline.', true);
+    });
+  };
+
+  var imKey = el('prouImKey');
+  if (imKey) imKey.addEventListener('input', function () { imKeyDirty = true; });
+
   renderRules();
+  imLoad();
 })();
 </script>
 {% endif %}

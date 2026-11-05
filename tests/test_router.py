@@ -1,9 +1,11 @@
 """Tests for router.py"""
 import os
+import sys
 import tempfile
 
 import pytest
 import src.api.router as router_mod
+from tests import _intent_oracle
 from src.api.router import (
     CapabilityRouter, classify_task, get_dynamic_router,
     logical_model_name, benchmark_model_name,
@@ -827,14 +829,19 @@ def test_decisions_persist_across_restart(registry_db):
 def _rule_router(registry_db, monkeypatch, rules, config=None):
     router = CapabilityRouter(enabled=True, db_path=registry_db)
 
-    class FakeSettings:
+    class FakeSettings(_intent_oracle.OracleSettings):
+        # Routing knobs under test; the intent-model duck-type is inherited so
+        # classification goes through the remote oracle as in production.
+        def __init__(self, _rules):
+            self._rules = _rules
         def get_routing_rules(self):
-            return rules
+            return self._rules
         def get_routing_policy(self, default="eager"):
             return "eager"
         def get_routing_min_score(self, default=0.0):
             return 0.0
-    monkeypatch.setattr("src.api.cost_cache.get_settings", lambda: FakeSettings())
+    monkeypatch.setattr("src.api.cost_cache.get_settings",
+                        lambda: FakeSettings(rules))
     return router
 
 
@@ -1383,7 +1390,9 @@ def test_classify_task_detail_semantic_debugging():
     msgs = [{"role": "user", "content": "debug why this returns a TypeError"}]
     detail = classify_task_detail(msgs)
     assert detail.task == "debugging"
-    assert detail.path == "semantic"
+    # CUR-327: classification is the remote intent model; the conftest oracle
+    # serves the same classifier behind the lcp-v1 contract.
+    assert detail.path == "remote"
     assert detail.keyword is None
     assert "TypeError" in detail.intent_text
     assert detail.intent_meta is not None
@@ -1416,20 +1425,27 @@ def test_classify_task_detail_agentic_prompt_path():
 
 
 def test_classify_task_detail_semantic_path(monkeypatch):
+    """CUR-327: the scores flow into the detail result through the remote path.
+
+    The old test patched the local classifier; that seam is obsolete. The new
+    seam is ``intent_model.classify_remote`` — patch it to a fixed answer so
+    the assertion is deterministic rather than oracle-dependent.
+    """
     from src.api.router import classify_task_detail
-    from src.api import task_classifier as tc
+    from src.api import intent_model as im_mod
+    from src.api.intent_model import IntentModelResult
 
-    class FakeClf:
-        min_score = 0.3
-        def top_scores(self, text, k=5):
-            return [("unit_tests", 0.9), ("code_generation", 0.4)]
+    def fake_remote(message, labels, url, **kw):
+        assert "unit_tests" in labels
+        return IntentModelResult(label="unit_tests", score=0.9,
+                                 scores={"unit_tests": 0.9, "code_generation": 0.4},
+                                 endpoint=url, format="lcp-v1")
 
-    monkeypatch.setattr(tc, "get_semantic_classifier", lambda *a, **k: FakeClf())
+    monkeypatch.setattr(im_mod, "classify_remote", fake_remote)
     detail = classify_task_detail([{"role": "user", "content": "zzz qqq some tests"}])
     assert detail.task == "unit_tests"
-    assert detail.path == "semantic"
+    assert detail.path == "remote"
     assert detail.sem_available is True
-    assert detail.min_score == 0.3
     assert detail.semantic == [("unit_tests", 0.9), ("code_generation", 0.4)]
 
 
@@ -1471,9 +1487,9 @@ def test_classify_attachment_hijack_uses_real_instruction():
     ]
     detail = classify_task_detail(msgs)
     # Not hijacked by the attachment's "error"/"pytest": the genuine instruction
-    # ("let's plan to implement...") drives the SEMANTIC path to planning.
+    # ("let's plan to implement...") drives the intent model to planning.
     assert detail.task == "planning"
-    assert detail.path == "semantic"
+    assert detail.path == "remote"
     assert "implement" in detail.intent_text
     assert "error" not in detail.intent_text.lower()
 
@@ -1570,7 +1586,7 @@ def test_classify_strips_chat_mention_file_token():
     assert "@file:component-runtime.md" not in intent
     detail = classify_task_detail(msgs)
     assert detail.task == "planning"
-    assert detail.path == "semantic"
+    assert detail.path == "remote"
     # Emails are not @mention tokens (no colon after the local part) — untouched.
     assert _strip_chat_mentions("mail foo@bar.com please") == "mail foo@bar.com please"
 
@@ -1645,7 +1661,7 @@ def test_record_decision_persists_rationale_without_the_transcript(registry_db):
     })
     decs = router.recent_decisions(5)
     assert decs and decs[0]["task"] == "debugging"
-    assert decs[0]["path"] == "semantic"
+    assert decs[0]["path"] == "remote"
     assert decs[0]["note"] == "note here"
     assert decs[0]["profile"] == "l2"
     assert "debug this traceback" in decs[0]["intent_text"]

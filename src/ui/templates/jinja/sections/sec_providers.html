@@ -262,6 +262,100 @@ button.ph-cell[aria-pressed="true"]{background:hsl(var(--secondary));box-shadow:
     <div class="form-help routing-status-msg" id="routingStatus"></div>
   </div>
 
+  <div style="background:hsl(var(--card));border:1px solid hsl(var(--card-border));border-radius:var(--radius);padding:1rem;margin-bottom:1rem" id="intentModelCard">
+    <h3 style="font-size:0.9rem;margin-bottom:0.25rem">Intent decision model — global baseline</h3>
+    <p style="font-size:0.75rem;color:hsl(var(--muted-foreground));margin-bottom:0.75rem">
+      The classifier LCP calls for every request's intent. The local built-in
+      classifier is obsolete: intent is decided by this endpoint. A profile can
+      override it on its own Dynamic-routing tab; profiles without an override
+      inherit what is set here. When nothing is set (or the endpoint fails),
+      requests fall through to the structural heuristics.<br>
+      <b>Sent</b>: <code>POST</code> JSON
+      <code>{"message": &hellip;, "labels": [&hellip;], "profile": &hellip;, "taxonomy_id": &hellip;, "taxonomy_version": N}</code>
+      (+ <code>Authorization: Bearer</code> when a key is set).
+      <b>Expected (lcp-v1)</b>: <code>{"label": "&lt;one of labels&gt;", "score": 0..1, "scores": {&hellip;}}</code>.
+      <b>openai</b>: choices[0].message.content names exactly one label.
+    </p>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <label class="form-label" for="imGlobalUrl" style="display:block;margin-bottom:0.25rem">Endpoint URL</label>
+        <input class="form-input" type="url" id="imGlobalUrl" placeholder="http://192.168.1.107:18400/v1/intent" style="min-width:18rem;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+      </div>
+      <div>
+        <label class="form-label" for="imGlobalFormat" style="display:block;margin-bottom:0.25rem">Format</label>
+        <select id="imGlobalFormat" style="padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+          <option value="lcp-v1">lcp-v1</option>
+          <option value="openai">openai</option>
+          <option value="jev">jev (reserved)</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="imGlobalKey" style="display:block;margin-bottom:0.25rem">API key</label>
+        <input class="form-input" type="password" id="imGlobalKey" placeholder="unchanged if blank" autocomplete="off" style="width:11rem;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+      </div>
+      <div>
+        <label class="form-label" for="imGlobalModel" style="display:block;margin-bottom:0.25rem">Model (openai)</label>
+        <input class="form-input" type="text" id="imGlobalModel" placeholder="GLM-5.3-Flash-EXL3" style="width:11rem;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+      </div>
+      <div>
+        <label class="form-label" for="imGlobalTimeout" style="display:block;margin-bottom:0.25rem">Timeout ms</label>
+        <input class="form-input" type="number" id="imGlobalTimeout" min="100" max="60000" step="100" value="3000" style="width:90px;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+      </div>
+      <div>
+        <label class="form-label" for="imGlobalMinScore" style="display:block;margin-bottom:0.25rem">Min score</label>
+        <input class="form-input" type="number" id="imGlobalMinScore" min="0" max="1" step="0.05" value="0" style="width:80px;padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+      </div>
+      <label class="toggle" id="imGlobalEnabledWrap" title="Use the remote intent model">
+        <input type="checkbox" id="imGlobalEnabled">
+        <span class="toggle-track" aria-hidden="true"></span>
+        <span class="toggle-label routing-toggle-label" id="imGlobalEnabledLabel">off</span>
+      </label>
+      <button class="btn btn-primary btn-sm" onclick="saveIntentModelGlobal()">Save</button>
+    </div>
+    <div class="form-error" id="imGlobalError"></div>
+    <div class="form-help routing-status-msg" id="imGlobalStatus"></div>
+  </div>
+  <script>
+  (function () {
+    if (!document.getElementById('intentModelCard')) return;
+    function el(id) { return document.getElementById(id); }
+    var imKeyDirty = false;
+    var keyEl = el('imGlobalKey');
+    if (keyEl) keyEl.addEventListener('input', function () { imKeyDirty = true; });
+    fetch('/api/intent_model').then(function (r) { return r.json(); }).then(function (d) {
+      var g = (d && d.global) || {};
+      el('imGlobalUrl').value = g.url || '';
+      el('imGlobalFormat').value = g.format || 'lcp-v1';
+      el('imGlobalModel').value = g.model || '';
+      el('imGlobalTimeout').value = g.timeout_ms || 3000;
+      el('imGlobalMinScore').value = (g.min_score == null ? 0 : g.min_score);
+      el('imGlobalEnabled').checked = !!g.enabled;
+      el('imGlobalEnabledLabel').textContent = g.enabled ? 'on' : 'off';
+    }).catch(function () {});
+    window.saveIntentModelGlobal = function () {
+      var body = {
+        url: (el('imGlobalUrl').value || '').trim(),
+        format: el('imGlobalFormat').value,
+        model: (el('imGlobalModel').value || '').trim(),
+        timeout_ms: parseInt(el('imGlobalTimeout').value, 10) || 3000,
+        min_score: parseFloat(el('imGlobalMinScore').value) || 0,
+        enabled: el('imGlobalEnabled').checked
+      };
+      if (imKeyDirty) body.api_key = keyEl.value;
+      var st = el('imGlobalStatus'); st.textContent = 'Saving\u2026'; st.style.color = '';
+      api('POST', '/api/intent_model', body).then(function (d) {
+        if (d && d.error) { st.textContent = d.error; st.style.color = 'hsl(var(--red-fg))'; return; }
+        keyEl.value = ''; imKeyDirty = false;
+        st.textContent = 'Saved \u2014 the global baseline applies to every profile without an override.';
+        st.style.color = 'hsl(var(--green-fg))';
+      }).catch(function (e) {
+        st.textContent = 'Save failed: ' + (e.message || e);
+        st.style.color = 'hsl(var(--red-fg))';
+      });
+    };
+  })();
+  </script>
+
   <div style="background:hsl(var(--card));border:1px solid hsl(var(--card-border));border-radius:var(--radius);padding:1rem;margin-bottom:1rem">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
       <h3 style="font-size:0.9rem;margin:0">Rules</h3>
