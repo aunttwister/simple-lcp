@@ -17,6 +17,7 @@
   var chain = (POOL.chain || []).map(function (s) {
     return {provider: s.provider, model: s.model, enabled: s.enabled !== false};
   });
+  var REG_REST = [];  // registered-not-in-chain rows, one render at a time
 
   function el(id) { return document.getElementById(id); }
   function say(t, ok) {
@@ -31,15 +32,42 @@
   }
 
   function renderChain() {
+    REG_REST = [];  // rebuilt every render
+    // The MATRIX (CUR-328 follow-up): one table of every registered model.
+    // Chain members first, in chain order, with position, rotation toggle,
+    // reordering arrows and remove. Non-members below, muted, with a
+    // one-click add. The separate "Registered models" table is gone —
+    // this matrix replaces it.
     var html = '<table class="data-table pp-table"><thead><tr>' +
       '<th scope="col" style="width:2rem">#</th><th scope="col">Provider</th><th scope="col">Model</th>' +
-      '<th scope="col" style="width:5rem">In rotation</th><th scope="col" style="width:6rem">Order</th><th scope="col"></th>' +
+      '<th scope="col" style="width:5rem">In rotation</th><th scope="col" style="width:6rem">Order</th>' +
+      '<th scope="col" style="width:5rem">Key</th><th scope="col"></th>' +
       '</tr></thead><tbody>';
-    if (!chain.length) {
-      html += '<tr><td colspan="6" class="empty">No models in the chain.</td></tr>';
+    var inChain = {}, registered = [];
+    chain.forEach(function (s) { inChain[s.provider + '/' + s.model] = true; });
+    (POOL.catalogue || []).forEach(function (c) {
+      (c.models || []).forEach(function (m) {
+        registered.push({provider: c.provider, model: m, has_key: c.has_key,
+                         key_env: c.key_env});
+      });
+    });
+    var registeredRest = registered.filter(function (r) {
+      return !inChain[r.provider + '/' + r.model];
+    });
+
+    function keyCell(r) {
+      return r.has_key
+        ? '<span class="chip chip-ok">key set</span>'
+        : '<span class="chip chip-warn">no key (' + esc(r.key_env || '?') + ')</span>';
+    }
+
+    if (!chain.length && !registeredRest.length) {
+      html += '<tr><td colspan="7" class="empty">No models registered.</td></tr>';
     }
     chain.forEach(function (s, i) {
-      html += '<tr>' +
+      var hit = registered.filter(function (r) {
+        return r.provider === s.provider && r.model === s.model; })[0] || {has_key: true};
+      html += '<tr class="pp-in-chain">' +
         '<td class="mono">' + (i + 1) + '</td>' +
         '<td class="mono">' + esc(s.provider) + '</td>' +
         '<td class="mono">' + esc(s.model) + '</td>' +
@@ -49,11 +77,25 @@
             '<span class="toggle-track"></span>' +
           '</label>' +
         '</td>' +
-        '<td>' +
-          '<button class="btn-sm" ' + (i === 0 ? 'disabled' : '') + ' onclick="ppMove(' + i + ',-1)">\u2191</button>' +
-          '<button class="btn-sm" ' + (i === chain.length - 1 ? 'disabled' : '') + ' onclick="ppMove(' + i + ',1)">\u2193</button>' +
+        '<td class="pp-order">' +
+          '<button class="btn-sm" aria-label="Move up"' + (i === 0 ? ' disabled' : '') + ' onclick="ppMove(' + i + ',-1)">\u2191</button>' +
+          '<button class="btn-sm" aria-label="Move down"' + (i === chain.length - 1 ? ' disabled' : '') + ' onclick="ppMove(' + i + ',1)">\u2193</button>' +
         '</td>' +
-        '<td><button class="btn-sm" onclick="ppRemove(' + i + ')">\u2715</button></td>' +
+        '<td>' + keyCell(hit) + '</td>' +
+        '<td><button class="btn-sm" aria-label="Remove from chain" onclick="ppRemove(' + i + ')">\u2715</button></td>' +
+        '</tr>';
+    });
+    registeredRest.forEach(function (r) {
+      REG_REST.push(r);
+      var i = REG_REST.length - 1;
+      html += '<tr class="pp-not-in-chain">' +
+        '<td class="mono">&mdash;</td>' +
+        '<td class="mono">' + esc(r.provider) + '</td>' +
+        '<td class="mono">' + esc(r.model) + '</td>' +
+        '<td><button class="btn-sm" onclick="ppAddRest(' + i + ')">+ Add</button></td>' +
+        '<td></td>' +
+        '<td>' + keyCell(r) + '</td>' +
+        '<td></td>' +
         '</tr>';
     });
     html += '</tbody></table>';
@@ -128,6 +170,14 @@
     var dup = chain.some(function (s) { return s.provider === p && s.model === m; });
     if (dup) { say(p + '/' + m + ' is already in the chain.'); return; }
     chain.push({provider: p, model: m, enabled: true});
+    renderChain(); save();
+  };
+
+  window.ppAddRest = function (i) {
+    // One-click add straight from the matrix row.
+    var r = REG_REST[i];
+    if (!r) return;
+    chain.push({provider: r.provider, model: r.model, enabled: true});
     renderChain(); save();
   };
 

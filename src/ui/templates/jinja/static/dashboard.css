@@ -1881,6 +1881,29 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 .prou-grid-action { display: flex; gap: 0.5rem; align-items: flex-end;
   padding-bottom: 1px; }
 
+/* ── Dynamic routing: segmented layout (CUR-328 follow-up) ────────────────
+   Each concern is a collapsible card with a value chip in the header, so
+   the collapsed tab still tells you what is in force. */
+.prou-sect { border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
+  background: hsl(var(--secondary) / 0.14); margin: 0.625rem 0; }
+.prou-sect summary { display: flex; align-items: center; gap: 0.625rem;
+  padding: 0.55rem 0.75rem; cursor: pointer; list-style: none; flex-wrap: wrap; }
+.prou-sect summary::-webkit-details-marker { display: none; }
+.prou-sect summary::before { content: "\25B8"; color: hsl(var(--muted-foreground));
+  font-size: 0.75rem; flex: none; transition: transform 0.15s ease; }
+.prou-sect[open] summary::before { transform: rotate(90deg); }
+.prou-sect-title { font-size: 0.8125rem; font-weight: 600; }
+.prou-sect-note-note { font-size: 0.6875rem; color: hsl(var(--muted-foreground));
+  flex: 1 1 auto; min-width: 6rem; }
+.prou-chip { flex: none; }
+.prou-sect-body { padding: 0.5rem 0.75rem 0.75rem; border-top: 1px solid hsl(var(--card-border)); }
+
+/* ── Static routing: the matrix ──────────────────────────────────────────── */
+.pp-table .pp-not-in-chain td { color: hsl(var(--muted-foreground)); }
+.pp-table .pp-not-in-chain .mono { color: hsl(var(--muted-foreground)); }
+.pp-order { white-space: nowrap; }
+.pp-order .btn-sm { min-width: 2.25rem; }
+
 .skill-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.625rem; }
 .skill-row { padding: 0.625rem 0.75rem; border: 1px solid hsl(var(--card-border));
   border-radius: var(--radius); background: hsl(var(--secondary) / 0.18); }
