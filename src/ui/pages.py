@@ -546,7 +546,10 @@ def _profile_pool_view(config, name, routing_on=None) -> dict:
     chain = []
     for st in (pcfg.get("chain") or []):
         if isinstance(st, dict):
-            chain.append({"provider": st.get("provider", ""), "model": st.get("model", "")})
+            chain.append({"provider": st.get("provider", ""), "model": st.get("model", ""),
+                          # CUR-328: keep the in-rotation flag in the view, or
+                          # the toggle renders disabled links as enabled.
+                          "enabled": st.get("enabled", True)})
     return {"chain": chain, "catalogue": catalogue,
             "providers": [c["provider"] for c in catalogue],
             # The effective dynamic-routing switch, from the router — not the profile's
