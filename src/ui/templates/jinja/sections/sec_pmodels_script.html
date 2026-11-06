@@ -33,26 +33,20 @@
 
   function renderChain() {
     REG_REST = [];  // rebuilt every render
-    // The MATRIX (CUR-328 follow-up): one table of every registered model.
-    // Chain members first, in chain order, with position, rotation toggle,
-    // reordering arrows and remove. Non-members below, muted, with a
-    // one-click add. The separate "Registered models" table is gone —
-    // this matrix replaces it.
+    // The CHAIN table: only chain members, in chain order, with position,
+    // rotation toggle, the split up/down button and remove. Registered
+    // models live in their own separate table below (renderRegistered).
     var html = '<table class="data-table pp-table"><thead><tr>' +
       '<th scope="col" style="width:2rem">#</th><th scope="col">Provider</th><th scope="col">Model</th>' +
-      '<th scope="col" style="width:5rem">In rotation</th><th scope="col" style="width:6rem">Order</th>' +
+      '<th scope="col" style="width:5rem">In rotation</th><th scope="col" style="width:5rem">Order</th>' +
       '<th scope="col" style="width:5rem">Key</th><th scope="col"></th>' +
       '</tr></thead><tbody>';
-    var inChain = {}, registered = [];
-    chain.forEach(function (s) { inChain[s.provider + '/' + s.model] = true; });
+    var registered = [];
     (POOL.catalogue || []).forEach(function (c) {
       (c.models || []).forEach(function (m) {
         registered.push({provider: c.provider, model: m, has_key: c.has_key,
                          key_env: c.key_env});
       });
-    });
-    var registeredRest = registered.filter(function (r) {
-      return !inChain[r.provider + '/' + r.model];
     });
 
     function keyCell(r) {
@@ -60,9 +54,20 @@
         ? '<span class="chip chip-ok">key set</span>'
         : '<span class="chip chip-warn">no key (' + esc(r.key_env || '?') + ')</span>';
     }
+    function orderBtn(i) {
+      // One rectangle, split in the middle: left half = up, right half =
+      // down, a 1px divider between. Two real buttons glued together keep
+      // keyboard/screen-reader semantics and work on touch.
+      var atTop = i === 0, atBottom = i === chain.length - 1;
+      return '<div class="pp-order-btn" role="group" aria-label="Reorder ' + esc(chain[i].model) + '">' +
+        '<button class="pp-order-half" aria-label="Move up"' + (atTop ? ' disabled' : '') + ' onclick="ppMove(' + i + ',-1)">\u2191</button>' +
+        '<span class="pp-order-div" aria-hidden="true"></span>' +
+        '<button class="pp-order-half" aria-label="Move down"' + (atBottom ? ' disabled' : '') + ' onclick="ppMove(' + i + ',1)">\u2193</button>' +
+        '</div>';
+    }
 
-    if (!chain.length && !registeredRest.length) {
-      html += '<tr><td colspan="7" class="empty">No models registered.</td></tr>';
+    if (!chain.length) {
+      html += '<tr><td colspan="7" class="empty">No models in the chain.</td></tr>';
     }
     chain.forEach(function (s, i) {
       var hit = registered.filter(function (r) {
@@ -77,29 +82,55 @@
             '<span class="toggle-track"></span>' +
           '</label>' +
         '</td>' +
-        '<td class="pp-order">' +
-          '<button class="btn-sm" aria-label="Move up"' + (i === 0 ? ' disabled' : '') + ' onclick="ppMove(' + i + ',-1)">\u2191</button>' +
-          '<button class="btn-sm" aria-label="Move down"' + (i === chain.length - 1 ? ' disabled' : '') + ' onclick="ppMove(' + i + ',1)">\u2193</button>' +
-        '</td>' +
+        '<td>' + orderBtn(i) + '</td>' +
         '<td>' + keyCell(hit) + '</td>' +
         '<td><button class="btn-sm" aria-label="Remove from chain" onclick="ppRemove(' + i + ')">\u2715</button></td>' +
         '</tr>';
     });
-    registeredRest.forEach(function (r) {
-      REG_REST.push(r);
-      var i = REG_REST.length - 1;
-      html += '<tr class="pp-not-in-chain">' +
-        '<td class="mono">&mdash;</td>' +
+    html += '</tbody></table>';
+    el('ppChain').innerHTML = html;
+  }
+
+  function renderRegistered() {
+    // The REGISTERED MODELS table (separate, per operator): the full
+    // catalogue with key status, rotation state, and a one-click chain add.
+    var inChain = {};
+    chain.forEach(function (s) { inChain[s.provider + '/' + s.model] = true; });
+    var rows = [];
+    (POOL.catalogue || []).forEach(function (c) {
+      (c.models || []).forEach(function (m) {
+        rows.push({provider: c.provider, model: m, has_key: c.has_key,
+                   key_env: c.key_env});
+      });
+    });
+    var html = '<table class="data-table pp-table"><thead><tr>' +
+      '<th scope="col">Provider</th><th scope="col">Model</th>' +
+      '<th scope="col" style="width:5rem">In rotation</th>' +
+      '<th scope="col" style="width:5rem">Key</th><th scope="col"></th>' +
+      '</tr></thead><tbody>';
+    if (!rows.length) {
+      html += '<tr><td colspan="5" class="empty">No models registered.</td></tr>';
+    }
+    rows.forEach(function (r) {
+      var member = !!inChain[r.provider + '/' + r.model];
+      var step = chain.filter(function (s) {
+        return s.provider === r.provider && s.model === r.model; })[0];
+      html += '<tr' + (member ? ' class="pp-in-chain"' : '') + '>' +
         '<td class="mono">' + esc(r.provider) + '</td>' +
         '<td class="mono">' + esc(r.model) + '</td>' +
-        '<td><button class="btn-sm" onclick="ppAddRest(' + i + ')">+ Add</button></td>' +
-        '<td></td>' +
-        '<td>' + keyCell(r) + '</td>' +
-        '<td></td>' +
+        '<td>' + (member
+          ? '<span class="chip ' + (step && step.enabled ? 'chip-ok">in rotation' : 'chip-warn">out of rotation') + '</span>'
+          : '<span class="chip">not in chain</span>') + '</td>' +
+        '<td>' + (r.has_key
+          ? '<span class="chip chip-ok">key set</span>'
+          : '<span class="chip chip-warn">no key (' + esc(r.key_env || '?') + ')</span>') + '</td>' +
+        '<td>' + (member
+          ? '<span class="pd-note" style="margin:0">in chain</span>'
+          : '<button class="btn-sm" onclick="ppAddRest(\'' + esc(r.provider).replace(/'/g, "\\'") + '\',\'' + esc(r.model).replace(/'/g, "\\'") + '\')">+ Chain</button>') + '</td>' +
         '</tr>';
     });
     html += '</tbody></table>';
-    el('ppChain').innerHTML = html;
+    el('ppRegistered').innerHTML = html;
   }
 
   function renderPicker() {
@@ -173,17 +204,19 @@
     renderChain(); save();
   };
 
-  window.ppAddRest = function (i) {
-    // One-click add straight from the matrix row.
-    var r = REG_REST[i];
-    if (!r) return;
-    chain.push({provider: r.provider, model: r.model, enabled: true});
-    renderChain(); save();
+  window.ppAddRest = function (p, m) {
+    // One-click chain add from the Registered-models table.
+    if (!p || !m) return;
+    var dup = chain.some(function (s) { return s.provider === p && s.model === m; });
+    if (dup) { say(p + '/' + m + ' is already in the chain.'); return; }
+    chain.push({provider: p, model: m, enabled: true});
+    renderChain(); renderRegistered(); save();
   };
 
   el('ppProvider').addEventListener('change', renderModels);
   renderPicker();
   renderChain();
+  renderRegistered();
 })();
 </script>
 {% endif %}

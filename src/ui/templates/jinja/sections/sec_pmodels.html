@@ -45,16 +45,24 @@
   </div>
   <p class="pd-note" id="ppStatus"></p>
   <p class="pd-note">
-    The matrix lists every registered model &mdash; chain members first in chain
-    order, the rest below with a one-click add. The arrows move a link up or down
-    the breaker order; they work on desktop and on mobile. For long catalogues
-    the picker is still here:
+    The arrows move a link up or down the breaker order &mdash; one button,
+    left half up, right half down. For long catalogues the picker is still here:
   </p>
   <div class="pp-add">
     <select id="ppProvider"></select>
     <select id="ppModel"></select>
     <button class="btn-sm btn-primary" onclick="ppAdd()">+ Add to chain</button>
     <span class="pd-note" id="ppKeyNote"></span>
+  </div>
+
+  <h2 class="pd-sect">Registered models <span class="pd-sect-note">everything available to pick from</span></h2>
+  <p class="pd-note">
+    The full catalogue, separate from the chain &mdash; with each model's key
+    status and whether it is in rotation. Add one to the chain from here with
+    <b>+ Chain</b>.
+  </p>
+  <div class="table-wrap">
+    <div id="ppRegistered"></div>
   </div>
 
   {% endif %}

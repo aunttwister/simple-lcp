@@ -1898,11 +1898,25 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 .prou-chip { flex: none; }
 .prou-sect-body { padding: 0.5rem 0.75rem 0.75rem; border-top: 1px solid hsl(var(--card-border)); }
 
-/* ── Static routing: the matrix ──────────────────────────────────────────── */
+/* ── Static routing: split up/down reorder button ──────────────────────────
+   One rectangle, divided in the middle: left half moves up, right half
+   moves down. Two real buttons glued edge-to-edge so keyboard focus,
+   screen-reader labels and touch targets all behave. */
+.pp-order-btn { display: inline-flex; align-items: stretch;
+  border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
+  overflow: hidden; background: hsl(var(--background)); }
+.pp-order-half { border: none; background: transparent; cursor: pointer;
+  width: 2.25rem; padding: 0.3rem 0; font-size: 0.8125rem; line-height: 1;
+  color: hsl(var(--foreground)); display: inline-flex;
+  align-items: center; justify-content: center; }
+.pp-order-half:hover:not(:disabled) { background: hsl(var(--secondary)); }
+.pp-order-half:disabled { color: hsl(var(--muted-foreground) / 0.5);
+  cursor: not-allowed; }
+.pp-order-half:focus-visible { outline: 2px solid hsl(var(--ring, 217.2, 91.2%, 59.8%));
+  outline-offset: -2px; }
+.pp-order-div { width: 1px; background: hsl(var(--card-border)); flex: none; }
 .pp-table .pp-not-in-chain td { color: hsl(var(--muted-foreground)); }
 .pp-table .pp-not-in-chain .mono { color: hsl(var(--muted-foreground)); }
-.pp-order { white-space: nowrap; }
-.pp-order .btn-sm { min-width: 2.25rem; }
 
 .skill-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.625rem; }
 .skill-row { padding: 0.625rem 0.75rem; border: 1px solid hsl(var(--card-border));
