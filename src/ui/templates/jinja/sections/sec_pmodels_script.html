@@ -17,7 +17,7 @@
   var chain = (POOL.chain || []).map(function (s) {
     return {provider: s.provider, model: s.model, enabled: s.enabled !== false};
   });
-  var REG_REST = [];  // registered-not-in-chain rows, one render at a time
+  var PROV_ROWS = [];  // registered-model rows, one render at a time
 
   function el(id) { return document.getElementById(id); }
   function say(t, ok) {
@@ -32,14 +32,13 @@
   }
 
   function renderChain() {
-    REG_REST = [];  // rebuilt every render
-    // The CHAIN table: only chain members, in chain order, with position,
-    // rotation toggle, the split up/down button and remove. Registered
-    // models live in their own separate table below (renderRegistered).
+    // The CHAIN table: number, provider, model, order — nothing else
+    // (operator spec, CUR-328). The rotation toggle and remove button live
+    // elsewhere now; enabled flags are still carried silently on save so a
+    // reorder never resets them.
     var html = '<table class="data-table pp-table"><thead><tr>' +
       '<th scope="col" style="width:2rem">#</th><th scope="col">Provider</th><th scope="col">Model</th>' +
-      '<th scope="col" style="width:5rem">In rotation</th><th scope="col" style="width:5rem">Order</th>' +
-      '<th scope="col" style="width:5rem">Key</th><th scope="col"></th>' +
+      '<th scope="col" style="width:5rem">Order</th>' +
       '</tr></thead><tbody>';
     var registered = [];
     (POOL.catalogue || []).forEach(function (c) {
@@ -49,11 +48,6 @@
       });
     });
 
-    function keyCell(r) {
-      return r.has_key
-        ? '<span class="chip chip-ok">key set</span>'
-        : '<span class="chip chip-warn">no key (' + esc(r.key_env || '?') + ')</span>';
-    }
     function orderBtn(i) {
       // One rectangle, split in the middle: left half = up, right half =
       // down, a 1px divider between. Two real buttons glued together keep
@@ -67,24 +61,14 @@
     }
 
     if (!chain.length) {
-      html += '<tr><td colspan="7" class="empty">No models in the chain.</td></tr>';
+      html += '<tr><td colspan="4" class="empty">No models in the chain.</td></tr>';
     }
     chain.forEach(function (s, i) {
-      var hit = registered.filter(function (r) {
-        return r.provider === s.provider && r.model === s.model; })[0] || {has_key: true};
       html += '<tr class="pp-in-chain">' +
         '<td class="mono">' + (i + 1) + '</td>' +
         '<td class="mono">' + esc(s.provider) + '</td>' +
         '<td class="mono">' + esc(s.model) + '</td>' +
-        '<td>' +
-          '<label class="toggle" title="' + (s.enabled ? 'Serving requests — click to take out of rotation' : 'Skipped by the breaker — click to put back in rotation') + '">' +
-            '<input type="checkbox" ' + (s.enabled ? 'checked' : '') + ' onchange="ppToggleEnabled(' + i + ', this.checked)">' +
-            '<span class="toggle-track"></span>' +
-          '</label>' +
-        '</td>' +
         '<td>' + orderBtn(i) + '</td>' +
-        '<td>' + keyCell(hit) + '</td>' +
-        '<td><button class="btn-sm" aria-label="Remove from chain" onclick="ppRemove(' + i + ')">\u2715</button></td>' +
         '</tr>';
     });
     html += '</tbody></table>';
@@ -92,10 +76,15 @@
   }
 
   function renderRegistered() {
-    // The REGISTERED MODELS table (separate, per operator): the full
-    // catalogue with key status, rotation state, and a one-click chain add.
-    var inChain = {};
-    chain.forEach(function (s) { inChain[s.provider + '/' + s.model] = true; });
+    // The REGISTERED MODELS table (operator spec, CUR-328): number,
+    // provider, model, key + a button to set the key. No rotation column,
+    // no chain-add button. Key setting is an inline form in the key cell
+    // (prompt() would be blocked inside a proxied iframe).
+    PROV_ROWS = [];
+    var html = '<table class="data-table pp-table"><thead><tr>' +
+      '<th scope="col" style="width:2rem">#</th><th scope="col">Provider</th><th scope="col">Model</th>' +
+      '<th scope="col" style="width:7rem">Key</th><th scope="col" style="width:6rem"></th>' +
+      '</tr></thead><tbody>';
     var rows = [];
     (POOL.catalogue || []).forEach(function (c) {
       (c.models || []).forEach(function (m) {
@@ -103,30 +92,20 @@
                    key_env: c.key_env});
       });
     });
-    var html = '<table class="data-table pp-table"><thead><tr>' +
-      '<th scope="col">Provider</th><th scope="col">Model</th>' +
-      '<th scope="col" style="width:5rem">In rotation</th>' +
-      '<th scope="col" style="width:5rem">Key</th><th scope="col"></th>' +
-      '</tr></thead><tbody>';
     if (!rows.length) {
       html += '<tr><td colspan="5" class="empty">No models registered.</td></tr>';
     }
     rows.forEach(function (r) {
-      var member = !!inChain[r.provider + '/' + r.model];
-      var step = chain.filter(function (s) {
-        return s.provider === r.provider && s.model === r.model; })[0];
-      html += '<tr' + (member ? ' class="pp-in-chain"' : '') + '>' +
+      PROV_ROWS.push(r);
+      var i = PROV_ROWS.length - 1;
+      html += '<tr>' +
+        '<td class="mono">' + (i + 1) + '</td>' +
         '<td class="mono">' + esc(r.provider) + '</td>' +
         '<td class="mono">' + esc(r.model) + '</td>' +
-        '<td>' + (member
-          ? '<span class="chip ' + (step && step.enabled ? 'chip-ok">in rotation' : 'chip-warn">out of rotation') + '</span>'
-          : '<span class="chip">not in chain</span>') + '</td>' +
-        '<td>' + (r.has_key
+        '<td id="ppKeyCell-' + i + '">' + (r.has_key
           ? '<span class="chip chip-ok">key set</span>'
-          : '<span class="chip chip-warn">no key (' + esc(r.key_env || '?') + ')</span>') + '</td>' +
-        '<td>' + (member
-          ? '<span class="pd-note" style="margin:0">in chain</span>'
-          : '<button class="btn-sm" onclick="ppAddRest(\'' + esc(r.provider).replace(/'/g, "\\'") + '\',\'' + esc(r.model).replace(/'/g, "\\'") + '\')">+ Chain</button>') + '</td>' +
+          : '<span class="chip chip-warn">no key</span>') + '</td>' +
+        '<td><button class="btn-sm" onclick="ppSetKey(' + i + ')">Set key</button></td>' +
         '</tr>';
     });
     html += '</tbody></table>';
@@ -174,26 +153,6 @@
     renderChain(); save();
   };
 
-  window.ppToggleEnabled = function (i, on) {
-    // CUR-328: circuit-breaker maintenance — take a link out of rotation
-    // without deleting it. The gateway skips `enabled: false` links; the
-    // order they keep is where they come back to.
-    chain[i].enabled = !!on;
-    renderChain();
-    save();
-  };
-
-  window.ppRemove = function (i) {
-    if (chain.length === 1) {
-      // The gateway needs at least one model to route to, and the server refuses an
-      // empty chain — so say why here rather than let the save fail.
-      say('A profile needs at least one model; add another before removing the last one.');
-      return;
-    }
-    chain.splice(i, 1);
-    renderChain(); save();
-  };
-
   window.ppAdd = function () {
     var p = el('ppProvider').value;
     var m = el('ppModel').value;
@@ -204,13 +163,43 @@
     renderChain(); save();
   };
 
-  window.ppAddRest = function (p, m) {
-    // One-click chain add from the Registered-models table.
-    if (!p || !m) return;
-    var dup = chain.some(function (s) { return s.provider === p && s.model === m; });
-    if (dup) { say(p + '/' + m + ' is already in the chain.'); return; }
-    chain.push({provider: p, model: m, enabled: true});
-    renderChain(); renderRegistered(); save();
+  window.ppSetKey = function (i) {
+    // Set the provider's API key inline (CUR-328). The key belongs to the
+    // PROVIDER, not the model; the credential store persists it via
+    // PUT /api/providers/<name>. An inline form, not prompt() — prompt is
+    // blocked inside proxied iframes.
+    var r = PROV_ROWS[i];
+    if (!r) return;
+    var cell = el('ppKeyCell-' + i);
+    if (!cell) return;
+    cell.innerHTML =
+      '<input type="password" id="ppKeyInput-' + i + '" placeholder="API key for ' + esc(r.provider) + '" autocomplete="off" style="width:11rem">' +
+      '<button class="btn-sm btn-primary" onclick="ppSaveKey(' + i + ')">Save</button> ' +
+      '<button class="btn-sm" onclick="ppCancelKey(' + i + ')">Cancel</button>';
+    var input = el('ppKeyInput-' + i);
+    if (input) input.focus();
+  };
+
+  window.ppCancelKey = function (i) {
+    renderRegistered();
+  };
+
+  window.ppSaveKey = function (i) {
+    var r = PROV_ROWS[i];
+    if (!r) return;
+    var input = el('ppKeyInput-' + i);
+    if (!input || !input.value) { say('Paste the key first.'); return; }
+    say('Saving key\u2026');
+    api('PUT', '/api/providers/' + encodeURIComponent(r.provider),
+        {api_key: input.value}).then(function (d) {
+      if (d && d.error) { say(d.error); return; }
+      say('Key set for ' + r.provider + '.', true);
+      // refresh has_key for every row of that provider and re-render
+      (POOL.catalogue || []).forEach(function (c) {
+        if (c.provider === r.provider) c.has_key = true;
+      });
+      renderRegistered();
+    }).catch(function (e) { say('Save failed: ' + (e.message || e)); });
   };
 
   el('ppProvider').addEventListener('change', renderModels);
