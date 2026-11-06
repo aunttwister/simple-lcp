@@ -639,7 +639,7 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
 
     # Routing first: the router is what this app is, and keys/models are its
     # inputs, so they follow the decision they feed.
-    labels = (("routing", "Routing"), ("models", "Models"), ("keys", "API Keys"))
+    labels = (("routing", "Dynamic routing"), ("models", "Static routing"), ("keys", "API Keys"))
     # Counts come from what the page already carries: the intents that route this
     # profile and the steps in its chain. A pill saying how much is configured
     # turns the strip into an overview rather than three words. Keys are fetched

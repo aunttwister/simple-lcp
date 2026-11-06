@@ -14,7 +14,9 @@
   if (!document.getElementById('ppChain')) return;
   var POOL = JSON.parse(document.getElementById('ppool-init').textContent || '{}');
   var PROFILE = document.getElementById('profilePool').getAttribute('data-profile');
-  var chain = (POOL.chain || []).map(function (s) { return {provider: s.provider, model: s.model}; });
+  var chain = (POOL.chain || []).map(function (s) {
+    return {provider: s.provider, model: s.model, enabled: s.enabled !== false};
+  });
 
   function el(id) { return document.getElementById(id); }
   function say(t, ok) {
@@ -30,16 +32,23 @@
 
   function renderChain() {
     var html = '<table class="data-table pp-table"><thead><tr>' +
-      '<th scope="col" style="width:2rem">#</th><th scope="col">Provider</th><th scope="col">Model</th><th scope="col" style="width:6rem">Order</th><th scope="col"></th>' +
+      '<th scope="col" style="width:2rem">#</th><th scope="col">Provider</th><th scope="col">Model</th>' +
+      '<th scope="col" style="width:5rem">In rotation</th><th scope="col" style="width:6rem">Order</th><th scope="col"></th>' +
       '</tr></thead><tbody>';
     if (!chain.length) {
-      html += '<tr><td colspan="5" class="empty">No models in the chain.</td></tr>';
+      html += '<tr><td colspan="6" class="empty">No models in the chain.</td></tr>';
     }
     chain.forEach(function (s, i) {
       html += '<tr>' +
         '<td class="mono">' + (i + 1) + '</td>' +
         '<td class="mono">' + esc(s.provider) + '</td>' +
         '<td class="mono">' + esc(s.model) + '</td>' +
+        '<td>' +
+          '<label class="toggle" title="' + (s.enabled ? 'Serving requests — click to take out of rotation' : 'Skipped by the breaker — click to put back in rotation') + '">' +
+            '<input type="checkbox" ' + (s.enabled ? 'checked' : '') + ' onchange="ppToggleEnabled(' + i + ', this.checked)">' +
+            '<span class="toggle-track"></span>' +
+          '</label>' +
+        '</td>' +
         '<td>' +
           '<button class="btn-sm" ' + (i === 0 ? 'disabled' : '') + ' onclick="ppMove(' + i + ',-1)">\u2191</button>' +
           '<button class="btn-sm" ' + (i === chain.length - 1 ? 'disabled' : '') + ' onclick="ppMove(' + i + ',1)">\u2193</button>' +
@@ -92,6 +101,15 @@
     renderChain(); save();
   };
 
+  window.ppToggleEnabled = function (i, on) {
+    // CUR-328: circuit-breaker maintenance — take a link out of rotation
+    // without deleting it. The gateway skips `enabled: false` links; the
+    // order they keep is where they come back to.
+    chain[i].enabled = !!on;
+    renderChain();
+    save();
+  };
+
   window.ppRemove = function (i) {
     if (chain.length === 1) {
       // The gateway needs at least one model to route to, and the server refuses an
@@ -109,7 +127,7 @@
     if (!p || !m) { say('Pick a provider and a model.'); return; }
     var dup = chain.some(function (s) { return s.provider === p && s.model === m; });
     if (dup) { say(p + '/' + m + ' is already in the chain.'); return; }
-    chain.push({provider: p, model: m});
+    chain.push({provider: p, model: m, enabled: true});
     renderChain(); save();
   };
 

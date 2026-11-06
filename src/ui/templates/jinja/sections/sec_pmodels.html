@@ -19,17 +19,23 @@
     <div style="margin-top:0.25rem">An agent profile's requests are served by the chain of the lane it routes through{% if profile.lane %} &mdash; here, <b><a href="/profiles/{{ profile.lane }}">{{ profile.lane }}</a></b>{% endif %}. Edit the chain on that profile.</div>
   </div>
   {% else %}
-  <h2 class="pd-sect">Models this profile may use <span class="pd-sect-note">the chain the router scores</span></h2>
+  <h2 class="pd-sect">Static routing <span class="pd-sect-note">the chain the gateway walks</span></h2>
   <p class="pd-note">
-    {{ pool.chain|length }} of {{ pool.model_count }} registered models
-    across {{ pool.providers|length }} providers.
+    This ordered chain is a <b>circuit-breaker pattern</b>: every request tries
+    link&nbsp;1 first, and when a link fails &mdash; provider down, key invalid,
+    breaker tripped &mdash; the gateway falls through to the next link, in this
+    order, until one serves. Order is fallback priority: top of the list is the
+    preferred model, every link below it is the escape route.
     {% if pool.routing_on %}
-    The router is on for this profile, so it may reorder these per request.
+    Dynamic routing is on for this profile, so the router may reorder these links per request;
+    when it is off (or no better model scores), the breaker walks this list exactly as shown.
     {% elif pool.routing_on is none %}
     The router's state for this profile is unknown from here.
     {% else %}
-    The router is off for this profile, so requests walk this list top to bottom.
+    Dynamic routing is off for this profile, so requests walk this list top to bottom.
     {% endif %}
+    A link can be taken out of rotation without deleting it &mdash; toggle it off
+    and the breaker skips it.
   </p>
 
   <div id="ppChain"></div>

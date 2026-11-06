@@ -239,6 +239,13 @@ button.ph-cell[aria-pressed="true"]{background:hsl(var(--secondary));box-shadow:
         <div class="form-label">Policy</div>
         <div class="routing-policy-line">
           <div>
+            <label class="form-label" for="routingRouteBy" style="display:block;margin-bottom:0.25rem">Route by</label>
+            <select id="routingRouteBy" style="padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
+              <option value="intent">intent — classify each request, reorder by capability</option>
+              <option value="rules">rules — keep the static order, rules only</option>
+            </select>
+          </div>
+          <div>
             <label class="form-label" for="routingPolicy" style="display:block;margin-bottom:0.25rem">Mode</label>
             <select id="routingPolicy" style="padding:0.3rem 0.5rem;background:hsl(var(--background));border:1px solid hsl(var(--card-border));border-radius:var(--radius);color:hsl(var(--foreground));font-size:0.75rem">
               <option value="eager">eager — always best fit</option>

@@ -316,7 +316,7 @@ def test_the_profile_page_trail_is_three_deep(cfg, engine):
     html = pages.render_profile_detail_page(cfg, engine, "l2", {"tab": "routing"})
     assert 'href="/profiles"' in html
     assert 'href="/profiles/l2"' in html
-    assert 'class="crumb-current" aria-current="page">Routing<' in html
+    assert 'class="crumb-current" aria-current="page">Dynamic routing<' in html
 
 
 def test_the_directory_crumb_has_no_link(cfg, engine):
@@ -361,9 +361,10 @@ def test_the_profile_page_offers_all_its_tabs(cfg, engine):
     for gone in ("skills", "memory", "cron", "tasks"):
         assert 'href="/profiles/l2?tab=%s"' % gone not in html, gone
     # Routing is the landing tab.
-    assert 'class="tab-btn active" aria-current="page">Routing' in html
-    # ...and the page says where that infrastructure lives instead.
-    assert "managed in the Hermes dashboard" in html
+    assert 'class="tab-btn active" aria-current="page">Dynamic routing' in html
+    # ...and the Skills/memory/cron scope note is gone from the page (CUR-328):
+    # that notice belonged to the old tab set; the operator had it removed.
+    assert "Skills, memory and cron belong to a Hermes agent" not in html
 
 
 def test_an_unknown_profile_renders_a_page_not_a_traceback(cfg, engine):
