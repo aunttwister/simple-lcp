@@ -366,7 +366,10 @@ def _profile_config_payload(config, name, pcfg) -> dict:
     for st in chain:
         if isinstance(st, dict):
             steps.append({"provider": st.get("provider", ""), "model": st.get("model", ""),
-                          "base_url": st.get("base_url", "")})
+                          "base_url": st.get("base_url", ""),
+                          # CUR-328: the in-rotation flag must survive the view
+                          # round-trip, or the toggle reads disabled links as on.
+                          "enabled": st.get("enabled", True)})
     return {
         "name": name,
         "agent_profile": fields["agent_profile"],
