@@ -214,6 +214,34 @@ class SettingsStore:
     def clear_routing_min_score(self, profile: Optional[str] = None) -> None:
         self._clear_key(self._profile_key(self.ROUTING_MIN_SCORE_KEY, profile))
 
+    # ── Route-by key (CUR-328): what drives the dynamic redirect ──────────
+
+    ROUTE_BY_KEY = "routing_route_by"
+    ROUTE_BY_OPTIONS = ("intent", "rules")
+
+    def get_route_by(self, default: str = "intent",
+                     profile: Optional[str] = None) -> str:
+        """What the dynamic router keys on for this scope.
+
+        ``intent`` (default) classifies each request and reorders by the
+        capability matrix; ``rules`` keeps the static chain order and lets
+        only explicit rules act (no intent-model call, no scoring). A
+        per-profile override wins; otherwise the global value.
+        """
+        raw = self.get(self._profile_key(self.ROUTE_BY_KEY, profile), None)
+        if raw is None and profile:
+            raw = self.get(self.ROUTE_BY_KEY, None)
+        return raw if raw in self.ROUTE_BY_OPTIONS else default
+
+    def set_route_by(self, value: str, profile: Optional[str] = None) -> None:
+        if value not in self.ROUTE_BY_OPTIONS:
+            raise ValueError(f"invalid route_by {value!r}; expected {self.ROUTE_BY_OPTIONS}")
+        self.set(self._profile_key(self.ROUTE_BY_KEY, profile), value)
+
+    def clear_route_by(self, profile: Optional[str] = None) -> None:
+        """Remove a route-by override (per-profile or global)."""
+        self._clear_key(self._profile_key(self.ROUTE_BY_KEY, profile))
+
     # ── Dynamic-routing enable/disable (runtime toggle) ───────────────────
 
     ROUTING_ENABLED_KEY = "routing_enabled"

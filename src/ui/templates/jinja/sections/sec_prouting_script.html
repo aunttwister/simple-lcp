@@ -95,6 +95,7 @@
 
   window.prouSavePolicy = function () {
     var body = {
+      route_by: el('prouRouteBy').value,
       policy: el('prouPolicy').value,
       min_score: parseFloat(el('prouMinScore').value) || 0,
       profile: PROFILE

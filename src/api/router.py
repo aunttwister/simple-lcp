@@ -1840,6 +1840,86 @@ class CapabilityRouter:
             return None, None, None
         return scored[0][1] - scored[1][1], scored[0][0], scored[1][0]
 
+    def _route_by(self, profile, config) -> str:
+        """What the dynamic redirect keys on for this scope.
+
+        Reads the settings store (``routing_route_by``, per-profile override
+        wins); 'intent' is the default and the safe fallback if the store is
+        unavailable — rules-only must be an explicit choice, never an accident
+        of a missing store.
+        """
+        try:
+            from .cost_cache import get_settings
+            s = get_settings()
+            if s is not None:
+                v = s.get_route_by(profile=profile)
+                if v in ("intent", "rules"):
+                    return v
+        except Exception:  # noqa: BLE001
+            pass
+        return "intent"
+
+    def _select_step_rules_only(self, chain, messages, profile, config, policy):
+        """Route-by=rules: static order, rules still act, no intent call.
+
+        The circuit breaker and the request pipeline still gate providers;
+        block and prefer rules whose scope does not require a task ('*')
+        still fire. No capability scoring, no intent-model call, no margin
+        gate — that machinery needs a classified task, which this mode
+        deliberately does not produce. Decisions are stamped ``path=rules_only``
+        so they are distinguishable in the log from unclassified defaults.
+        """
+        detail = ClassifyResult(task="", path="rules_only",
+                                intent_meta={"route_by": "rules"})
+        chain = [s for s in chain if self._provider_available(s, profile, config)]
+        if not chain:
+            return None
+        chain, fired_blocks, _, _ = self._apply_blocks(chain, "", profile, config)
+        if not chain:
+            return None
+        target_model, preferred_provider, fired_prefer = self._resolve_prefer(
+            chain, "", profile, config)
+        fired_desc = ([f["action"] for f in fired_blocks]
+                      + [f["action"] for f in fired_prefer])
+        if target_model is None and not preferred_provider:
+            self._record_decision({
+                **self._decision_base(detail, messages, profile, policy,
+                                      "route_by=rules — static chain order",
+                                      fired_desc),
+                "action": "keep_default", "model": chain[0]["model"],
+                "provider": chain[0]["provider"], "score": 0.0,
+            })
+            return None
+        if target_model is not None:
+            result = self._build_chain_for_model(
+                chain, target_model, preferred_provider, profile, config, task="")
+        elif preferred_provider:
+            # Provider-only prefer (no model named): there is no scoring in
+            # this mode, so act on the provider directly — its steps first,
+            # everything else keeps the static order as fallback.
+            result = ([s for s in chain if s.get("provider") == preferred_provider]
+                      + [s for s in chain if s.get("provider") != preferred_provider])
+        else:  # unreachable — the None/None case returned above; keep the invariant
+            result = list(chain)
+        if not result:
+            self._record_decision({
+                **self._decision_base(detail, messages, profile, policy,
+                                      "route_by=rules — prefer target unbuildable",
+                                      fired_desc),
+                "action": "keep_default", "model": chain[0]["model"],
+                "provider": chain[0]["provider"], "score": 0.0,
+            })
+            return None
+        head = result[0]
+        self._record_decision({
+            **self._decision_base(detail, messages, profile, policy,
+                                  "route_by=rules", fired_desc),
+            "action": "prefer", "model": head["model"],
+            "provider": head["provider"], "score": 0.0,
+            "from_model": chain[0]["model"], "from_provider": chain[0]["provider"],
+        })
+        return result
+
     def select_step(self, messages: list[dict], tools: Optional[list[dict]] = None,
                     max_tokens: int = 1024, chain: Optional[list[dict]] = None,
                     profile: Optional[str] = None, config: Optional[object] = None,
@@ -1882,6 +1962,13 @@ class CapabilityRouter:
             policy, min_score = self._effective_policy(config, profile)
         except TypeError:
             policy, min_score = self._effective_policy(config)
+        # Route-by gate (CUR-328): the dynamic redirect can key on the intent
+        # classification (default) or on explicit rules only. In rules-only
+        # mode no intent-model call is made and no capability scoring runs —
+        # the static chain order stands; scope-'*' prefer/block rules still act.
+        if self._route_by(profile, config) == "rules":
+            return self._select_step_rules_only(
+                chain, messages, profile or "", config, policy)
         # The profile is passed through so the governing taxonomy is the PROFILE's, not the estate
         # default: that is the entire point of a per-user label space.
         detail = classify_task_detail(messages, tools, max_tokens, profile=profile, config=config)
@@ -2209,10 +2296,19 @@ class RouterComponent(Component):
 def _status_for_profile(router, config, profile: Optional[str]) -> dict:
     """Build one profile-scoped routing-status block."""
     policy, min_score = router._effective_policy(config, profile)
+    route_by = "intent"
+    try:
+        from .cost_cache import get_settings
+        s = get_settings()
+        if s is not None:
+            route_by = s.get_route_by(profile=profile)
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "enabled": router.is_enabled(config, profile),
         "policy": policy,
         "min_score": min_score,
+        "route_by": route_by,
         "rules": router._rules(config, profile),
         # Per-profile has no matrix of its own; decisions are global (recent
         # decisions are not filtered by profile here — UI can filter).
@@ -2276,11 +2372,20 @@ def routing_status(config: Optional[object] = None) -> dict:
         pass
 
     policy, min_score = router._effective_policy(config)
+    route_by = "intent"
+    try:
+        from .cost_cache import get_settings
+        s = get_settings()
+        if s is not None:
+            route_by = s.get_route_by()
+    except Exception:  # noqa: BLE001
+        pass
     per_profile = {p: _status_for_profile(router, config, p) for p in profile_names}
     return {
         "enabled": router.is_enabled(config),
         "policy": policy,
         "min_score": min_score,
+        "route_by": route_by,
         "rules": router._rules(config),
         "per_task": per_task,
         "recent_decisions": router.recent_decisions(25),

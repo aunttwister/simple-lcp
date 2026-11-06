@@ -1846,6 +1846,41 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   font-size: 0.6875rem; margin-left: 0.5rem; }
 .pd-note { font-size: 0.75rem; color: hsl(var(--muted-foreground)); margin: 0.25rem 0 0.5rem; }
 
+/* ── Profile detail: static routing (the chain) ───────────────────────────
+   The picker row and the chain table below it. The classes existed in the
+   templates with no CSS at all — the chain table rendered as a bare HTML
+   table and the picker as a loose row of selects. */
+.pp-add { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+  margin: 0.75rem 0; }
+.pp-add select { padding: 0.3rem 0.5rem; background: hsl(var(--background));
+  border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
+  color: hsl(var(--foreground)); font-size: 0.75rem; min-width: 10rem; }
+.pp-add .btn-sm { flex: none; }
+.pp-add .pd-note { margin: 0; flex-basis: 100%; }
+.pp-table { margin: 0.5rem 0 0.75rem; }
+.pp-table td { vertical-align: middle; }
+/* The rotation toggle lives in a dense table row — a full-size track reads
+   as a row of its own, so it runs at 85%. */
+.pp-table .toggle { transform: scale(0.85); transform-origin: left center; }
+
+/* ── Profile detail: dynamic routing (the controls) ───────────────────────
+   Same story: prou-* classes were referenced by the tab with no rules, so
+   the policy controls stacked full-width instead of forming one line. */
+.prou-grid { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem;
+  align-items: flex-end; margin: 0.75rem 0 0.25rem; }
+.prou-grid > div { min-width: 0; }
+.prou-label { display: block; font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.06em; color: hsl(var(--muted-foreground));
+  margin-bottom: 0.25rem; font-weight: 600; }
+.prou-grid select, .prou-grid input { padding: 0.3rem 0.5rem;
+  background: hsl(var(--background)); border: 1px solid hsl(var(--card-border));
+  border-radius: var(--radius); color: hsl(var(--foreground));
+  font-size: 0.75rem; }
+.prou-grid select { min-width: 12rem; }
+.prou-grid input { width: 6rem; }
+.prou-grid-action { display: flex; gap: 0.5rem; align-items: flex-end;
+  padding-bottom: 1px; }
+
 .skill-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.625rem; }
 .skill-row { padding: 0.625rem 0.75rem; border: 1px solid hsl(var(--card-border));
   border-radius: var(--radius); background: hsl(var(--secondary) / 0.18); }
@@ -2496,14 +2531,6 @@ main:focus-visible { outline: none; }
 /* While a fetch is in flight the pager cannot start another one. */
 .task-pager.is-busy { opacity: 0.55; }
 .task-pager button:disabled { cursor: progress; }
-
-/* Says what this page deliberately does not show. Without it, a reader who came
-   looking for a profile's skills finds three tabs and assumes they are broken. */
-.pd-scope-note {
-  font-size: 0.75rem;
-  color: hsl(var(--muted-foreground));
-  margin: -0.2rem 0 1rem;
-}
 
 /* The tab strip on a profile detail page is that page's only navigation, and
    the Routing tab is long enough to scroll it out of reach. */

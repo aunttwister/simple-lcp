@@ -912,7 +912,13 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
     # Work on a COPY of the chain — a dynamic-router override must never mutate
     # the profile config in place, or every later request would use the rerouted
     # model permanently.
-    chain = [dict(step) for step in profile_cfg["chain"]]
+    chain = [
+        dict(step) for step in profile_cfg["chain"]
+        # CUR-328: a chain link can be taken out of rotation without being
+        # deleted — `enabled: false` means the breaker never tries it and
+        # the router never sees it. Missing key == enabled (old configs).
+        if step.get("enabled", True) is not False
+    ]
     chain_len = len(chain)
     errors = []
     # Count what actually went over the wire, and how many of those were the provider telling us

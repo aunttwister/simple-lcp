@@ -2037,6 +2037,10 @@ class ProviderEndpoints:
                 key = (entry["provider"], entry["model"])
                 if key in old_by_prov and old_by_prov[key]:
                     entry["base_url"] = old_by_prov[key]
+            # CUR-328: preserve the enabled flag. A missing key means enabled
+            # (old configs never carried one); only an explicit false persists.
+            if s.get("enabled") is False:
+                entry["enabled"] = False
             merged.append(entry)
         cfg.raw["profiles"][profile]["chain"] = merged
         cfg.save()
@@ -3046,6 +3050,7 @@ class SettingsEndpoints:
             settings.clear_routing_enabled(profile)
             settings.clear_routing_policy(profile)
             settings.clear_routing_min_score(profile)
+            settings.clear_route_by(profile)
             settings.clear_routing_rules(profile)
             self._audit("routing.policy_clear", profile=profile)
             from ..api.router import routing_status
@@ -3064,6 +3069,12 @@ class SettingsEndpoints:
                 self._send_json({"error": "min_score must be a number 0–1"}, 400)
                 return
             settings.set_routing_min_score(min_score, profile=profile)
+        if "route_by" in body:
+            route_by = (body.get("route_by") or "").strip().lower()
+            if route_by not in settings.ROUTE_BY_OPTIONS:
+                self._send_json({"error": "route_by must be intent | rules"}, 400)
+                return
+            settings.set_route_by(route_by, profile=profile)
         if "enabled" in body:
             enabled = body.get("enabled")
             if not isinstance(enabled, bool):
@@ -3075,7 +3086,8 @@ class SettingsEndpoints:
             if not profile:
                 _sync_dynamic_routing_enabled(settings, enabled)
         self._audit("routing.policy_update", profile=profile,
-                    fields=sorted(k for k in ("policy", "min_score", "enabled")
+                    fields=sorted(k for k in ("policy", "min_score", "enabled",
+                                              "route_by")
                                   if k in body))
         from ..api.router import routing_status
         self._send_json(routing_status(self.config))
