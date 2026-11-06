@@ -40,6 +40,13 @@
 
   <div class="prou-grid">
     <div>
+      <label class="prou-label">Route by</label>
+      <select id="prouRouteBy">
+        <option value="intent"{% if routing.route_by == 'intent' %} selected{% endif %}>intent &mdash; classify each request, reorder by capability</option>
+        <option value="rules"{% if routing.route_by == 'rules' %} selected{% endif %}>rules &mdash; keep the static order, rules only</option>
+      </select>
+    </div>
+    <div>
       <label class="prou-label">Policy</label>
       <select id="prouPolicy">
         {% for p in ['eager', 'conservative'] %}

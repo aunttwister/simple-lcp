@@ -366,7 +366,10 @@ def _profile_config_payload(config, name, pcfg) -> dict:
     for st in chain:
         if isinstance(st, dict):
             steps.append({"provider": st.get("provider", ""), "model": st.get("model", ""),
-                          "base_url": st.get("base_url", "")})
+                          "base_url": st.get("base_url", ""),
+                          # CUR-328: the in-rotation flag must survive the view
+                          # round-trip, or the toggle reads disabled links as on.
+                          "enabled": st.get("enabled", True)})
     return {
         "name": name,
         "agent_profile": fields["agent_profile"],
@@ -543,7 +546,10 @@ def _profile_pool_view(config, name, routing_on=None) -> dict:
     chain = []
     for st in (pcfg.get("chain") or []):
         if isinstance(st, dict):
-            chain.append({"provider": st.get("provider", ""), "model": st.get("model", "")})
+            chain.append({"provider": st.get("provider", ""), "model": st.get("model", ""),
+                          # CUR-328: keep the in-rotation flag in the view, or
+                          # the toggle renders disabled links as enabled.
+                          "enabled": st.get("enabled", True)})
     return {"chain": chain, "catalogue": catalogue,
             "providers": [c["provider"] for c in catalogue],
             # The effective dynamic-routing switch, from the router — not the profile's
@@ -639,7 +645,7 @@ def render_profile_detail_page(config, engine=None, name=None, params=None) -> s
 
     # Routing first: the router is what this app is, and keys/models are its
     # inputs, so they follow the decision they feed.
-    labels = (("routing", "Routing"), ("models", "Models"), ("keys", "API Keys"))
+    labels = (("routing", "Dynamic routing"), ("models", "Static routing"), ("keys", "API Keys"))
     # Counts come from what the page already carries: the intents that route this
     # profile and the steps in its chain. A pill saying how much is configured
     # turns the strip into an overview rather than three words. Keys are fetched

@@ -361,7 +361,8 @@ def test_the_chain_is_the_pool_no_second_list(cfg, profiles_root, engine):
     """There is no `pool` field: the router scores the chain, so the pool IS it."""
     from src.ui import pages
     view = pages._profile_pool_view(cfg, "l2")
-    assert view["chain"] == [{"provider": "deepseek", "model": "deepseek-chat"}]
+    assert view["chain"] == [{"provider": "deepseek", "model": "deepseek-chat",
+                              "enabled": True}]
     assert view["model_count"] == 3     # every registered (provider, model)
 
 

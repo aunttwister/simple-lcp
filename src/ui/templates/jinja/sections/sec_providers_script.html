@@ -723,6 +723,7 @@ async function loadRouting(profile) {
     document.getElementById('routingEnabled').checked = !!d.enabled;
     updateRoutingToggleLabel(d.enabled);
     document.getElementById('routingPolicy').value = d.policy;
+    if (d.route_by) document.getElementById('routingRouteBy').value = d.route_by;
     document.getElementById('routingMinScore').value = d.min_score;
     const clearBtn = document.getElementById('routingClearOverride');
     if (clearBtn) {
@@ -1085,6 +1086,7 @@ async function saveRouting() {
   const status = document.getElementById('routingStatus');
   err.textContent = '';
   const body = { policy: document.getElementById('routingPolicy').value };
+  body.route_by = document.getElementById('routingRouteBy').value;
   body.enabled = document.getElementById('routingEnabled').checked;
   const prof = routingScope();
   if (prof) body.profile = prof;
