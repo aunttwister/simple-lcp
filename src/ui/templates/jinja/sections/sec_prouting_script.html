@@ -89,13 +89,32 @@
       el('prouEnabledLabel').textContent = on
         ? 'ON \u2014 score the chain for every request'
         : 'OFF \u2014 walk the chain in order';
+      prouModeChip();
       say(el('prouPolicyStatus'), 'Saved.', true);
     });
   };
 
+  function prouModeChip() {
+    // Segment-1 chip mirrors the two governing decisions.
+    var chip = el('prouModeChip');
+    if (!chip) return;
+    chip.textContent = (el('prouEnabled').checked ? 'ON' : 'OFF')
+      + ' \u00b7 ' + el('prouRouteBy').value;
+  }
+
+  window.prouSaveRouteBy = function () {
+    say(el('prouRouteByStatus'), 'Saving\u2026');
+    api('POST', '/api/routing/policy', { route_by: el('prouRouteBy').value, profile: PROFILE })
+      .then(function (d) {
+        if (d && d.error) { say(el('prouRouteByStatus'), d.error); return; }
+        prouModeChip();
+        say(el('prouRouteByStatus'), 'Saved.', true);
+      })
+      .catch(function (e) { say(el('prouRouteByStatus'), 'Save failed: ' + (e.message || e)); });
+  };
+
   window.prouSavePolicy = function () {
     var body = {
-      route_by: el('prouRouteBy').value,
       policy: el('prouPolicy').value,
       min_score: parseFloat(el('prouMinScore').value) || 0,
       profile: PROFILE
@@ -180,6 +199,13 @@
     el('prouImEnabledLabel').textContent = eff.enabled
       ? 'ON \u2014 classify via ' + (eff.url || 'the global endpoint')
       : 'OFF \u2014 structural heuristics only';
+    // segment header chip: what is actually in force
+    var chip = el('prouImChip');
+    if (chip) {
+      chip.textContent = eff.enabled
+        ? (d && d.effective && d.has_override ? 'override' : 'inherited')
+        : 'off';
+    }
     var inh = el('prouImInherited');
     if (PROFILE && d && d.global && !d.effective.url) {
       inh.textContent = d.global.url

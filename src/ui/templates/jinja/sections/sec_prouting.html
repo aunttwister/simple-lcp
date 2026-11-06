@@ -1,9 +1,11 @@
-{#- M2d — the Routing tab of a profile page. Section: sec_prouting.
+{#- M2d — the Dynamic routing tab of a profile page. Section: sec_prouting.
 
-    The dynamic router's controls for THIS profile, which already exist in the router
-    (`routing_enabled:<profile>`, `routing_policy:<profile>`, `routing_min_score:<profile>`,
-    `routing_rules:<profile>`) and until now were only reachable from the Models page's
-    Providers tab, where they act on a profile that has to be selected first.
+    Redesigned (CUR-328 follow-up): the tab was one long stack of five dense
+    sections — a wall of options. It is now segmented: each concern is its own
+    collapsible <details> card with a value chip in the header, so the collapsed
+    tab still tells you what is in force. The first segment — the two decisions
+    that actually govern a request — is open by default; everything else
+    (policy, margin gate, intent model, rules, decisions) starts collapsed.
 
     The view dict arrives already scoped: `routing` is this profile's effective
     settings, and `has_override` says whether they are a decision made here or the
@@ -23,191 +25,249 @@
   <div class="empty">The router has no settings for this profile: {{ routing.reason }}</div>
   {% else %}
 
-  <label class="toggle" id="prouToggleWrap">
-    <input type="checkbox" id="prouEnabled" {% if routing.enabled %}checked{% endif %} onchange="prouToggle(this)">
-    <span class="toggle-track" aria-hidden="true"></span>
-    <span class="toggle-label" id="prouEnabledLabel">
-      {% if routing.enabled %}ON &mdash; score the chain for every request{% else %}OFF &mdash; walk the chain in order{% endif %}
-    </span>
-  </label>
-  <p class="pd-note" id="prouToggleNote">
-    {% if routing.has_override %}
-    Set for this profile.
-    {% else %}
-    Inherited from the global setting &mdash; nothing has been set for this profile.
-    {% endif %}
-  </p>
-
-  <div class="prou-grid">
-    <div>
-      <label class="prou-label">Route by</label>
-      <select id="prouRouteBy">
-        <option value="intent"{% if routing.route_by == 'intent' %} selected{% endif %}>intent &mdash; classify each request, reorder by capability</option>
-        <option value="rules"{% if routing.route_by == 'rules' %} selected{% endif %}>rules &mdash; keep the static order, rules only</option>
-      </select>
-    </div>
-    <div>
-      <label class="prou-label">Policy</label>
-      <select id="prouPolicy">
-        {% for p in ['eager', 'conservative'] %}
-        <option value="{{ p }}"{% if routing.policy == p %} selected{% endif %}>{{ p }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="prou-label">Min score</label>
-      <input id="prouMinScore" type="number" step="0.05" min="0" max="1" value="{{ routing.min_score }}">
-    </div>
-    <div class="prou-grid-action">
-      <button class="btn-sm btn-primary" onclick="prouSavePolicy()">Save</button>
-      <button class="btn-sm" onclick="prouClearOverride()" title="Drop this profile's settings and inherit the global ones">Clear override</button>
-    </div>
-  </div>
-  <p class="pd-note" id="prouPolicyStatus"></p>
-
-  <h2 class="pd-sect">Intent margin gate <span class="pd-sect-note">stop reordering on a near-tie</span></h2>
-  <p class="pd-note">
-    This one is a <b>{{ profile.name }}</b> setting, not a router setting &mdash; the router reads it from
-    the profile's config, so it saves to the profile, not to <span class="mono">/api/routing/policy</span>.
-    When dynamic routing would reorder the chain and the classifier's top two intents score closer together
-    than this margin, there is no decision to make and the chain keeps its declared order.
-    <b>0 = off</b>, and off is what an unset field means.
-  </p>
-  <p class="pd-note" id="prouGateWarning">
-    <b>Measured 2026-09-26 &mdash; do not switch this on in production as it stands.
-    Leaving it off changes nothing.</b>
-    Over a 14-day window, <b>97% of the reorders the gate would block are pure provider swaps
-    for the same logical model</b> &mdash; a choice the intent margin carries no information
-    about, because it is decided by provider ranking (breaker state, balance, cost, chain
-    order). A 0.02 gate would have kept ~6,835 requests on the dearer lane:
-    <b>~$150 forgone per 14 days (~$390/month)</b> and <b>~10.3 hours of extra wall-clock
-    wait</b> on {{ profile.name }}. The gate is the right idea aimed one layer too low:
-    it should veto changing the <i>model</i>, not choosing a cheaper <i>provider</i>.
-    See PLAN &sect;26; the re-aim is M4.
-  </p>
-  <div class="prou-grid">
-    <div>
-      <label class="prou-label">Margin</label>
-      <input id="prouMarginGate" type="number" step="0.05" min="0" max="1"
-             placeholder="0 = off" value="{{ '' if routing.intent_margin_gate == 0 else routing.intent_margin_gate }}">
-    </div>
-    <div class="prou-grid-action">
-      <button class="btn-sm btn-primary" onclick="prouSaveMarginGate()">Save gate</button>
-    </div>
-  </div>
-  <p class="pd-note" id="prouGateStatus"></p>
-
-  <h2 class="pd-sect">Intent decision model <span class="pd-sect-note">what classifies this profile's requests</span></h2>
-  <p class="pd-note">
-    The model that decides this profile's intent is a <b>remote endpoint</b> — the local
-    built-in classifier is obsolete. Set the endpoint here for this profile, or leave it
-    empty to inherit the global baseline. When nothing is configured (or the endpoint is
-    unreachable), requests fall through to the structural heuristics and the decision is
-    recorded with <span class="mono">path</span> showing why.
-  </p>
-  <p class="pd-note">
-    <b>What LCP sends</b> — <span class="mono">POST</span> to the URL:
-    <span class="mono">{"message": "&lt;the request&gt;", "labels": ["&lt;this profile's taxonomy&gt;"],
-    "profile": "{{ profile.name }}", "taxonomy_id": "...", "taxonomy_version": N}</span>
-    with <span class="mono">Authorization: Bearer &lt;key&gt;</span> when a key is set.<br>
-    <b>What LCP expects back</b> — format <span class="mono">lcp-v1</span>:
-    <span class="mono">{"label": "&lt;one of labels&gt;", "score": 0..1, "scores": {…}}</span>;
-    format <span class="mono">openai</span>: any chat.completions body whose
-    <span class="mono">choices[0].message.content</span> names exactly one of the labels.
-    Format <span class="mono">jev</span> is reserved until a jev endpoint exists to measure.
-  </p>
-  <div class="prou-grid">
-    <div>
-      <label class="prou-label">Endpoint URL</label>
-      <input id="prouImUrl" type="url" placeholder="http://192.168.1.107:18400/v1/intent" style="min-width:16rem">
-    </div>
-    <div>
-      <label class="prou-label">Format</label>
-      <select id="prouImFormat">
-        <option value="lcp-v1">lcp-v1</option>
-        <option value="openai">openai</option>
-        <option value="jev">jev (reserved)</option>
-      </select>
-    </div>
-    <div>
-      <label class="prou-label">API key (optional)</label>
-      <input id="prouImKey" type="password" placeholder="unchanged if blank" autocomplete="off">
-    </div>
-    <div>
-      <label class="prou-label">Model (openai format)</label>
-      <input id="prouImModel" type="text" placeholder="e.g. GLM-5.3-Flash-EXL3">
-    </div>
-    <div>
-      <label class="prou-label">Timeout ms</label>
-      <input id="prouImTimeout" type="number" min="100" max="60000" step="100" value="3000">
-    </div>
-    <div>
-      <label class="prou-label">Min score</label>
-      <input id="prouImMinScore" type="number" min="0" max="1" step="0.05" value="0">
-    </div>
-    <div class="prou-grid-action">
-      <label class="toggle" id="prouImEnabledWrap">
-        <input type="checkbox" id="prouImEnabled" onchange="prouImSaveEnabled(this)">
+  <details class="prou-sect" open>
+    <summary>
+      <span class="prou-sect-title">Routing mode</span>
+      <span class="prou-sect-note-note">the two decisions that govern every request</span>
+      <span class="chip prou-chip" id="prouModeChip">{% if routing.enabled %}ON{% else %}OFF{% endif %} &middot; {{ routing.route_by }}</span>
+    </summary>
+    <div class="prou-sect-body">
+      <label class="toggle" id="prouToggleWrap">
+        <input type="checkbox" id="prouEnabled" {% if routing.enabled %}checked{% endif %} onchange="prouToggle(this)">
         <span class="toggle-track" aria-hidden="true"></span>
-        <span class="toggle-label" id="prouImEnabledLabel">OFF</span>
+        <span class="toggle-label" id="prouEnabledLabel">
+          {% if routing.enabled %}ON &mdash; score the chain for every request{% else %}OFF &mdash; walk the chain in order{% endif %}
+        </span>
       </label>
-      <button class="btn-sm btn-primary" onclick="prouImSave()">Save</button>
-      <button class="btn-sm" onclick="prouImClearOverride()" title="Drop this profile's intent-model settings and inherit the global baseline">Clear override</button>
+      <p class="pd-note" id="prouToggleNote">
+        {% if routing.has_override %}
+        Set for this profile.
+        {% else %}
+        Inherited from the global setting &mdash; nothing has been set for this profile.
+        {% endif %}
+      </p>
+      <div class="prou-grid">
+        <div>
+          <label class="prou-label">Route by</label>
+          <select id="prouRouteBy">
+            <option value="intent"{% if routing.route_by == 'intent' %} selected{% endif %}>intent &mdash; classify each request, reorder by capability</option>
+            <option value="rules"{% if routing.route_by == 'rules' %} selected{% endif %}>rules &mdash; keep the static order, rules only</option>
+          </select>
+        </div>
+        <div class="prou-grid-action">
+          <button class="btn-sm btn-primary" onclick="prouSaveRouteBy()">Save route-by</button>
+        </div>
+      </div>
+      <p class="pd-note" id="prouRouteByStatus"></p>
     </div>
-  </div>
-  <p class="pd-note" id="prouImStatus"></p>
-  <p class="pd-note" id="prouImInherited"></p>
+  </details>
 
-  <h2 class="pd-sect">Rules <span class="pd-sect-note">pin a task to a model</span></h2>
-  <p class="pd-note">
-    A rule matches a task the classifier recognised and either prefers a model for it
-    or blocks one; a rule whose task is <b>*</b> matches every task.
-    {% if routing.rules_scope == 'profile' %}
-    These are <b>{{ profile.name }}</b>'s own rules. A profile's own list replaces the
-    gateway's shared list, so nothing outside this list applies to it.
-    {% else %}
-    These are the gateway's <b>shared</b> rules &mdash; {{ profile.name }} has no list of
-    its own, so the shared one applies.
-    {% endif %}
-    {% if routing.rules_other_scoped %}
-    {{ routing.rules_other_scoped }} of them name another profile and only take effect for it.
-    {% endif %}
-  </p>
-  <div id="prouRules"></div>
-  <div class="prou-add">
-    <input id="prouRuleTask" list="prouTaskList" placeholder="task, e.g. code_generation" style="min-width:12rem">
-    <datalist id="prouTaskList">
-      {% for t in routing.tasks %}<option value="{{ t }}"></option>{% endfor %}
-    </datalist>
-    <select id="prouRuleAction"><option value="prefer">prefer</option><option value="block">block</option></select>
-    <select id="prouRuleProvider"><option value="*">any provider</option>
-      {% for p in routing.providers %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
-    </select>
-    <input id="prouRuleModel" placeholder="model (blank = any)">
-    <button class="btn-sm" onclick="prouAddRule()">+ Add rule</button>
-  </div>
-  <p class="pd-note" id="prouRuleStatus"></p>
+  <details class="prou-sect">
+    <summary>
+      <span class="prou-sect-title">Selection policy</span>
+      <span class="prou-sect-note-note">how the best model is chosen, and the floor</span>
+      <span class="chip prou-chip">{{ routing.policy }} &middot; min {{ routing.min_score }}</span>
+    </summary>
+    <div class="prou-sect-body">
+      <div class="prou-grid">
+        <div>
+          <label class="prou-label">Policy</label>
+          <select id="prouPolicy">
+            {% for p in ['eager', 'conservative'] %}
+            <option value="{{ p }}"{% if routing.policy == p %} selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="prou-label">Min score</label>
+          <input id="prouMinScore" type="number" step="0.05" min="0" max="1" value="{{ routing.min_score }}">
+        </div>
+        <div class="prou-grid-action">
+          <button class="btn-sm btn-primary" onclick="prouSavePolicy()">Save</button>
+          <button class="btn-sm" onclick="prouClearOverride()" title="Drop this profile's settings and inherit the global ones">Clear override</button>
+        </div>
+      </div>
+      <p class="pd-note" id="prouPolicyStatus"></p>
+    </div>
+  </details>
 
-  <h2 class="pd-sect">Recent decisions <span class="pd-sect-note">why the last requests went where they did</span></h2>
-  {% if routing.decisions %}
-  <table class="data-table prou-table">
-    <thead><tr><th scope="col">When</th><th scope="col">Task</th><th scope="col">Action</th><th scope="col">Went to</th><th scope="col">Score</th><th scope="col">How</th></tr></thead>
-    <tbody>
-      {% for d in routing.decisions %}
-      <tr>
-        <td class="mono">{{ d.ts[:19] | replace('T', ' ') }}</td>
-        <td class="mono">{{ d.task }}</td>
-        <td>{{ d.action }}</td>
-        <td class="mono">{{ d.provider }}/{{ d.model }}</td>
-        <td>{{ d.score }}</td>
-        <td title="{{ d.intent_text }}">{{ d.path }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty">No decisions recorded for this profile yet.</div>
-  {% endif %}
+  <details class="prou-sect">
+    <summary>
+      <span class="prou-sect-title">Intent margin gate</span>
+      <span class="prou-sect-note-note">stop reordering on a near-tie</span>
+      <span class="chip prou-chip">{% if routing.intent_margin_gate %}{{ routing.intent_margin_gate }}{% else %}off{% endif %}</span>
+    </summary>
+    <div class="prou-sect-body">
+      <p class="pd-note">
+        This one is a <b>{{ profile.name }}</b> setting, not a router setting &mdash; the router reads it from
+        the profile's config, so it saves to the profile, not to <span class="mono">/api/routing/policy</span>.
+        When dynamic routing would reorder the chain and the classifier's top two intents score closer together
+        than this margin, there is no decision to make and the chain keeps its declared order.
+        <b>0 = off</b>, and off is what an unset field means.
+      </p>
+      <p class="pd-note">
+        <b>Measured 2026-09-26 &mdash; do not switch this on in production as it stands.
+        Leaving it off changes nothing.</b>
+        Over a 14-day window, <b>97% of the reorders the gate would block are pure provider swaps
+        for the same logical model</b> &mdash; a choice the intent margin carries no information
+        about, because it is decided by provider ranking (breaker state, balance, cost, chain
+        order). A 0.02 gate would have kept ~6,835 requests on the dearer lane:
+        <b>~$150 forgone per 14 days (~$390/month)</b> and <b>~10.3 hours of extra wall-clock
+        wait</b> on {{ profile.name }}. The gate is the right idea aimed one layer too low:
+        it should veto changing the <i>model</i>, not choosing a cheaper <i>provider</i>.
+        See PLAN &sect;26; the re-aim is M4.
+      </p>
+      <div class="prou-grid">
+        <div>
+          <label class="prou-label">Margin</label>
+          <input id="prouMarginGate" type="number" step="0.05" min="0" max="1"
+                 placeholder="0 = off" value="{{ '' if routing.intent_margin_gate == 0 else routing.intent_margin_gate }}">
+        </div>
+        <div class="prou-grid-action">
+          <button class="btn-sm btn-primary" onclick="prouSaveMarginGate()">Save gate</button>
+        </div>
+      </div>
+      <p class="pd-note" id="prouGateStatus"></p>
+    </div>
+  </details>
+
+  <details class="prou-sect">
+    <summary>
+      <span class="prou-sect-title">Intent decision model</span>
+      <span class="prou-sect-note-note">what classifies this profile's requests</span>
+      <span class="chip prou-chip" id="prouImChip">&hellip;</span>
+    </summary>
+    <div class="prou-sect-body">
+      <p class="pd-note">
+        The model that decides this profile's intent is a <b>remote endpoint</b> — the local
+        built-in classifier is obsolete. Set the endpoint here for this profile, or leave it
+        empty to inherit the global baseline. When nothing is configured (or the endpoint is
+        unreachable), requests fall through to the structural heuristics and the decision is
+        recorded with <span class="mono">path</span> showing why.
+      </p>
+      <p class="pd-note">
+        <b>What LCP sends</b> — <span class="mono">POST</span> to the URL:
+        <span class="mono">{"message": "&lt;the request&gt;", "labels": ["&lt;this profile's taxonomy&gt;"],
+        "profile": "{{ profile.name }}", "taxonomy_id": "...", "taxonomy_version": N}</span>
+        with <span class="mono">Authorization: Bearer &lt;key&gt;</span> when a key is set.<br>
+        <b>What LCP expects back</b> — format <span class="mono">lcp-v1</span>:
+        <span class="mono">{"label": "&lt;one of labels&gt;", "score": 0..1, "scores": {…}}</span>;
+        format <span class="mono">openai</span>: any chat.completions body whose
+        <span class="mono">choices[0].message.content</span> names exactly one of the labels.
+        Format <span class="mono">jev</span> is reserved until a jev endpoint exists to measure.
+      </p>
+      <div class="prou-grid">
+        <div>
+          <label class="prou-label">Endpoint URL</label>
+          <input id="prouImUrl" type="url" placeholder="http://192.168.1.107:18400/v1/intent" style="min-width:16rem">
+        </div>
+        <div>
+          <label class="prou-label">Format</label>
+          <select id="prouImFormat">
+            <option value="lcp-v1">lcp-v1</option>
+            <option value="openai">openai</option>
+            <option value="jev">jev (reserved)</option>
+          </select>
+        </div>
+        <div>
+          <label class="prou-label">API key (optional)</label>
+          <input id="prouImKey" type="password" placeholder="unchanged if blank" autocomplete="off">
+        </div>
+        <div>
+          <label class="prou-label">Model (openai format)</label>
+          <input id="prouImModel" type="text" placeholder="e.g. GLM-5.3-Flash-EXL3">
+        </div>
+        <div>
+          <label class="prou-label">Timeout ms</label>
+          <input id="prouImTimeout" type="number" min="100" max="60000" step="100" value="3000">
+        </div>
+        <div>
+          <label class="prou-label">Min score</label>
+          <input id="prouImMinScore" type="number" min="0" max="1" step="0.05" value="0">
+        </div>
+        <div class="prou-grid-action">
+          <label class="toggle" id="prouImEnabledWrap">
+            <input type="checkbox" id="prouImEnabled" onchange="prouImSaveEnabled(this)">
+            <span class="toggle-track" aria-hidden="true"></span>
+            <span class="toggle-label" id="prouImEnabledLabel">OFF</span>
+          </label>
+          <button class="btn-sm btn-primary" onclick="prouImSave()">Save</button>
+          <button class="btn-sm" onclick="prouImClearOverride()" title="Drop this profile's intent-model settings and inherit the global baseline">Clear override</button>
+        </div>
+      </div>
+      <p class="pd-note" id="prouImStatus"></p>
+      <p class="pd-note" id="prouImInherited"></p>
+    </div>
+  </details>
+
+  <details class="prou-sect">
+    <summary>
+      <span class="prou-sect-title">Rules</span>
+      <span class="prou-sect-note-note">pin a task to a model</span>
+      <span class="chip prou-chip">{{ routing.rules | length }} rule{{ '' if routing.rules|length == 1 else 's' }}</span>
+    </summary>
+    <div class="prou-sect-body">
+      <p class="pd-note">
+        A rule matches a task the classifier recognised and either prefers a model for it
+        or blocks one; a rule whose task is <b>*</b> matches every task.
+        {% if routing.rules_scope == 'profile' %}
+        These are <b>{{ profile.name }}</b>'s own rules. A profile's own list replaces the
+        gateway's shared list, so nothing outside this list applies to it.
+        {% else %}
+        These are the gateway's <b>shared</b> rules &mdash; {{ profile.name }} has no list of
+        its own, so the shared one applies.
+        {% endif %}
+        {% if routing.rules_other_scoped %}
+        {{ routing.rules_other_scoped }} of them name another profile and only take effect for it.
+        {% endif %}
+      </p>
+      <div id="prouRules"></div>
+      <div class="prou-add">
+        <input id="prouRuleTask" list="prouTaskList" placeholder="task, e.g. code_generation" style="min-width:12rem">
+        <datalist id="prouTaskList">
+          {% for t in routing.tasks %}<option value="{{ t }}"></option>{% endfor %}
+        </datalist>
+        <select id="prouRuleAction"><option value="prefer">prefer</option><option value="block">block</option></select>
+        <select id="prouRuleProvider"><option value="*">any provider</option>
+          {% for p in routing.providers %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+        </select>
+        <input id="prouRuleModel" placeholder="model (blank = any)">
+        <button class="btn-sm" onclick="prouAddRule()">+ Add rule</button>
+      </div>
+      <p class="pd-note" id="prouRuleStatus"></p>
+    </div>
+  </details>
+
+  <details class="prou-sect">
+    <summary>
+      <span class="prou-sect-title">Recent decisions</span>
+      <span class="prou-sect-note-note">why the last requests went where they did</span>
+      <span class="chip prou-chip">{{ routing.decisions | length }} shown</span>
+    </summary>
+    <div class="prou-sect-body">
+      {% if routing.decisions %}
+      <div class="table-wrap">
+      <table class="data-table prou-table">
+        <thead><tr><th scope="col">When</th><th scope="col">Task</th><th scope="col">Action</th><th scope="col">Went to</th><th scope="col">Score</th><th scope="col">How</th></tr></thead>
+        <tbody>
+          {% for d in routing.decisions %}
+          <tr>
+            <td class="mono">{{ d.ts[:19] | replace('T', ' ') }}</td>
+            <td class="mono">{{ d.task }}</td>
+            <td>{{ d.action }}</td>
+            <td class="mono">{{ d.provider }}/{{ d.model }}</td>
+            <td>{{ d.score }}</td>
+            <td title="{{ d.intent_text }}">{{ d.path }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}
+      <div class="empty">No decisions recorded for this profile yet.</div>
+      {% endif %}
+    </div>
+  </details>
 
   {% endif %}
 </div>
