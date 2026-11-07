@@ -32,13 +32,13 @@
   }
 
   function renderChain() {
-    // The CHAIN table: number, provider, model, order — nothing else
-    // (operator spec, CUR-328). The rotation toggle and remove button live
-    // elsewhere now; enabled flags are still carried silently on save so a
-    // reorder never resets them.
+    // The CHAIN table: number, provider, model, order, remove (operator
+    // spec, CUR-328). Enabled flags are carried silently on every save so
+    // a reorder or remove never resets rotation state.
     var html = '<table class="data-table pp-table"><thead><tr>' +
       '<th scope="col" style="width:2rem">#</th><th scope="col">Provider</th><th scope="col">Model</th>' +
       '<th scope="col" style="width:5rem">Order</th>' +
+      '<th scope="col" style="width:3rem"></th>' +
       '</tr></thead><tbody>';
     var registered = [];
     (POOL.catalogue || []).forEach(function (c) {
@@ -61,7 +61,7 @@
     }
 
     if (!chain.length) {
-      html += '<tr><td colspan="4" class="empty">No models in the chain.</td></tr>';
+      html += '<tr><td colspan="5" class="empty">No models in the chain.</td></tr>';
     }
     chain.forEach(function (s, i) {
       html += '<tr class="pp-in-chain">' +
@@ -69,6 +69,7 @@
         '<td class="mono">' + esc(s.provider) + '</td>' +
         '<td class="mono">' + esc(s.model) + '</td>' +
         '<td>' + orderBtn(i) + '</td>' +
+        '<td><button class="btn-sm" aria-label="Remove from chain" onclick="ppRemove(' + i + ')">\u2715</button></td>' +
         '</tr>';
     });
     html += '</tbody></table>';
@@ -150,6 +151,17 @@
     var j = i + delta;
     if (j < 0 || j >= chain.length) return;
     var tmp = chain[i]; chain[i] = chain[j]; chain[j] = tmp;
+    renderChain(); save();
+  };
+
+  window.ppRemove = function (i) {
+    if (chain.length === 1) {
+      // The gateway needs at least one model to route to, and the server refuses an
+      // empty chain — so say why here rather than let the save fail.
+      say('A profile needs at least one model; add another before removing the last one.');
+      return;
+    }
+    chain.splice(i, 1);
     renderChain(); save();
   };
 
