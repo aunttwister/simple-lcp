@@ -2189,28 +2189,50 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
    differently from a value. */
 .conv-untitled { font-style: italic; }
 
-/* ── Conversations: two-lane layout with a persistent third column (CUR-329) ──
-   Same permanent-lane shape as the overview's detail panel above, but the
-   conversation panel is sticky IN-FLOW inside the grid — the grid's second
-   column IS the reservation, so unlike .detail-panel (fixed, out of flow) no
-   body margin is added here. Reuses the overview's --detail-width token
-   (380px, defined once at :root — do not redefine). Below 1100px the panel
-   stacks under the table; the content is the same, just reached by scrolling. */
+/* ── Conversations: full-height third column with a drag handle (CUR-329) ──
+   The panel is a FIXED, full-viewport-height lane — top of screen to bottom —
+   like the overview's detail panel above, not a card beside the table. On
+   desktop (>=1100px) it is always visible and the body margin reserves its
+   width. Below 1100px it is a slide-over sheet with a backdrop, opened by
+   tapping a row (the lane cannot fit a phone). The left edge is a drag
+   handle: pull it to resize like a file explorer's splitter, double-click to
+   reset. The dragged width rides --conv-width; --detail-width (380px, defined
+   once by the overview block) stays the shared default. */
 .conv-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+.conv-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 130;
+  width: var(--conv-width, var(--detail-width)); max-width: 100vw;
+  background: hsl(var(--card));
+  border-left: 1px solid hsl(var(--card-border));
+  transform: translateX(100%);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex; flex-direction: column;
+  box-shadow: -8px 0 24px -12px rgba(0, 0, 0, 0.5);
+}
+.conv-panel.open { transform: translateX(0); }
+.conv-resizer {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 7px;
+  cursor: col-resize; touch-action: none;
+}
+.conv-resizer:hover, .conv-resizer.dragging { background: hsl(var(--primary) / 0.3); }
+body.conv-resizing { user-select: none; cursor: col-resize; }
+.conv-backdrop {
+  display: none; position: fixed; inset: 0; z-index: 125;
+  background: rgba(0, 0, 0, 0.45);
+}
+.conv-backdrop.open { display: block; }
 @media (min-width: 1100px) {
+  .conv-backdrop { display: none !important; } /* no modal layer on the desktop lane */
+  body:has(.conv-panel) .main-content {
+    margin-right: var(--conv-width, var(--detail-width));
+  }
   /* The fixed top-right badge would sit over the reserved lane; offset it. */
   body:has(.conv-panel) .header-plugin-badge.global {
-    right: calc(var(--detail-width) + 0.75rem);
+    right: calc(var(--conv-width, var(--detail-width)) + 0.75rem);
   }
-  .conv-layout { grid-template-columns: minmax(0, 1fr) var(--detail-width); }
-  .conv-panel { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); }
-}
-.conv-panel {
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--card-border));
-  border-radius: var(--radius);
-  display: flex; flex-direction: column;
-  min-height: 24rem; overflow: hidden;
+  body:has(.conv-panel) .conv-panel {
+    transform: none; box-shadow: none; transition: none;
+  }
 }
 .conv-panel-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -2222,7 +2244,7 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   margin: 0; font-size: 0.9375rem; font-weight: 600; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.conv-panel-body { padding: 0.75rem 1rem; overflow-y: auto; min-height: 0; }
+.conv-panel-body { padding: 0.75rem 1rem; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
 
 /* ── Conversations table polish ────────────────────────────────────────────*/
 /* The ROW is the click target now — no per-row View button — so the pointer
