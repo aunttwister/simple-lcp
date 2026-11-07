@@ -98,10 +98,31 @@ class TestResponseFormatIsAContract:
         assert skip and "json_schema" in skip
         assert out is body, "a contract violation must not be silently downgraded"
 
-    def test_json_object_is_a_skip_for_local_sparks(self):
+    # CONTRACT CHANGE 2026-11-07: local-sparks previously declared {text} and both json
+    # types were skips. Measured against the kit on :18300 — json_object and json_schema
+    # both return 200 with schema-conformant content. The declaration now accepts them.
+    def test_json_object_is_accepted_by_local_sparks(self):
         body = {**BODY, "response_format": {"type": "json_object"}}
-        _, _, skip = prepare_body("local-sparks", body, _cfg())
-        assert skip and "json_object" in skip
+        out, notes, skip = prepare_body("local-sparks", body, _cfg())
+        assert skip is None, "json_object is supported by local-sparks — skipping it is a false negative"
+        assert notes == []
+        assert out["response_format"] == {"type": "json_object"}
+
+    def test_json_schema_is_accepted_by_local_sparks(self):
+        """Regression (2026-11-07): the {text}-only declaration made the gateway skip the
+        local engine for every structured-output request; with the rest of the l2 chain
+        breaker-open or out of credits the caller got all_providers_failed (prod requests
+        141619..141656). The kit converts json_schema to a grammar — measured 200."""
+        body = {**BODY, "response_format": {"type": "json_schema", "json_schema": {"name": "a", "schema": {}}}}
+        out, notes, skip = prepare_body("local-sparks", body, _cfg())
+        assert skip is None, "json_schema is supported by local-sparks — skipping it is a false negative"
+        assert notes == []
+        assert out["response_format"] == body["response_format"]
+
+    def test_json_schema_is_accepted_by_local_zgx(self):
+        body = {**BODY, "response_format": {"type": "json_schema", "json_schema": {"name": "a", "schema": {}}}}
+        out, notes, skip = prepare_body("local-zgx", body, _cfg())
+        assert skip is None and notes == []
 
     def test_json_object_is_accepted_by_deepseek(self):
         """Regression (2026-10-25): a {text}-only deepseek declaration killed every Hindsight
@@ -212,12 +233,17 @@ class TestChainIntegration:
         assert status == 200 and provider == "opencode"
         assert seen == ["opencode"], "deepseek must not be sent a contract it cannot honour"
 
+    # CONTRACT CHANGE 2026-11-07: local-sparks now declares json_schema support (measured
+    # on the kit :18300), so no default provider rejects a json_schema body anymore. The
+    # 400 path is exercised with a config-declared contract instead.
     def test_every_provider_unable_is_a_400_not_a_502(self):
-        cfg = _cfg(providers=_chain_providers(["deepseek", "local-sparks"]),
-                   profiles={"p": _profile(["deepseek", "local-sparks"])})
+        cfg = _cfg(providers={**_chain_providers(["deepseek", "opencode"]),
+                              "opencode": {"api_key_env": "KEY", "base_url": "https://opencode/v1",
+                                           "capabilities": {"response_format": ["text"]}}},
+                   profiles={"p": _profile(["deepseek", "opencode"])})
         with patch("src.api.request_pipeline.forward_request") as fwd:
             with pytest.raises(RequestUnsupportedError) as ei:
-                try_chain("p", _profile(["deepseek", "local-sparks"]),
+                try_chain("p", _profile(["deepseek", "opencode"]),
                            {"messages": BODY["messages"], "response_format": {"type": "json_schema"}}, cfg)
         assert fwd.call_count == 0, "nothing should have gone over the wire"
         assert ei.value.status_code == 400 and ei.value.code == "LCP-3002"

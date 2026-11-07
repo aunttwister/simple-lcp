@@ -44,7 +44,19 @@ DEFAULT_CAPABILITIES: dict[str, dict[str, Any]] = {
     # negative: the 2026-10-24 events were json_object failures caused by the *prompt* not
     # containing the word "json" (a deepseek precondition), not by the type being unsupported.
     "deepseek": {"response_format": {"text", "json_object"}},
-    "local-sparks": {"response_format": {"text"}},
+    # Measured 2026-11-07 directly against the TensorFold kit on :18300 (GLM-5.3-Flash-EXL3):
+    # json_schema returns 200 with schema-conformant, grammar-enforced content, json_object
+    # returns 200 too (a bare empty content there was finish_reason=length from the thinking
+    # budget, not a rejection). The earlier {text}-only declaration was a false negative from
+    # the 2026-10-24 event round — the same failure mode deepseek had above. Prod failed real
+    # requests on this (requests 141619..141656, 2026-11-07): local-sparks was skipped for
+    # json_schema while every other chain member was breaker-open or out of credits.
+    "local-sparks": {"response_format": {"text", "json_object", "json_schema"}},
+    # Staging's local engine (same physical kit on :18300, different logical provider name).
+    # The kit ignores the requested model name and serves the loaded model, so the grammar
+    # support is engine-wide — measured 2026-11-07 with a qwen3.8-flash-next request that was
+    # served by GLM-5.3-Flash-EXL3.
+    "local-zgx": {"response_format": {"text", "json_object", "json_schema"}},
 }
 
 # The body keys a provider's `response_format` support is judged by. `type` is what the OpenAI
