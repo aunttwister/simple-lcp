@@ -521,3 +521,75 @@ def test_conversations_page_still_shows_real_names(store):
     from src.ui.pages import render_conversations_page
     html = render_conversations_page(_Cfg(), None, {})
     assert "Spark thermals" in html
+
+
+# ── 6. the persistent third column (panel, not a modal) ──────────────────────
+
+def test_conversations_page_has_a_persistent_panel(store):
+    """The lane is an <aside> in the markup — always rendered with the table,
+    not opened on demand."""
+    from src.ui.pages import render_conversations_page
+    html = render_conversations_page(_Cfg(), None, {})
+    assert '<aside class="conv-panel" id="convPanel"' in html
+    assert 'aria-label="Conversation detail"' in html
+
+
+def test_conversations_page_has_no_transcript_modal(store):
+    """The modal era is over: a dialog that reflows nothing and persists is the
+    shape the operator approved for drill-downs (CUR-330 detail-panel rules)."""
+    from src.ui.pages import render_conversations_page
+    html = render_conversations_page(_Cfg(), None, {})
+    assert 'id="convModal"' not in html, "the transcript modal came back"
+
+
+def test_conversation_rows_are_the_click_target(store):
+    """The whole row opens the panel — keyboard reachable (role=button +
+    tabindex) and named for screen readers — replacing the per-row View
+    button that duplicated the affordance."""
+    conv_store.capture_request(
+        "sess-row", {"messages": [{"role": "user", "content": "check"}]},
+        reply="ok", profile="l2", model="m1",
+        ts="2026-11-07T11:00:00+00:00")
+    conv_store.upsert_conversation("sess-row", name="Row target",
+                                   profile="l2", model="m1", source="live")
+    conv_store.recount_conversation("sess-row")
+    from src.ui.pages import render_conversations_page
+    import re
+    html = render_conversations_page(_Cfg(), None, {})
+    m = re.search(r'<tr class="conv-row[^"]*"[^>]*data-cid="sess-row".*?>', html, re.S)
+    row = m.group(0)
+    assert 'role="button"' in row
+    assert 'tabindex="0"' in row
+    assert 'data-name="Row target"' in row
+    assert "conv-toggle" not in html, "the per-row View button is still rendered"
+
+
+def test_conversations_page_loads_the_newest_conversation_by_default(store):
+    """The panel is never an empty slab on arrival: the newest conversation in
+    the current filter loads on first paint (the IIFE clicks the first row)."""
+    conv_store.capture_request(
+        "sess-first", {"messages": [{"role": "user", "content": "check"}]},
+        reply="ok", profile="l2", model="m1",
+        ts="2026-11-07T11:00:00+00:00")
+    conv_store.upsert_conversation("sess-first", name="Newest one",
+                                   profile="l2", model="m1", source="live")
+    conv_store.recount_conversation("sess-first")
+    from src.ui.pages import render_conversations_page
+    html = render_conversations_page(_Cfg(), None, {})
+    assert "first.click()" in html, "the panel does not auto-load the newest row"
+    assert "CONV_EMPTY_HINT" in html, "the reset action has no empty-state hint"
+    assert "keydown" in html, "rows are not keyboard operable"
+
+
+def test_conversations_css_reserves_the_panel_lane():
+    """The lane is RESERVED: `:has()` takes the width on desktop whether or not
+    a conversation is open, and column 2 never reflows (the modal-era margin
+    class was explicitly rejected)."""
+    path = "src/ui/templates/jinja/static/dashboard.css"
+    css = open(path, encoding="utf-8").read()
+    assert "body:has(.conv-panel) .main-content" in css, "the lane is not reserved"
+    assert "--detail-width" in css
+    assert "min-width: 1100px" in css, "the reservation has no desktop breakpoint"
+    # The rejected modal-era mechanics must not come back.
+    assert ".detail-open" not in css
+    assert "grid-template-columns: minmax(0, 1fr) var(--detail-width)" in css
