@@ -239,7 +239,9 @@ def render_home_page(config, engine=None, headers=None, profile_filter=None,
     from .render import render_page
     ctx = dashboard_context(config, engine, headers or {},
                             profile_filter=profile_filter, period=period)
-    ctx["crumbs"] = _crumbs(("Overview", None))
+    # No breadcrumbs: the brand in the sidebar already says where this is, and
+    # a lone "Overview" crumb above the dashboard duplicated it (operator,
+    # 2026-11-07).
     return render_page("pages/home.html", config, engine, **ctx)
 
 

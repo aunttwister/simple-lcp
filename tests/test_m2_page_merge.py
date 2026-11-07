@@ -236,12 +236,13 @@ def test_the_profiles_page_has_no_single_tab_strip(cfg, engine):
 
 def test_activity_has_exactly_logs_and_evidence(cfg, engine):
     """CUR-330: the overview left Activity (it is the homepage); only the two log
-    realms remain, plus the link back to the numbers."""
+    realms remain — and, fully separated (operator, 2026-11-07), no cross link
+    back to the dashboard either."""
     from src.ui.pages import render_activity_page
     html = render_activity_page(cfg, engine, {}, {"Host": "test:8734"})
     strip = html.split('<div class="page-tabs">')[1].split("</div>")[0]
     assert re.findall(r'href="([^"]+)"', strip) == [
-        "/activity", "/activity?tab=evidence", "/"]
+        "/activity", "/activity?tab=evidence"]
 
 
 def test_usage_is_a_page_of_its_own(cfg, engine):

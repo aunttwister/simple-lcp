@@ -6,9 +6,6 @@
 
 {% if tab == 'overview' %}
 <div class="header-row">
-  <div>
-    <p class="subtitle">Cost · tokens · requests{% if profile_filter %} — {{ profile_filter | upper }}{% endif %}</p>
-  </div>
   <div class="period-select" role="navigation" aria-label="Time period">
     <span class="period-label">Period</span>
     {% for opt in period_options %}
