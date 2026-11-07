@@ -2190,22 +2190,22 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 .conv-untitled { font-style: italic; }
 
 /* ── Conversations: two-lane layout with a persistent third column (CUR-329) ──
-   Same shape as the overview's detail panel: the lane is RESERVED on desktop —
-   the space is taken whether or not a conversation is open, clicking a row
-   only swaps the panel's content, and there is no modal behaviour (no
-   backdrop, no Escape-dismiss, no column-2 reflow). Below 1100px the panel
-   stacks under the table; the content is the same, just reached by scrolling. */
+   Same permanent-lane shape as the overview's detail panel, but the
+   conversation panel is sticky IN-FLOW inside the grid — the grid's second
+   column IS the reservation, so unlike .detail-panel (fixed, out of flow) no
+   body margin is added here; the token is whatever the overview block defines
+   (define --detail-width ONCE per tree, do not redefine it here).
+   Below 1100px the panel stacks under the table; the content is the same,
+   just reached by scrolling. */
+/* This tree has no overview panel yet, so the conversations block owns the
+   token — define it here ONCE. When the CUR-330 detail panel lands here it
+   owns --detail-width and this line moves to that block. */
+:root { --detail-width: 420px; }
 .conv-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
 @media (min-width: 1100px) {
-  :root { --detail-width: 420px; }
-  /* The lane costs width on every page that carries a panel; `:has()` scopes
-     the margin so pages without one keep the full content width. */
-  body:has(.conv-panel) .main-content {
-    margin-right: calc(var(--detail-width) + 1.5rem);
-  }
-  /* The fixed top-right badge would sit UNDER the reserved lane; offset it. */
+  /* The fixed top-right badge would sit over the reserved lane; offset it. */
   body:has(.conv-panel) .header-plugin-badge.global {
-    right: calc(var(--detail-width) + 1.5rem);
+    right: calc(var(--detail-width) + 0.75rem);
   }
   .conv-layout { grid-template-columns: minmax(0, 1fr) var(--detail-width); }
   .conv-panel { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); }
