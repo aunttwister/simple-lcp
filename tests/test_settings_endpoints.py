@@ -107,12 +107,17 @@ class TestSettingsApi:
         assert 'data-tab="cache"' not in html
         assert 'id="cacheRows"' not in html
 
-    def test_settings_page_route_removed(self, engine, mock_config):
-        # /settings no longer exists; it should 404.
+    def test_settings_page_route_restored(self, engine, mock_config):
+        # CUR-329: /settings exists again — the estate-level switches page
+        # (conversation titling first). The old assertion here pinned its
+        # removal; that decision is reversed, and the page must render rather
+        # than 404.
         h = TestHandler(path="/settings", engine=engine)
         h.config = mock_config
         h.do_GET()
-        assert _status(h) == 404
+        assert _status(h) == 200
+        body = h.wfile.write.call_args[0][0].decode("utf-8")
+        assert "/api/settings/conversations" in body
 
     def test_settings_api_default(self, engine):
         init_settings(engine)

@@ -656,6 +656,7 @@ def capture_request(conversation_id: Optional[str], body: dict[str, Any],
 
 def upsert_conversation(cid: str, *, profile: Optional[str] = None,
                         model: Optional[str] = None, name: Optional[str] = None,
+                        summary: Optional[str] = None,
                         source: Optional[str] = None,
                         started_at: Optional[str] = None,
                         ended_at: Optional[str] = None,
@@ -680,6 +681,10 @@ def upsert_conversation(cid: str, *, profile: Optional[str] = None,
     try:
         cols = {r[1] for r in con.execute("PRAGMA table_info(conversations)")}
         wanted = [("profile", profile), ("model", model), ("name", name),
+                  # CUR-329: the background titler is the first live writer of
+                  # `summary` (the migration wrote the old corpus's). Same
+                  # None-safety as `name`: absent here must not erase one.
+                  ("summary", summary),
                   ("source", source), ("started_at", started_at),
                   ("ended_at", ended_at), ("message_count", message_count),
                   ("active_message_count", active_message_count),

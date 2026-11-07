@@ -58,7 +58,10 @@ SECTION_TAB = {
 # Activity before Conversations: the log is the surface you open to answer "what
 # did the router do", and a conversation is the drill-down from one of its rows.
 # CUR-330: Overview (the homepage) is the first entry, and the brand links to it.
-NAV = ["/", "/profiles", "/models", "/activity", "/conversations", "/usage", "/alerts"]
+# CUR-329 added the Settings entry at the end (see _sidebar.html's comment for
+# why it is last).
+NAV = ["/", "/profiles", "/models", "/activity", "/conversations", "/usage",
+       "/alerts", "/settings"]
 
 
 @pytest.fixture
@@ -119,7 +122,7 @@ def _nav(html):
 # ── the nav ──────────────────────────────────────────────────────────────────
 
 def test_nav_is_flat_and_ordered_with_profiles_first(cfg):
-    """Seven entries, no group labels: the label only made the reader classify."""
+    """Eight entries, no group labels: the label only made the reader classify."""
     from src.ui.render import render_page
     html = render_page("pages/models.html", cfg)
     nav = _nav(html)

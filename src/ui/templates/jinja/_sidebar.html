@@ -21,6 +21,9 @@
   Usage      — spend per provider, balances, and the scrape cache (its own page:
                it is a billing view, not a log)
   Alerts     — things to act on (R10: alerts and budgets are per subject)
+  Settings   — estate-level switches with no per-provider home (first tenant:
+               CUR-329 conversation titling). Last: you come here to change
+               behaviour, not to see it.
 
   Setup, Tasks and Fleet are not here: they were the work module's own pages, and
   the module's remaining surface is a Hermes concern. Skills, memory and cron left
@@ -46,6 +49,7 @@
     <a href="/conversations"{% if active_page == 'conversations' %} class="active" aria-current="page"{% endif %}>Conversations</a>
     <a href="/usage"{% if active_page == 'usage' %} class="active" aria-current="page"{% endif %}>Usage</a>
     <a href="/alerts"{% if active_page == 'alerts' %} class="active" aria-current="page"{% endif %}>Alerts <span id="sidebarAlertBadge" class="sb-alert-badge" style="display:none">0</span></a>
+    <a href="/settings"{% if active_page == 'settings' %} class="active" aria-current="page"{% endif %}>Settings</a>
   </nav>
   <div class="sidebar-footer">
     <a href="/admin/logout" class="sb-signout" aria-label="Sign out">
