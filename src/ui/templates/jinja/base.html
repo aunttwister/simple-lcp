@@ -22,13 +22,17 @@
       <span class="header-plugin-dot" id="pluginHeaderDot"></span>
       <span class="header-plugin-text" id="pluginHeaderText">…</span>
     </div>
-    <div class="hp-usage" id="hpUsage" style="display:none">
+    {# The usage/credits bar is a billing widget; the Overview homepage already
+       leads with the Usage Value card, so it is not repeated here (operator,
+       2026-11-07). Every reader in header-status.js guards on the missing
+       element, so omitting the block is the whole fix. #}
+    {% if active_page != 'home' %}<div class="hp-usage" id="hpUsage" style="display:none">
       <div class="hp-usage-track">
         <div class="hp-usage-fill" id="hpUsageFill"></div>
       </div>
       <span class="hp-usage-label" id="hpUsageLabel"></span>
       <div class="hp-usage-popover" id="hpUsagePopover"></div>
-    </div>
+    </div>{% endif %}
   </div>
   {# Breadcrumbs: the nav entry, then the level-2 page, then the tab. Pages pass a
      `crumbs` list of {label, href}; the last entry is the current location and

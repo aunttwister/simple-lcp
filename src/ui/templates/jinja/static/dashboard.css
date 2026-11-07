@@ -2855,6 +2855,7 @@ input:disabled {
    is open — column 2 never re-flows. :has() scopes this to the dashboard page
    so other pages keep their full width. */
 @media (min-width: 1100px) {
+  .dp-backdrop { display: none !important; } /* no modal layer on the desktop lane */
   body:has(.detail-panel) .main-content { margin-right: var(--detail-width); }
   body:has(.detail-panel) .header-plugin-badge.global {
     right: calc(var(--detail-width) + 0.75rem);

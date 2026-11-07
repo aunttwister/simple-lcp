@@ -66,7 +66,11 @@ function openDetail(kind, arg) {
   else { return; }
   body.innerHTML = html;
   panel.classList.add('open');
-  if (backdrop) backdrop.classList.add('open');
+  /* Backdrop ONLY on narrow viewports (< 1100px) where the panel overlays.
+     On the desktop three-column layout there is no backdrop: clicking empty
+     space in column 2 must never dismiss or dim anything — the panel only
+     ever changes when another artifact is clicked. */
+  if (backdrop) backdrop.classList.toggle('open', window.innerWidth < 1100);
 }
 function closeDetail() {
   var panel = document.getElementById('detailPanel');
@@ -440,6 +444,10 @@ function switchView(view) {
 }
 
 buildCharts('aggregate');
+
+// The detail panel is a permanent column-3 lane with the Cost breakdown as
+// its default content — never an empty modal waiting for a click.
+openDetail('cost');
 
 function loadProvBadges(){
   fetch('/health').then(function(r){return r.json()}).then(function(d){
