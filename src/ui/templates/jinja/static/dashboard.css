@@ -2792,6 +2792,13 @@ input:disabled {
 }
 .metric-card.clickable .metric-sub { line-height: 1.5; }
 
+/* Clickable artifacts on the overview get the pointer affordance: the metric
+   cards (openDetail), the period selector, and the chart canvases (bar click =
+   day breakdown). The cards already look like buttons; the cursor is what
+   tells the hand. (operator, 2026-11-07) */
+.metric-card.clickable, .metric-card[role="button"], .period-select a,
+#costChart, #tokensChart { cursor: pointer; }
+
 /* ── Detail panel (column 3) ──
    The Slack/X pattern, permanent-lane edition (operator, 2026-11-07): column 1
    is the sidebar (collapsible), column 2 is the dashboard, column 3 is ALWAYS

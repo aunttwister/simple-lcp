@@ -157,8 +157,11 @@ class TestRenderDashboard:
         html = render_dashboard(dash_config, engine, dash_headers)
         assert "<!DOCTYPE html>" in html
         assert "$0.00" in html  # usage value renders at 2 decimals (CUR-330 item 2)
-        # The global header widget renders (empty state is now client-side JS).
-        assert 'id="pluginHeaderBadge"' in html
+        # The global header widget does NOT render on the overview: the whole
+        # widget is a usage surface and the page leads with the Usage Value card
+        # (CUR-330, operator 2026-11-07). header-status.js still loads and
+        # null-guards the missing elements.
+        assert 'id="pluginHeaderBadge"' not in html
         assert 'header-status.js' in html
 
     def test_budget_query_failure_swallowed(self, temp_db, dash_config, dash_headers):
