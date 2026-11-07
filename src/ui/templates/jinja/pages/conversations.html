@@ -233,13 +233,15 @@
   </div>{# /conv-table-col #}
 
   {# ── Column 3: the conversation panel ─────────────────────────────────────
-     A PERMANENT reserved lane, same shape as the overview's detail panel: the
-     space is taken on desktop whether or not a conversation is open, clicking
-     a row only swaps the panel's content, and there is no modal behaviour —
-     no backdrop, no Escape-dismiss, no column-2 reflow. Default content: the
-     newest conversation in the current filter (server-rendered id below; the
-     client loads its transcript on first paint). #}
+     A PERMANENT reserved lane, full viewport height (fixed, like the overview's
+     detail panel): clicking a row only swaps the panel's content, there is no
+     modal behaviour, and the left edge is a DRAG HANDLE — pull it to resize the
+     lane like a file explorer's splitter, double-click it to reset. Default
+     content: the newest conversation in the current filter (server-rendered id
+     below; the client loads its transcript on first paint). #}
   <aside class="conv-panel" id="convPanel" aria-label="Conversation detail">
+    <div class="conv-resizer" id="convResizer" title="Drag to resize — double-click to reset"
+         aria-hidden="true"></div>
     <div class="conv-panel-head">
       <h3 class="conv-panel-title" id="convPanelTitle">Conversation</h3>
       <button type="button" class="btn-sm conv-panel-close" id="convPanelClose"
@@ -250,6 +252,7 @@
       <div class="conv-messages" id="convMessages"></div>
     </div>
   </aside>
+  <div class="conv-backdrop" id="convBackdrop"></div>
 </div>{# /conv-layout #}
 {% endif %}
 {% endblock %}
@@ -608,14 +611,27 @@ function renderMessages(box, msgs, truncated, total) {
 }
 
 // ── Column 3: the conversation panel ─────────────────────────────────────────
-// A permanent reserved lane (same shape as the overview's detail panel), NOT a
-// dialog: clicking a row only swaps the panel's content, the lane never opens
-// or closes on desktop, and content persists while you scroll or filter the
-// table. Fetched on demand — a transcript can be megabytes, and a page of 20
-// would carry all of it for rows nobody opened.
+// Desktop (>=1100px): a full-height lane that is ALWAYS visible — clicking a
+// row swaps content, the lane never opens or closes. Mobile: the same panel
+// is a slide-over sheet — a tap opens it over the table, backdrop/Close/
+// Escape dismiss it. Fetched on demand — a transcript can be megabytes, and a
+// page of 20 would carry all of it for rows nobody opened.
 
+var CONV_DESKTOP = window.matchMedia('(min-width: 1100px)');
 var CONV_EMPTY_HINT = 'Click a row in the table — the conversation opens here ' +
   'and stays until you pick another one.';
+var convPanelEl = document.getElementById('convPanel');
+var convBackdropEl = document.getElementById('convBackdrop');
+
+function convPanelShow() {
+  convPanelEl.classList.add('open');
+  convBackdropEl.classList.add('open');
+}
+
+function convPanelHide() {
+  convPanelEl.classList.remove('open');
+  convBackdropEl.classList.remove('open');
+}
 
 function convPanelSetEmpty() {
   document.getElementById('convPanelTitle').textContent = 'Conversation';
@@ -675,6 +691,7 @@ document.querySelectorAll('.conv-row').forEach(function (row) {
     var cid = row.getAttribute('data-cid');
     var name = row.getAttribute('data-name') || cid;
     convPanelSetActive(cid, name);
+    convPanelShow();
     loadConversation(cid);
   });
   row.addEventListener('keydown', function (ev) {
@@ -684,14 +701,73 @@ document.querySelectorAll('.conv-row').forEach(function (row) {
   });
 });
 
-// Reset returns the panel to its empty-state hint — it does not hide anything
-// (there is nothing to hide on desktop; the lane is reserved either way).
-document.getElementById('convPanelClose').addEventListener('click', convPanelSetEmpty);
+// Close/Reset: on mobile it dismisses the sheet; on desktop (lane always
+// visible) it resets the content to the empty-state hint.
+document.getElementById('convPanelClose').addEventListener('click', function () {
+  if (!CONV_DESKTOP.matches) convPanelHide();
+  convPanelSetEmpty();
+});
+convBackdropEl.addEventListener('click', function () {
+  convPanelHide();
+  convPanelSetEmpty();
+});
+document.addEventListener('keydown', function (ev) {
+  if (ev.key !== 'Escape' || CONV_DESKTOP.matches) return;
+  convPanelHide();
+  convPanelSetEmpty();
+});
 
-// Default content: the newest conversation in the current filter (the table is
-// served newest-first), loaded on first paint so the panel is never an empty
-// slab on arrival.
+// ── Drag handle: file-explorer-style width splitter ──────────────────────────
+// Pull the panel's left edge to resize; double-click resets. The width rides
+// --conv-width on <body> so the desktop margin reservation follows it, and it
+// persists in localStorage across visits.
+var convResizer = document.getElementById('convResizer');
+var CONV_MIN_W = 280;
+var CONV_MAX_W = 760;
+
+function convSetWidth(px, persist) {
+  px = Math.max(CONV_MIN_W, Math.min(px, Math.min(window.innerWidth * 0.6, CONV_MAX_W)));
+  document.body.style.setProperty('--conv-width', px + 'px');
+  if (persist) {
+    try { localStorage.setItem('conv-panel-width', String(px)); } catch (e) { /* private mode */ }
+  }
+}
+
+(function convRestoreWidth() {
+  var v = parseInt(localStorage.getItem('conv-panel-width') || '', 10);
+  if (v) convSetWidth(v, false);
+})();
+
+var convDragging = false;
+convResizer.addEventListener('pointerdown', function (e) {
+  convDragging = true;
+  convResizer.classList.add('dragging');
+  convResizer.setPointerCapture(e.pointerId);
+  document.body.classList.add('conv-resizing');
+});
+convResizer.addEventListener('pointermove', function (e) {
+  if (!convDragging) return;
+  convSetWidth(window.innerWidth - e.clientX, false);
+});
+convResizer.addEventListener('pointerup', function (e) {
+  if (!convDragging) return;
+  convDragging = false;
+  convResizer.classList.remove('dragging');
+  convResizer.releasePointerCapture(e.pointerId);
+  document.body.classList.remove('conv-resizing');
+  convSetWidth(window.innerWidth - e.clientX, true);
+});
+convResizer.addEventListener('dblclick', function () {
+  document.body.style.removeProperty('--conv-width');
+  try { localStorage.removeItem('conv-panel-width'); } catch (e) { /* private mode */ }
+});
+
+// Default content: on desktop the newest conversation in the current filter
+// loads on first paint so the lane is never an empty slab on arrival. On
+// mobile the sheet stays closed until a row is tapped — covering the table on
+// load would be a modal, and modal behaviour was rejected.
 (function () {
+  if (!CONV_DESKTOP.matches) { convPanelSetEmpty(); return; }
   var first = document.querySelector('.conv-row');
   if (first) first.click();
   else convPanelSetEmpty();

@@ -582,17 +582,50 @@ def test_conversations_page_loads_the_newest_conversation_by_default(store):
 
 
 def test_conversations_css_reserves_the_panel_lane():
-    """The lane is RESERVED by the grid's second column (the panel is sticky
-    in-flow inside it — no body margin, which would double-count the width)."""
+    """The lane is a FIXED full-height panel: on desktop the body margin
+    reserves its width (the panel is out of flow, like the overview's
+    detail-panel), below 1100px it is a slide-over sheet with a backdrop."""
     path = "src/ui/templates/jinja/static/dashboard.css"
     css = open(path, encoding="utf-8").read()
-    assert "grid-template-columns: minmax(0, 1fr) var(--detail-width)" in css, \
-        "the lane is not reserved by the grid"
+    assert ".conv-panel {\n  position: fixed; top: 0; right: 0; bottom: 0;" in css, \
+        "the panel is not a full-height fixed lane"
+    assert "width: var(--conv-width, var(--detail-width))" in css
+    assert "body:has(.conv-panel) .main-content" in css, "the lane is not reserved"
     assert "min-width: 1100px" in css, "the reservation has no desktop breakpoint"
-    # The token is defined once (by the overview's panel block), never redefined.
+    # The token is defined once (by the conversations block on this tree), and
+    # the dragged width overrides it without redefining it.
     assert css.count("--detail-width: ") == 1, "--detail-width is defined more than once"
-    # The double-counted body margin must not come back; the badge offset may.
-    assert "body:has(.conv-panel) .main-content" not in css
-    assert "body:has(.conv-panel) .header-plugin-badge.global" in css
+    assert "--conv-width" in css
+    # The rejected sticky-in-grid shape must not come back.
+    assert ".conv-panel { position: sticky" not in css
     # The rejected modal-era mechanics must not come back.
     assert ".detail-open" not in css
+
+
+def test_conversations_panel_has_a_drag_handle():
+    """File-explorer-style splitter: the resizer exists, is keyboard/pointer
+    driven, clamps its width, persists it, and double-click resets."""
+    path = "src/ui/templates/jinja/pages/conversations.html"
+    html = open(path, encoding="utf-8").read()
+    assert 'id="convResizer"' in html, "no drag handle in the template"
+    assert "pointerdown" in html and "pointermove" in html and "pointerup" in html
+    assert "CONV_MIN_W" in html and "CONV_MAX_W" in html, "the drag is unclamped"
+    assert "conv-panel-width" in html, "the dragged width does not persist"
+    assert "dblclick" in html, "double-click does not reset the width"
+    css = open("src/ui/templates/jinja/static/dashboard.css", encoding="utf-8").read()
+    assert ".conv-resizer" in css and "col-resize" in css
+
+
+def test_conversations_panel_works_on_mobile():
+    """Below 1100px the panel is a slide-over sheet: a backdrop exists, row
+    tap opens the sheet, backdrop/Escape dismiss it, and the sheet does NOT
+    auto-open on page load (covering the table would be a modal)."""
+    path = "src/ui/templates/jinja/pages/conversations.html"
+    html = open(path, encoding="utf-8").read()
+    assert 'id="convBackdrop"' in html, "no backdrop element"
+    assert "CONV_DESKTOP" in html and "matchMedia" in html, "no viewport split"
+    assert "convPanelHide" in html, "the sheet cannot be dismissed"
+    assert "Escape" in html, "the sheet is not Escape-dismissable on mobile"
+    assert "if (!CONV_DESKTOP.matches) { convPanelSetEmpty(); return; }" in html, \
+        "the sheet auto-opens on mobile page load"
+    assert "convPanelShow();" in html, "a row tap does not open the sheet"
