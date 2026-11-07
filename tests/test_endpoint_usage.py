@@ -340,9 +340,13 @@ class TestPageRoutes:
 
     def test_activity_page_serves(self, temp_db):
         _seed(temp_db)
-        # CUR-330: the bare overview URL redirects to the homepage (`/`), and
-        # the homepage itself serves 200.
+        # CUR-330: a bare /activity renders the Activity page now; only the
+        # explicit legacy overview URL redirects to the homepage (`/`), which
+        # itself serves 200.
         h = TestHandler(path="/activity", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 200
+        h = TestHandler(path="/activity?tab=overview", engine=temp_db)
         h.do_GET()
         assert _status(h) == 302
         loc = [call[0][1] for call in h.send_header.call_args_list

@@ -190,7 +190,6 @@ def test_activity_overview_urls_redirect_home(temp_db, config):
 
     for path, want in (
         ("/activity?tab=overview", "/"),
-        ("/activity", "/"),                      # bare page → home too
         ("/activity?tab=overview&profile=l2", "/?profile=l2"),
     ):
         h = DashboardEndpoints.__new__(DashboardEndpoints)
@@ -206,6 +205,20 @@ def test_activity_overview_urls_redirect_home(temp_db, config):
         h._host_headers = lambda: {"Host": "t:8734"}
         DashboardEndpoints._serve_activity_page(h)
         assert sent and sent[0] == want, (path, sent)
+
+    # A BARE /activity renders the Activity page (default tab: logs) — it is
+    # the sidebar's own link and must not bounce to the homepage.
+    h = DashboardEndpoints.__new__(DashboardEndpoints)
+    h.path = "/activity"
+    bodies = []
+    h._redirect = lambda loc, code=302: (_ for _ in ()).throw(
+        AssertionError("bare /activity must not redirect"))
+    h._qs = lambda: {}
+    h._send_html = lambda body: bodies.append(body)
+    h.config, h.engine = config, engine
+    h._host_headers = lambda: {"Host": "t:8734"}
+    DashboardEndpoints._serve_activity_page(h)
+    assert bodies, "bare /activity must render"
 
 
 def test_legacy_dashboard_redirects_home():

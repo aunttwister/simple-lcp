@@ -700,8 +700,16 @@ class TestStaticEndpoints:
         assert _status(h) == 200
 
     def test_page_activity(self, temp_db):
-        """CUR-330: the overview moved to `/`; /activity redirects there."""
+        """A bare /activity IS the Activity page (default tab: logs). Only an
+        explicit ?tab=overview redirects to the homepage — the sidebar's own
+        link must not bounce off its target (CUR-330, operator 2026-11-07)."""
         h = TestHandler(path="/activity", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 200
+
+    def test_page_activity_overview_tab_redirects(self, temp_db):
+        """The legacy ?tab=overview bookmark still redirects to `/`."""
+        h = TestHandler(path="/activity?tab=overview", engine=temp_db)
         h.do_GET()
         assert _status(h) == 302
         assert _header(h, "Location") == "/"

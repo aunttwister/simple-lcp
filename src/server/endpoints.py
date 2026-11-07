@@ -3643,7 +3643,11 @@ class DashboardEndpoints:
         if str(qs.get("view") or "") == "conversations":
             self._redirect("/conversations")
             return
-        if tab in ("overview", ""):
+        # Only an EXPLICIT overview URL redirects to the homepage. A bare
+        # /activity is the sidebar's own link and must render Activity
+        # (default tab: logs) — treating empty as "overview" here sent the
+        # navbar click to `/` (operator, 2026-11-07).
+        if tab in ("overview",):
             target = "/"
             if qs.get("profile"):
                 from urllib.parse import quote
