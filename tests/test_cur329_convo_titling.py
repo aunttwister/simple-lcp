@@ -582,14 +582,17 @@ def test_conversations_page_loads_the_newest_conversation_by_default(store):
 
 
 def test_conversations_css_reserves_the_panel_lane():
-    """The lane is RESERVED: `:has()` takes the width on desktop whether or not
-    a conversation is open, and column 2 never reflows (the modal-era margin
-    class was explicitly rejected)."""
+    """The lane is RESERVED by the grid's second column (the panel is sticky
+    in-flow inside it — no body margin, which would double-count the width)."""
     path = "src/ui/templates/jinja/static/dashboard.css"
     css = open(path, encoding="utf-8").read()
-    assert "body:has(.conv-panel) .main-content" in css, "the lane is not reserved"
-    assert "--detail-width" in css
+    assert "grid-template-columns: minmax(0, 1fr) var(--detail-width)" in css, \
+        "the lane is not reserved by the grid"
     assert "min-width: 1100px" in css, "the reservation has no desktop breakpoint"
+    # The token is defined once (by the overview's panel block), never redefined.
+    assert css.count("--detail-width: ") == 1, "--detail-width is defined more than once"
+    # The double-counted body margin must not come back; the badge offset may.
+    assert "body:has(.conv-panel) .main-content" not in css
+    assert "body:has(.conv-panel) .header-plugin-badge.global" in css
     # The rejected modal-era mechanics must not come back.
     assert ".detail-open" not in css
-    assert "grid-template-columns: minmax(0, 1fr) var(--detail-width)" in css
