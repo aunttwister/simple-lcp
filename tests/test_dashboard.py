@@ -133,10 +133,11 @@ class TestRenderDashboard:
         assert "$5.51" in html
         # Formatter paths: 2M prompt tokens -> "2.0M"
         assert "2.0M" in html
-        # Real fallback counting (CUR-330 item 1): the l1 row (provider=deepseek)
-        # is l1's primary so NOT a fallback; the l2 row on deepseek IS (l2's
-        # primary is opencode); the 'unknown'-provider row is not a real route.
-        assert "1 fallbacks" in html
+        # Real off-primary counting (CUR-330 item 1): the l1 row (provider=
+        # deepseek) is l1's primary so NOT off-primary; the l2 row on deepseek
+        # IS (l2's primary is opencode); the 'unknown'-provider row is not a
+        # real route.
+        assert "1 off-primary" in html
         assert "99.9%" not in html
         # Budget cards rendered (active + exceeded)
         assert "L2 Cap" in html

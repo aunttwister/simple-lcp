@@ -30,7 +30,7 @@
        onclick="openDetail('requests')" onkeypress="if(event.key==='Enter')openDetail('requests')">
     <div class="metric-label">Requests</div>
     <div class="metric-value">{{ ok_requests_fmt }}</div>
-    <div class="metric-sub">{{ fallback_count_fmt }} fallbacks ({{ fb_pct_fmt }}) · {{ error_count_fmt }} errors</div>
+    <div class="metric-sub">{{ fallback_count_fmt }} off-primary ({{ fb_pct_fmt }}) · {{ error_count_fmt }} errors</div>
   </div>
   <div class="metric-card clickable" role="button" tabindex="0" aria-label="Cache ratio breakdown"
        onclick="openDetail('cache')" onkeypress="if(event.key==='Enter')openDetail('cache')">

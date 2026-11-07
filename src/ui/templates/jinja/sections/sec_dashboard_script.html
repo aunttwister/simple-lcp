@@ -121,16 +121,19 @@ function _costHtml() {
 
 function _requestsHtml() {
   var t = breakdown.requests.totals;
-  var h = '<div class="dp-note">Fallback = a request served by a provider that is NOT the profile\'s '
-        + 'primary chain step. Errors are failed calls. A real fallback rate is single-digit; if this '
-        + 'shows a large share, a primary provider is failing often.</div>';
+  var h = '<div class="dp-note">Off-primary = a request served by a chain step '
+        + 'other than the profile\'s primary. The dynamic router scores every '
+        + 'step and legitimately picks non-first steps, so a high share is '
+        + 'routing working as designed — the log does not record WHY a step '
+        + 'was chosen, so a primary-failure fallback cannot be told apart '
+        + 'from a router decision here. Errors are failed calls.</div>';
   h += _table(['Metric', 'Count'], [
     ['Successful', fmtTok(t.ok)],
-    ['Fallbacks', fmtTok(t.fallbacks) + ' (' + t.fb_pct + '%)'],
+    ['Off-primary', fmtTok(t.fallbacks) + ' (' + t.fb_pct + '%)'],
     ['Errors', fmtTok(t.errors)]
   ]);
   h += '<div class="dp-subhead">By profile</div>';
-  h += _table(['Profile', 'Total', 'OK', 'Fallbacks', 'Errors'],
+  h += _table(['Profile', 'Total', 'OK', 'Off-primary', 'Errors'],
     breakdown.requests.profiles.map(function(p) {
       return [esc(p.profile), fmtTok(p.reqs), fmtTok(p.ok), fmtTok(p.fallbacks), fmtTok(p.err)];
     }));

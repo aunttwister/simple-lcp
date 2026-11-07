@@ -642,7 +642,7 @@ class TestDashboardTemplate:
         html = self._render(mock_config)
         assert "$1.23" in html             # Usage value, 2 decimals (item 2)
         assert "1,234" in html             # Requests
-        assert "152 fallbacks (12.3%)" in html  # real fallbacks, not fake ones
+        assert "152 off-primary (12.3%)" in html  # real count, honest label
         assert "50.0%" in html             # Cache Hit Ratio
         assert "5.6K" in html              # Generated tokens
         assert "$0.90" in html and "$0.30" in html  # metered/subs split
