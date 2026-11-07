@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Settings — LCP{% endblock %}
+
+{#
+  Estate-level switches that have no per-provider home. The Providers page owns
+  the per-provider panels; this page is for behaviour that applies to the whole
+  gateway. First tenant: CUR-329 conversation titling.
+
+  The form is deliberately plain HTML + one fetch: a toggle and a picker have no
+  reason to pull a component library, and a full page reload on save (the
+  fallback when fetch fails) is still correct.
+#}
+
+{% block content %}
+<h1>Settings</h1>
+<p class="subtitle">
+  Gateway-wide behaviour. Per-provider panels (cache TTLs, routing, keys) live
+  on the Providers and Profiles pages.
+</p>
+
+<h2>Conversation titling</h2>
+<p class="muted">
+  After each served request LCP can ask the gateway's own chain head to write a
+  short title and summary for the conversation, in the background. Titles make
+  the Conversations history searchable by what it was about instead of
+  "Untitled". Titling never runs on the request path and never fails a request.
+</p>
+
+<div class="card" style="max-width:36rem">
+  <div class="settings-row">
+    <label class="toggle" for="titlingEnabled">
+      <input type="checkbox" id="titlingEnabled"{% if payload["titling"].enabled %} checked{% endif %}>
+      <span class="toggle-track" aria-hidden="true"></span>
+      <span class="toggle-label">Enable background titling</span>
+    </label>
+  </div>
+  <div class="settings-row">
+    <label for="titlingModel">Model used to title</label>
+    <select id="titlingModel">
+      {# Empty = "the default profile's chain head" — what an unset model means
+         at runtime. Only chained models are offered, because the titler sends
+         through a chain step and cannot reach a model nothing chains to. #}
+      <option value="">Default profile chain head</option>
+      {% for m in payload.models %}
+        <option value="{{ m }}"{% if payload["titling"].model == m %} selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="settings-row">
+    <button type="button" class="btn-sm" id="titlingSave">Save</button>
+    <span class="muted" id="titlingStatus" role="status" aria-live="polite"></span>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// One save handler. textContent, never innerHTML: the status line shows server
+// error strings, which are attacker-influenced only in theory — but a status
+// span is exactly where a habit of innerHTML eventually bites.
+(function () {
+  var btn = document.getElementById('titlingSave');
+  var status = document.getElementById('titlingStatus');
+  btn.addEventListener('click', function () {
+    var body = {
+      enabled: document.getElementById('titlingEnabled').checked,
+      model: document.getElementById('titlingModel').value || null
+    };
+    btn.disabled = true;
+    status.textContent = 'Saving…';
+    fetch('/api/settings/conversations', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().then(function (data) { return {ok: r.ok, data: data}; });
+    }).then(function (res) {
+      if (res.ok && res.data.ok) {
+        status.textContent = 'Saved.';
+      } else {
+        status.textContent = (res.data && res.data.error) || 'Save failed.';
+      }
+    }).catch(function () {
+      status.textContent = 'Save failed.';
+    }).finally(function () { btn.disabled = false; });
+  });
+})();
+</script>
+{% endblock %}

@@ -2186,6 +2186,26 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 
 .conv-row .conv-toggle { min-width: 3.5rem; }
 
+/* CUR-329: the not-yet-titled marker. Italic, because it is a STATE ("nothing
+   has named this yet"), not a name — the same reason a form placeholder reads
+   differently from a value. */
+.conv-untitled { font-style: italic; }
+
+/* ── Settings page (CUR-329) ────────────────────────────────────────────────*/
+/* One control per row, so the toggle and the picker align down the card the
+   way the rest of the console's forms do. */
+.settings-row {
+  display: flex; align-items: center; gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+.settings-row:last-child { margin-bottom: 0; }
+.settings-row > label:first-child { min-width: 12rem; }
+.settings-row select {
+  background: hsl(var(--secondary)); color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--card-border)); border-radius: 0.375rem;
+  padding: 0.35rem 0.5rem; font-size: 0.8125rem;
+}
+
 /* The summary is the most useful sentence about a conversation and it was only
    reachable through the modal. Two lines, clamped, so a row stays a row: the full
    text is in the modal's audit panel. */

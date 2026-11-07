@@ -292,6 +292,14 @@ SEED_CONFIG: dict[str, Any] = {
         "path": "/app/data/costs.db",
         "wal_mode": True,
     },
+    # CUR-329: background titling/summarizing of captured conversations.
+    # Opt-out: capture already stores the transcripts, so the feature costs
+    # nothing until a title call is made, and untitled history was the status
+    # quo it improves on. `model` unset means "the default profile's chain head".
+    "conversation_titling": {
+        "enabled": True,
+        "model": None,
+    },
     "plugins": {
         "memory": {
             "enabled": True,
@@ -321,7 +329,8 @@ REQUIRED_SECTIONS = ("server", "profiles", "providers", "pricing",
                      "circuit_breaker", "database")
 ALL_SECTIONS = ("server", "profiles", "providers", "pricing",
                 "circuit_breaker", "retry", "database",
-                "dynamic_routing", "model_limits", "plugins")
+                "dynamic_routing", "model_limits", "plugins",
+                "conversation_titling")
 
 
 def _env_db_path() -> str:
@@ -805,6 +814,21 @@ class Config:
         Absent/partial config falls back to the memory plugin's defaults.
         """
         return self._data.get("plugins", {})
+
+    @property
+    def conversation_titling(self) -> dict:
+        """CUR-329 background titler settings: ``enabled`` and ``model``.
+
+        Optional section, like ``dynamic_routing``: a DB written before this
+        feature has no row, and the defaults here ARE the feature on with the
+        chain-head model. ``model`` names a gateway logical model; when unset
+        the titler uses the default profile's chain head, which is the model
+        the operator already chose to run the estate on.
+        """
+        return self._data.get("conversation_titling", {
+            "enabled": True,
+            "model": None,
+        })
 
     # ── Model identity (registry-aware lookups) ───────────────────────────
     #

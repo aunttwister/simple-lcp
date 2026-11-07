@@ -44,10 +44,12 @@ def begin(profile: str, model: str, provider: str, *,
           tools: int = 0) -> str:
     """Register a request as started. Returns a token for :func:`end`.
 
-    ``provider`` is the provider the request is being *sent to* — for a chain,
-    the primary step. The provider that actually answers may differ if fallback
-    engages; the finished row in ``requests`` is the authoritative record of
-    that, and this registry deliberately does not pretend otherwise.
+    ``provider`` is the provider the request is *first sent to* — for a chain,
+    the primary step. That is the only fact the caller knows at ``begin()`` time;
+    once the chain engages, :func:`update` moves the entry to the step that is
+    actually on the wire (CUR-329), so the page shows what is being tried now
+    rather than what was tried first. The finished row in ``requests`` remains
+    the authoritative record of who finally answered.
     """
     token = uuid.uuid4().hex
     entry = {
@@ -72,6 +74,32 @@ def end(token: str | None) -> None:
         return
     with _LOCK:
         _ENTRIES.pop(token, None)
+
+
+def update(token: str | None, *, provider: str | None = None,
+           model: str | None = None) -> None:
+    """Move a live entry to the chain step currently on the wire (CUR-329).
+
+    A chain registers its PRIMARY step at ``begin()``; when fallback engages the
+    entry would otherwise keep claiming the primary for the whole call — the page
+    showed "local-sparks" while the bill was accruing on "deepseek". The handler
+    passes an ``on_step`` callback into ``try_chain`` and this is what it calls
+    before each wire attempt.
+
+    Total, like every public function here: an unknown or ``None`` token, or
+    fields that arrive empty, are a no-op — a registry that could raise into the
+    chain would be fixing the label at the cost of the request it labels.
+    """
+    if not token:
+        return
+    with _LOCK:
+        entry = _ENTRIES.get(token)
+        if entry is None:
+            return
+        if provider:
+            entry["provider"] = str(provider)
+        if model:
+            entry["model"] = str(model)
 
 
 def sweep(max_age_s: int = MAX_AGE_S) -> int:

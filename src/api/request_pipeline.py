@@ -896,8 +896,9 @@ def call_with_retry(request_fn: Callable[[], T], retry_cfg=None) -> T:
 
 
 def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
-               warning_sink: list | None = None,
-               session_id: str | None = None) -> tuple[dict, int, str, str]:
+              warning_sink: list | None = None,
+              session_id: str | None = None,
+              on_step=None) -> tuple[dict, int, str, str]:
     """Try each provider in the chain. Returns (response, status, provider, model).
 
     ``warning_sink`` (optional): a list that receives human-readable warnings
@@ -907,6 +908,14 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
 
     ``session_id`` (optional): stable per-conversation identifier forwarded
     upstream as ``x-opencode-session`` (see forward_request).
+
+    ``on_step`` (optional): called as ``on_step(provider, model)`` immediately
+    before each WIRE attempt — after the skip gates, so a step that is skipped
+    (circuit breaker, capability gap, remembered bad request) never announces
+    itself. The chat handler uses it to move the in-flight registry entry to the
+    step being tried (CUR-329); called here, not in the handler's loop, because
+    only the chain knows when a step actually starts. A raising callback must
+    never break the chain, so it is guarded like every other observer here.
     """
     cb = resolve_service("circuit_breaker", fallback=get_circuit_breaker)
     # Work on a COPY of the chain — a dynamic-router override must never mutate
@@ -1148,6 +1157,15 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
             retry_cfg = {}
 
         try:
+            # Announce the step before it goes to the wire (see the docstring):
+            # this is the last point where the step is known to be real — past
+            # every skip gate — but not yet attempted.
+            if on_step is not None:
+                try:
+                    on_step(provider_name, model)
+                except Exception:  # noqa: BLE001 — an observer must not fail the observed
+                    logger.debug("inflight_step_update_failed",
+                                 provider=provider_name, model=model)
             attempted += 1
             t0 = time.time()
             resp, status = call_with_retry(

@@ -30,6 +30,7 @@ from .admin_login import AdminLoginEndpoints
 from .admin_oidc_endpoints import AdminOIDCEndpoints
 from ..api import audit as audit_log
 from ..api import conv_store
+from ..api import conv_titler
 from ..api.runtime import resolve_service
 from ..api.models import Budget, ApiKey, get_session
 from sqlalchemy import or_
@@ -700,6 +701,15 @@ class LCPHandler(
                 tools=len(body.get("tools") or []),
             )
 
+            # CUR-329: the entry above names the PRIMARY step, but a chain that
+            # falls back bills a different provider. try_chain announces each
+            # step as it goes to the wire, so the live table shows what is
+            # being tried NOW rather than what was tried first. Guarded inside
+            # try_chain; a failed label update must never fail the request.
+            def _note_inflight_step(step_provider, step_model):
+                in_flight.update(_inflight_token, provider=step_provider,
+                                 model=step_model)
+
             streaming = body.get("stream", False)
 
             # The client's per-conversation id, when it sends one. Hermes attaches
@@ -729,7 +739,7 @@ class LCPHandler(
             _warning_sink: list[str] = []
             response_body, status, provider, model = try_chain(
                 profile, profile_cfg, body, self.config, warning_sink=_warning_sink,
-                session_id=session_id,
+                session_id=session_id, on_step=_note_inflight_step,
             )
             if _warning_sink:
                 self._pending_headers["X-LCP-Context-Warning"] = " | ".join(_warning_sink)
@@ -824,6 +834,10 @@ class LCPHandler(
                     agent_generated=agent_generated,
                     agent_identity=agent_identity,
                 )
+                # CUR-329: the transcript just grew — maybe past the titler's
+                # minimum — so the conversation is now a titling candidate.
+                # Queue-only on the request path; the worker does the work.
+                conv_titler.enqueue(conversation_id, config=self.config)
 
                 total_wall_ms = int((time.time() - t0) * 1000)
                 logger.info(
@@ -907,6 +921,8 @@ class LCPHandler(
                 agent_generated=agent_generated,
                 agent_identity=agent_identity,
             )
+            # CUR-329: titling candidate — see the streaming branch's enqueue.
+            conv_titler.enqueue(conversation_id, config=self.config)
 
             total_wall_ms = int((time.time() - t0) * 1000)
             logger.info(
@@ -1178,6 +1194,10 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_logs_page())
     t.get("page.alerts", exact("/alerts"),
           lambda h, p: h._serve_alerts_page())
+    # CUR-329: estate-level switches (titling today). Registered with the other
+    # pages, before the per-profile suffix rule below.
+    t.get("page.settings", exact("/settings"),
+          lambda h, p: h._serve_settings_page())
 
     # ── public marketing landing (no admin session required) ──
     # /welcome is PUBLIC_EXACT in admin_auth; /welcome/ serves its assets.
@@ -1259,6 +1279,11 @@ def _build_routes() -> RouteTable:
     # ── settings / routing ──
     t.get("api.settings", exact("/api/settings"),
           lambda h, p: h._serve_settings_api())
+    # CUR-329: the conversations-titling section. Registered BEFORE
+    # api.settings.cache.* would matter only if the matchers overlapped —
+    # they do not — but it sits with its siblings for readability.
+    t.get("api.settings.conversations", exact("/api/settings/conversations"),
+          lambda h, p: h._serve_conversations_settings_api())
     t.get("api.routing.status", exact("/api/routing/status"),
           lambda h, p: h._serve_routing_status_api())
     # ── Work layer ──
@@ -1419,6 +1444,8 @@ def _build_routes() -> RouteTable:
            lambda h, p: h._serve_settings_cache_clear())
     t.post("api.settings", exact("/api/settings"),
            lambda h, p: h._serve_settings_update_api())
+    t.post("api.settings.conversations", exact("/api/settings/conversations"),
+           lambda h, p: h._serve_conversations_settings_update_api())
 
     t.post("api.routing.policy", exact("/api/routing/policy"),
            lambda h, p: h._serve_routing_policy_api())

@@ -88,7 +88,7 @@ class TestContextWarningHeader:
         _set_body(h, body)
 
         def fake_try_chain(profile, cfg, body, config, warning_sink=None,
-                           session_id=None):
+                           session_id=None, on_step=None):
             if warning_sink is not None:
                 warning_sink.append("[lcp] request 100 tokens is at/near the 128000-token context limit for profile 'l2'; history may be truncated")
             return {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}, 200, "test", "test-model"
@@ -111,7 +111,7 @@ class TestContextWarningHeader:
         _set_body(h, body)
 
         def fake_try_chain(profile, cfg, body, config, warning_sink=None,
-                           session_id=None):
+                           session_id=None, on_step=None):
             if warning_sink is not None:
                 warning_sink.append("[lcp] request 100 tokens is at/near the 128000-token context limit for profile 'l2'")
             return iter([b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n', b"data: [DONE]\n\n"]), 200, "test", "test-model"
@@ -133,7 +133,7 @@ class TestContextWarningHeader:
         _set_body(h, body)
 
         def fake_try_chain(profile, cfg, body, config, warning_sink=None,
-                           session_id=None):
+                           session_id=None, on_step=None):
             return {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}, 200, "test", "test-model"
 
         with patch("src.server.handler.try_chain", side_effect=fake_try_chain):

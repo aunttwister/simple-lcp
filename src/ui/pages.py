@@ -794,3 +794,60 @@ def render_conversations_page(config, engine=None, params=None) -> str:
                        params=params or {},
                        payload=payload,
                        payload_json=_json.dumps(payload))
+
+
+# ── Settings — the gateway switches that are not per-provider ────────────────
+# The Providers page owns the per-provider panels (cache TTLs, routing tab);
+# what lands here is estate-level behaviour with no provider home. First tenant:
+# CUR-329 conversation titling.
+
+def settings_payload(config=None) -> dict:
+    """The Settings page's data: the titling switch and its model options.
+
+    ``models`` is the set of models the gateway's own profiles actually chain
+    to — the only models a titler can meaningly pick, because the titler sends
+    through a chain step (it needs a provider + base_url, not just a name). The
+    empty option is "the default profile's chain head", which is what an unset
+    ``model`` means at runtime, so the picker never shows a value the titler
+    cannot resolve.
+    """
+    import json as _json
+    section = {"enabled": True, "model": None}
+    try:
+        raw = getattr(config, "conversation_titling", None)
+        if isinstance(raw, dict):
+            section = dict(raw)
+    except Exception:  # noqa: BLE001 — the page must render, not 500
+        pass
+    models: list[str] = []
+    try:
+        profiles = getattr(config, "profiles", None) or {}
+        for prof in profiles.values():
+            for step in (prof.get("chain") or []):
+                m = step.get("model")
+                if m and m not in models:
+                    models.append(m)
+        models.sort()
+    except Exception:  # noqa: BLE001
+        models = []
+    return {
+        "titling": {
+            "enabled": bool(section.get("enabled", True)),
+            "model": section.get("model") or "",
+        },
+        "models": models,
+        "models_json": _json.dumps(models),
+    }
+
+
+def render_settings_page(config, engine=None, params=None) -> str:
+    """Server-rendered Settings page (CUR-329): titling toggle + model picker."""
+    import json as _json
+    from .render import render_page
+    payload = settings_payload(config)
+    return render_page("pages/settings.html", config, engine,
+                       active_page="settings",
+                       tab="settings",
+                       params=params or {},
+                       payload=payload,
+                       payload_json=_json.dumps(payload))

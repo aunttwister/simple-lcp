@@ -88,6 +88,16 @@
 
 <h2>History</h2>
 
+{# Titles and summaries are written by the background titler (CUR-329), which is
+   configured on the Settings page. One line, before the table: "Untitled" in
+   the rows below has a cause and a fix, and neither was discoverable from this
+   page alone. #}
+<p class="muted work-rule">
+  Rows marked <span class="muted">Untitled</span> have not been titled yet;
+  the background titler names them after a few turns.
+  <a href="/settings">Configure titling</a>.
+</p>
+
 {% set h = payload["history"] %}
 {% set f = h.filter %}
 
@@ -142,7 +152,7 @@
       {% for c in h.conversations %}
       <tr class="conv-row" data-cid="{{ c.id }}">
         <td class="conv-name-cell">
-          {% if c.name %}{{ c.name }}{% else %}<span class="muted">Untitled</span>
+          {% if c.name %}{{ c.name }}{% else %}<span class="muted conv-untitled">Untitled</span>
           <span class="mono muted">· {{ c.id }}</span>{% endif %}
           {% if c.summary %}<span class="conv-summary">{{ c.summary }}</span>{% endif %}
         </td>
