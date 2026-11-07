@@ -359,7 +359,9 @@ def _derive_engine_metrics(health: Any, counters: dict) -> dict:
 
     return {
         "model_backend": health.get("backend"),
-        "ok": bool(health.get("ok")),
+        # TensorFold v1.1.9+ answers {"status": "ok"} and no longer emits a
+        # boolean "ok" key — accept either shape or a healthy engine reads failed.
+        "ok": bool(health.get("ok") or (health.get("status") == "ok")),
         "busy": bool(health.get("busy")),
         "requests_running": running,
         "requests_waiting": waiting,
