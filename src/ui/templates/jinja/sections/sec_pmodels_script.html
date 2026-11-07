@@ -17,7 +17,6 @@
   var chain = (POOL.chain || []).map(function (s) {
     return {provider: s.provider, model: s.model, enabled: s.enabled !== false};
   });
-  var PROV_ROWS = [];  // registered-model rows, one render at a time
 
   function el(id) { return document.getElementById(id); }
   function say(t, ok) {
@@ -78,35 +77,26 @@
 
   function renderRegistered() {
     // The REGISTERED MODELS table (operator spec, CUR-328): number,
-    // provider, model, key + a button to set the key. No rotation column,
-    // no chain-add button. Key setting is an inline form in the key cell
-    // (prompt() would be blocked inside a proxied iframe).
-    PROV_ROWS = [];
+    // provider, model. Keys belong to the PROVIDER, not the provider:model
+    // row, so there is no key column here — keys are managed on the
+    // Providers page.
     var html = '<table class="data-table pp-table"><thead><tr>' +
       '<th scope="col" style="width:2rem">#</th><th scope="col">Provider</th><th scope="col">Model</th>' +
-      '<th scope="col" style="width:7rem">Key</th><th scope="col" style="width:6rem"></th>' +
       '</tr></thead><tbody>';
     var rows = [];
     (POOL.catalogue || []).forEach(function (c) {
       (c.models || []).forEach(function (m) {
-        rows.push({provider: c.provider, model: m, has_key: c.has_key,
-                   key_env: c.key_env});
+        rows.push({provider: c.provider, model: m});
       });
     });
     if (!rows.length) {
-      html += '<tr><td colspan="5" class="empty">No models registered.</td></tr>';
+      html += '<tr><td colspan="3" class="empty">No models registered.</td></tr>';
     }
-    rows.forEach(function (r) {
-      PROV_ROWS.push(r);
-      var i = PROV_ROWS.length - 1;
+    rows.forEach(function (r, i) {
       html += '<tr>' +
         '<td class="mono">' + (i + 1) + '</td>' +
         '<td class="mono">' + esc(r.provider) + '</td>' +
         '<td class="mono">' + esc(r.model) + '</td>' +
-        '<td id="ppKeyCell-' + i + '">' + (r.has_key
-          ? '<span class="chip chip-ok">key set</span>'
-          : '<span class="chip chip-warn">no key</span>') + '</td>' +
-        '<td><button class="btn-sm" onclick="ppSetKey(' + i + ')">Set key</button></td>' +
         '</tr>';
     });
     html += '</tbody></table>';
@@ -173,45 +163,6 @@
     if (dup) { say(p + '/' + m + ' is already in the chain.'); return; }
     chain.push({provider: p, model: m, enabled: true});
     renderChain(); save();
-  };
-
-  window.ppSetKey = function (i) {
-    // Set the provider's API key inline (CUR-328). The key belongs to the
-    // PROVIDER, not the model; the credential store persists it via
-    // PUT /api/providers/<name>. An inline form, not prompt() — prompt is
-    // blocked inside proxied iframes.
-    var r = PROV_ROWS[i];
-    if (!r) return;
-    var cell = el('ppKeyCell-' + i);
-    if (!cell) return;
-    cell.innerHTML =
-      '<input type="password" id="ppKeyInput-' + i + '" placeholder="API key for ' + esc(r.provider) + '" autocomplete="off" style="width:11rem">' +
-      '<button class="btn-sm btn-primary" onclick="ppSaveKey(' + i + ')">Save</button> ' +
-      '<button class="btn-sm" onclick="ppCancelKey(' + i + ')">Cancel</button>';
-    var input = el('ppKeyInput-' + i);
-    if (input) input.focus();
-  };
-
-  window.ppCancelKey = function (i) {
-    renderRegistered();
-  };
-
-  window.ppSaveKey = function (i) {
-    var r = PROV_ROWS[i];
-    if (!r) return;
-    var input = el('ppKeyInput-' + i);
-    if (!input || !input.value) { say('Paste the key first.'); return; }
-    say('Saving key\u2026');
-    api('PUT', '/api/providers/' + encodeURIComponent(r.provider),
-        {api_key: input.value}).then(function (d) {
-      if (d && d.error) { say(d.error); return; }
-      say('Key set for ' + r.provider + '.', true);
-      // refresh has_key for every row of that provider and re-render
-      (POOL.catalogue || []).forEach(function (c) {
-        if (c.provider === r.provider) c.has_key = true;
-      });
-      renderRegistered();
-    }).catch(function (e) { say('Save failed: ' + (e.message || e)); });
   };
 
   el('ppProvider').addEventListener('change', renderModels);
