@@ -2184,12 +2184,78 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   white-space: pre-wrap; overflow-wrap: anywhere; max-height: 8rem; overflow: auto;
 }
 
-.conv-row .conv-toggle { min-width: 3.5rem; }
+/* CUR-329: the not-yet-titled marker. Italic, because it is a STATE ("nothing
+   has named this yet"), not a name — the same reason a form placeholder reads
+   differently from a value. */
+.conv-untitled { font-style: italic; }
 
-/* The summary is the most useful sentence about a conversation and it was only
-   reachable through the modal. Two lines, clamped, so a row stays a row: the full
-   text is in the modal's audit panel. */
-.conv-name-cell { max-width: 34rem; }
+/* ── Conversations: two-lane layout with a persistent third column (CUR-329) ──
+   Same permanent-lane shape as the overview's detail panel above, but the
+   conversation panel is sticky IN-FLOW inside the grid — the grid's second
+   column IS the reservation, so unlike .detail-panel (fixed, out of flow) no
+   body margin is added here. Reuses the overview's --detail-width token
+   (380px, defined once at :root — do not redefine). Below 1100px the panel
+   stacks under the table; the content is the same, just reached by scrolling. */
+.conv-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+@media (min-width: 1100px) {
+  /* The fixed top-right badge would sit over the reserved lane; offset it. */
+  body:has(.conv-panel) .header-plugin-badge.global {
+    right: calc(var(--detail-width) + 0.75rem);
+  }
+  .conv-layout { grid-template-columns: minmax(0, 1fr) var(--detail-width); }
+  .conv-panel { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); }
+}
+.conv-panel {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--card-border));
+  border-radius: var(--radius);
+  display: flex; flex-direction: column;
+  min-height: 24rem; overflow: hidden;
+}
+.conv-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.5rem; padding: 0.75rem 1rem;
+  border-bottom: 1px solid hsl(var(--card-border));
+  flex: none;
+}
+.conv-panel-title {
+  margin: 0; font-size: 0.9375rem; font-weight: 600; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.conv-panel-body { padding: 0.75rem 1rem; overflow-y: auto; min-height: 0; }
+
+/* ── Conversations table polish ────────────────────────────────────────────*/
+/* The ROW is the click target now — no per-row View button — so the pointer
+   and the hover state are the affordance, and the active row is marked with
+   the same left-accent-bar language the model list uses. Colour is never the
+   only signal: the active row also carries aria-selected in the DOM. */
+.conv-row { cursor: pointer; transition: background 0.1s; }
+.conv-row:hover { background: hsl(var(--secondary) / 0.5); }
+.conv-row:focus-visible {
+  outline: 2px solid hsl(var(--ring, 217.2, 91.2%, 59.8%)); outline-offset: -2px;
+}
+.conv-row.active {
+  background: hsl(var(--secondary));
+  box-shadow: inset 3px 0 0 hsl(var(--primary));
+}
+.conv-table td { vertical-align: top; }
+.conv-last { white-space: nowrap; }
+.conv-model-cell { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Settings page (CUR-329) ────────────────────────────────────────────────*/
+/* One control per row, so the toggle and the picker align down the card the
+   way the rest of the console's forms do. */
+.settings-row {
+  display: flex; align-items: center; gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+.settings-row:last-child { margin-bottom: 0; }
+.settings-row > label:first-child { min-width: 12rem; }
+.settings-row select {
+  background: hsl(var(--secondary)); color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--card-border)); border-radius: 0.375rem;
+  padding: 0.35rem 0.5rem; font-size: 0.8125rem;
+}
 .conv-summary {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;

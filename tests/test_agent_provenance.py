@@ -247,7 +247,11 @@ def page_store(tmp_path, monkeypatch):
 def test_page_marks_an_agent_row_and_an_unknown_row_differently(page_store):
     from src.ui.pages import render_conversations_page
     html = render_conversations_page(page_store, None, {})
-    assert "\u00b7 agent" in html, "a declared agent row must be visibly marked"
-    assert "\u00b7 not agent" in html
-    assert "\u00b7 \u2014" in html, "an undeclared row must render as unknown, not as a person"
+    # Provenance is a chip on the name cell since the Source column folded into
+    # the audit panel — the three-way distinction is the property, not the dot.
+    assert '<span class="chip conv-prov" title="hermes/homelab-expert-l2">agent</span>' in html, \
+        "a declared agent row must be visibly marked"
+    assert '<span class="chip conv-prov">not agent</span>' in html
+    assert 'title="Caller never declared"' in html, \
+        "an undeclared row must render as unknown, not as a person"
     assert "hermes/homelab-expert-l2" in html

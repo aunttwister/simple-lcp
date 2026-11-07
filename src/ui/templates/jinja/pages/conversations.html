@@ -25,9 +25,8 @@
 <h1>Conversations</h1>
 <p class="subtitle">
   What LCP is working on now, and everything it has worked on before.
-  <span class="muted">Live calls come from the gateway's in-process registry; history
-  comes from LCP's own store, which is migrated from the agent session DB and
-  appended on every request.</span>
+  <span class="muted">Click a row to open it in the panel on the right — the
+  panel persists while you browse the table.</span>
 </p>
 
 <h2>In flight</h2>
@@ -131,60 +130,56 @@
 {% if not h.available %}
   <div class="empty"><strong>History unavailable</strong><br><span class="muted">{{ h.error }}</span></div>
 {% else %}
+<div class="conv-layout">
+  <div class="conv-table-col">
 <div class="table-wrap">
-  <table class="capability-table" id="convTable">
-    <caption class="sr-only">Conversation history: one row per stored conversation, newest first.</caption>
+  <table class="capability-table conv-table" id="convTable">
+    <caption class="sr-only">Conversation history: one row per stored conversation, newest first. Click a row to open it in the panel.</caption>
     <thead>
       <tr>
         <th scope="col">Conversation</th>
         <th scope="col">Profile</th>
         <th scope="col">Model</th>
-        <th scope="col">Source</th>
         <th scope="col">Messages</th>
-        <th scope="col">Tool calls</th>
         <th scope="col" class="num">Tokens</th>
         <th scope="col" class="num">Cost</th>
         <th scope="col">Last activity</th>
-        <th scope="col"></th>
       </tr>
     </thead>
     <tbody>
       {% for c in h.conversations %}
-      <tr class="conv-row" data-cid="{{ c.id }}">
-        <td class="conv-name-cell">
+      <tr class="conv-row{% if c.measured %} conv-row-measured{% endif %}" data-cid="{{ c.id }}"
+          data-name="{{ c.name or c.id }}"
+          tabindex="0" role="button"
+          aria-label="Open conversation {{ c.name or c.id }}">
+        <td class="conv-name-cell" data-label="Conversation">
           {% if c.name %}{{ c.name }}{% else %}<span class="muted conv-untitled">Untitled</span>
-          <span class="mono muted">· {{ c.id }}</span>{% endif %}
+          <span class="mono muted">· {{ c.id|truncate(14, True) }}</span>{% endif %}
           {% if c.summary %}<span class="conv-summary">{{ c.summary }}</span>{% endif %}
+          {# `source` says how the transcript got here; the actor says WHO drove it.
+             Two different facts, so provenance stays marked even though the Source
+             column folded into the audit panel — as a chip on the name cell, not a
+             column of its own. A NULL `agent_generated` renders as an explicit "—":
+             the caller never declared, which is not the same as a declaration that
+             it is not an agent, and the table must not imply a claim nobody made. #}
+          {% if c.agent_generated == 1 %}<span class="chip conv-prov" title="{{ c.agent_identity or 'declared agent' }}">agent</span>
+          {% elif c.agent_generated == 0 %}<span class="chip conv-prov">not agent</span>
+          {% else %}<span class="mono muted conv-prov" title="Caller never declared">—</span>{% endif %}
         </td>
-        <td>{{ c.profile or '—' }}</td>
-        <td class="mono">{{ c.model or '—' }}</td>
-        {# `source` says how the transcript got here; the actor says WHO drove it. Two
-           different facts, and the routes are shared, so both are shown. A NULL
-           `agent_generated` renders as "—": the caller never declared, which is not the
-           same as a declaration that it is not an agent, and the table must not imply
-           a claim nobody made. #}
-        <td>{{ c.source or '—' }}
-          {% if c.agent_generated == 1 %}<span class="mono muted" title="{{ c.agent_identity or 'declared agent' }}">· agent</span>
-          {% elif c.agent_generated == 0 %}<span class="mono muted">· not agent</span>
-          {% else %}<span class="mono muted">· —</span>{% endif %}</td>
+        {# Profile / model as chips, not bare text: they are the two facets the
+           table is scanned by, and a chip reads as a facet at a glance. #}
+        <td data-label="Profile">{% if c.profile %}<span class="chip">{{ c.profile }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="mono conv-model-cell" data-label="Model">{{ c.model or '—' }}</td>
         {# `messages is none` means the rollup was never recounted — the
            conversation was imported from the request log with no transcript
            stored. That is "unknown", not "zero": rendering 0 beside a summary
            that describes 16 tool calls was the table contradicting itself. #}
-        <td class="mono">{% if c.messages is none %}—{% else %}{{ c.messages }}{% endif %}
-          {% if c.messages is not none and c.active_messages is not none and c.active_messages != c.messages %}
-          <span class="muted" title="Messages still in the agent's context window; the rest were compacted">{{ c.active_messages }} active</span>{% endif %}
-          {% if c.messages is none %}<span class="muted">no transcript</span>{% endif %}</td>
-        <td class="mono">{% if c.tool_calls is none %}—{% else %}{{ c.tool_calls }}{% endif %}</td>
+        <td class="mono" data-label="Messages">{% if c.messages is none %}<span class="muted" title="No transcript stored">—</span>{% else %}{{ c.messages }}{% if c.active_messages is not none and c.active_messages != c.messages %} <span class="muted" title="Messages still in the agent's context window; the rest were compacted">({{ c.active_messages }})</span>{% endif %}{% endif %}</td>
         {# Right-aligned and tabular: these are compared down the column, which is
-           what an operator does with a spend column. `fmt_num` compresses 6.2B to
-           "6250.7M" — a token count this size is only useful as an order of
-           magnitude, and the exact figure is in the modal. #}
-        <td class="mono num">{% if c.measured %}{{ c.tokens | fmt_num }}{% else %}—{% endif %}</td>
-        <td class="mono num">{% if c.measured %}${% endif %}{{ '%.4f' % c.cost if c.measured else '—' }}</td>
-        <td class="mono">{{ c.last_at | fmt_iso }}</td>
-        <td><button type="button" class="btn-sm conv-toggle" data-cid="{{ c.id }}"
-                    data-name="{{ c.name or c.id }}">View</button></td>
+           what an operator does with a spend column. #}
+        <td class="mono num" data-label="Tokens">{% if c.measured %}{{ c.tokens | fmt_num }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="mono num" data-label="Cost">{% if c.measured %}{{ '%.4f' % c.cost }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="mono conv-last" data-label="Last activity">{{ c.last_at | fmt_iso }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -193,6 +188,7 @@
   {% if not h.conversations %}
     <p class="empty">No conversations match this filter.</p>
   {% endif %}
+</div>
 
   {% if f.pages > 1 %}
   {# Windowed, not exhaustive: the estate has ~250 pages of history, and a pager
@@ -234,28 +230,28 @@
   {% endif %}
 
   <p class="muted work-rule">Showing {{ h.conversations | length }} of {{ h.total }} conversations.</p>
-</div>
-{% endif %}
+  </div>{# /conv-table-col #}
 
-{# The transcript opens in a dialog rather than an expanded table row: a row is
-   width-bound by the table's columns, and its content lands inside a horizontal
-   scroll container — exactly where long transcript lines are hardest to read.
-   `openDialog`/`closeDialog` come from the shared static/js/modal.js (Escape,
-   click-outside, body-scroll lock, ARIA), so this reuses the app's dialog
-   behaviour instead of re-implementing it. #}
-<div class="modal-overlay dialog-overlay" id="convModal">
-  <div class="modal dialog-content" style="width:min(1000px,95vw)">
-    <div class="modal-header dialog-header">
-      <h2 class="dialog-title" id="convModalTitle">Conversation</h2>
-      <button type="button" class="modal-close dialog-close" onclick="closeDialog('convModal')"
-              aria-label="Close">&#10005;</button>
+  {# ── Column 3: the conversation panel ─────────────────────────────────────
+     A PERMANENT reserved lane, same shape as the overview's detail panel: the
+     space is taken on desktop whether or not a conversation is open, clicking
+     a row only swaps the panel's content, and there is no modal behaviour —
+     no backdrop, no Escape-dismiss, no column-2 reflow. Default content: the
+     newest conversation in the current filter (server-rendered id below; the
+     client loads its transcript on first paint). #}
+  <aside class="conv-panel" id="convPanel" aria-label="Conversation detail">
+    <div class="conv-panel-head">
+      <h3 class="conv-panel-title" id="convPanelTitle">Conversation</h3>
+      <button type="button" class="btn-sm conv-panel-close" id="convPanelClose"
+              aria-label="Reset panel">Reset</button>
     </div>
-    <div class="modal-body dialog-body">
+    <div class="conv-panel-body">
       <div class="conv-audit" id="convAudit"><span class="muted">Loading…</span></div>
       <div class="conv-messages" id="convMessages"></div>
     </div>
-  </div>
-</div>
+  </aside>
+</div>{# /conv-layout #}
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -611,6 +607,41 @@ function renderMessages(box, msgs, truncated, total) {
   paint();
 }
 
+// ── Column 3: the conversation panel ─────────────────────────────────────────
+// A permanent reserved lane (same shape as the overview's detail panel), NOT a
+// dialog: clicking a row only swaps the panel's content, the lane never opens
+// or closes on desktop, and content persists while you scroll or filter the
+// table. Fetched on demand — a transcript can be megabytes, and a page of 20
+// would carry all of it for rows nobody opened.
+
+var CONV_EMPTY_HINT = 'Click a row in the table — the conversation opens here ' +
+  'and stays until you pick another one.';
+
+function convPanelSetEmpty() {
+  document.getElementById('convPanelTitle').textContent = 'Conversation';
+  var auditBox = document.getElementById('convAudit');
+  var msgsBox = document.getElementById('convMessages');
+  auditBox.textContent = CONV_EMPTY_HINT;
+  msgsBox.textContent = '';
+  document.querySelectorAll('.conv-row.active').forEach(function (r) {
+    r.classList.remove('active');
+    r.removeAttribute('aria-selected');
+  });
+}
+
+function convPanelSetActive(cid, name) {
+  document.getElementById('convPanelTitle').textContent = name || cid;
+  document.querySelectorAll('.conv-row.active').forEach(function (r) {
+    r.classList.remove('active');
+    r.removeAttribute('aria-selected');
+  });
+  var row = document.querySelector('.conv-row[data-cid="' + cid + '"]');
+  if (row) {
+    row.classList.add('active');
+    row.setAttribute('aria-selected', 'true');
+  }
+}
+
 async function loadConversation(cid) {
   var auditBox = document.getElementById('convAudit');
   var msgsBox = document.getElementById('convMessages');
@@ -635,16 +666,35 @@ async function loadConversation(cid) {
   } catch (e) { msgsBox.textContent = 'Messages unavailable.'; }
 }
 
-// One modal, filled on demand. Re-fetching on every open is deliberate: the
-// transcript grows while you read, and a cached one would show a stale window.
-document.querySelectorAll('.conv-toggle').forEach(function (btn) {
-  btn.addEventListener('click', function () {
-    var cid = btn.getAttribute('data-cid');
-    var name = btn.getAttribute('data-name') || cid;
-    document.getElementById('convModalTitle').textContent = name;
-    openDialog('convModal');
+// The whole ROW is the click target (plus Enter/Space on it, because it is a
+// role=button): the per-row View button was a second target for the same
+// action, and the button column was the widest thing a conversation name had
+// to share width with.
+document.querySelectorAll('.conv-row').forEach(function (row) {
+  row.addEventListener('click', function () {
+    var cid = row.getAttribute('data-cid');
+    var name = row.getAttribute('data-name') || cid;
+    convPanelSetActive(cid, name);
     loadConversation(cid);
   });
+  row.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    ev.preventDefault();
+    row.click();
+  });
 });
+
+// Reset returns the panel to its empty-state hint — it does not hide anything
+// (there is nothing to hide on desktop; the lane is reserved either way).
+document.getElementById('convPanelClose').addEventListener('click', convPanelSetEmpty);
+
+// Default content: the newest conversation in the current filter (the table is
+// served newest-first), loaded on first paint so the panel is never an empty
+// slab on arrival.
+(function () {
+  var first = document.querySelector('.conv-row');
+  if (first) first.click();
+  else convPanelSetEmpty();
+})();
 </script>
 {% endblock %}
