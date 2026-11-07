@@ -156,6 +156,15 @@
           {% if c.name %}{{ c.name }}{% else %}<span class="muted conv-untitled">Untitled</span>
           <span class="mono muted">· {{ c.id|truncate(14, True) }}</span>{% endif %}
           {% if c.summary %}<span class="conv-summary">{{ c.summary }}</span>{% endif %}
+          {# `source` says how the transcript got here; the actor says WHO drove it.
+             Two different facts, so provenance stays marked even though the Source
+             column folded into the audit panel — as a chip on the name cell, not a
+             column of its own. A NULL `agent_generated` renders as an explicit "—":
+             the caller never declared, which is not the same as a declaration that
+             it is not an agent, and the table must not imply a claim nobody made. #}
+          {% if c.agent_generated == 1 %}<span class="chip conv-prov" title="{{ c.agent_identity or 'declared agent' }}">agent</span>
+          {% elif c.agent_generated == 0 %}<span class="chip conv-prov">not agent</span>
+          {% else %}<span class="mono muted conv-prov" title="Caller never declared">—</span>{% endif %}
         </td>
         {# Profile / model as chips, not bare text: they are the two facets the
            table is scanned by, and a chip reads as a facet at a glance. #}
