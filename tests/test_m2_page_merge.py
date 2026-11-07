@@ -57,7 +57,10 @@ SECTION_TAB = {
 # "what happened" log realm.
 # Activity before Conversations: the log is the surface you open to answer "what
 # did the router do", and a conversation is the drill-down from one of its rows.
-NAV = ["/profiles", "/models", "/activity", "/conversations", "/usage", "/alerts"]
+# CUR-329 added the Settings entry at the end (see _sidebar.html's comment for
+# why it is last).
+NAV = ["/profiles", "/models", "/activity", "/conversations", "/usage",
+       "/alerts", "/settings"]
 
 
 @pytest.fixture

@@ -2907,7 +2907,10 @@ class SettingsEndpoints:
     """Admin settings API: cost-cache TTL, routing policy, cache management.
 
     The UI for these lives in the Providers page's Cache / Routing tabs; these
-    endpoints back them. There is no standalone /settings page anymore.
+    endpoints back them. CUR-329 restored a standalone /settings page for the
+    estate-level switches that have no per-provider home (conversation titling
+    first); the page and its ``/api/settings/conversations`` endpoints live in
+    this class too.
     """
 
     config: Any
@@ -2916,6 +2919,11 @@ class SettingsEndpoints:
     path: Any
     command: Any
     _audit: Any
+    # Provided by the DashboardEndpoints mixin / LCPHandler itself; declared so
+    # the titling page served from this mixin reads like its siblings.
+    engine: Any
+    _send_html: Any
+    _qs: Any
 
     def _serve_settings_api(self):
         """GET /api/settings — default TTL, per-provider TTLs, cache entries."""
@@ -3002,6 +3010,68 @@ class SettingsEndpoints:
             refresher.request_refresh()
         self._audit("settings.cache_clear")
         self._send_json({"ok": True})
+
+    def _serve_settings_page(self):
+        """Server-rendered Settings page (CUR-329) — estate-level switches."""
+        from ..ui.pages import render_settings_page
+        self._send_html(render_settings_page(self.config, self.engine, self._qs()))
+
+    def _serve_conversations_settings_api(self):
+        """GET /api/settings/conversations — the titling switch + model options."""
+        from ..ui.pages import settings_payload
+        self._send_json(settings_payload(self.config))
+
+    def _serve_conversations_settings_update_api(self):
+        """POST /api/settings/conversations — persist the titling config.
+
+        Body ``{enabled: bool, model: str|null}``. The whole section is written
+        through ``config.save()`` like every other UI edit, so it survives a
+        restart (the settings table is the source of truth; see config.py).
+        """
+        try:
+            body = self._read_body()
+        except Exception:
+            self._send_json({"error": "invalid JSON body"}, 400)
+            return
+        if not isinstance(body, dict):
+            self._send_json({"error": "body must be an object"}, 400)
+            return
+
+        enabled = body.get("enabled")
+        if not isinstance(enabled, bool):
+            self._send_json({"error": "enabled must be a boolean"}, 400)
+            return
+
+        # The picker only offers chained models; the API holds the same line, so
+        # a hand-built request cannot store a model the titler cannot resolve to
+        # a chain step (it would then silently never title anything). The value
+        # is matched VERBATIM against the chains — re-spelling it here would
+        # make the stored string diverge from the step the titler must find it
+        # at (a spelling is not an identity; see test_model_identity_guard).
+        model = body.get("model")
+        if model is not None and not isinstance(model, str):
+            self._send_json({"error": "model must be a string or null"}, 400)
+            return
+        if model:
+            chained = set()
+            for prof in (self.config.profiles or {}).values():
+                for step in (prof.get("chain") or []):
+                    chained.add(step.get("model"))
+            if model not in chained:
+                self._send_json({"error": "model is not in any profile chain"}, 400)
+                return
+            stored_model: str | None = model
+        else:
+            stored_model = None  # unset = default profile's chain head
+
+        self.config.raw["conversation_titling"] = {
+            "enabled": enabled,
+            "model": stored_model,
+        }
+        self.config.save()
+        self._audit("settings.conversation_titling", enabled=enabled,
+                    model=stored_model)
+        self._send_json({"ok": True, "enabled": enabled, "model": stored_model})
 
     def _serve_routing_status_api(self):
         """GET /api/routing/status — dynamic-routing snapshot for the UI.
