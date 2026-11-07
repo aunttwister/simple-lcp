@@ -2758,3 +2758,102 @@ input:disabled {
   .sidebar-nav a { min-height: 44px; display: flex; align-items: center; }
   .segmented button, .ack-btn { min-height: 40px; display: inline-flex; align-items: center; }
 }
+
+
+/* ═══ CUR-330 — Overview homepage ════════════════════════════════════════ */
+
+/* Brand link (the logo is the home link now) */
+.sidebar-brand .sb-brand-link {
+  color: inherit; text-decoration: none; letter-spacing: -0.02em;
+}
+.sidebar-brand .sb-brand-link:hover { color: hsl(var(--foreground)); }
+
+/* Period selector in the header row */
+.period-select {
+  display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.period-label {
+  font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: hsl(var(--muted-foreground)); margin-right: 0.375rem;
+}
+
+/* Clickable metric cards */
+.metric-card.clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.metric-card.clickable:hover {
+  border-color: hsl(var(--primary) / 0.35);
+  box-shadow: 0 2px 10px -3px rgba(0,0,0,0.35);
+}
+.metric-card.clickable:focus-visible {
+  outline: 2px solid hsl(var(--ring)); outline-offset: 1px;
+}
+.metric-card.clickable .metric-sub { line-height: 1.5; }
+
+/* ── Detail panel (column 3) ──
+   The Slack/X pattern: column 1 is the sidebar (collapsible), column 2 is the
+   dashboard, column 3 slides in from the right with the breakdown of whatever
+   was clicked. Desktop pushes the content; below 1100px it overlays. */
+:root { --detail-width: 380px; }
+.detail-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 130;
+  width: var(--detail-width); max-width: 100vw;
+  background: hsl(var(--card));
+  border-left: 1px solid hsl(var(--card-border));
+  transform: translateX(100%);
+  transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+  display: flex; flex-direction: column;
+  box-shadow: -8px 0 24px -12px rgba(0,0,0,0.5);
+}
+.detail-panel.open { transform: translateX(0); }
+.dp-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.875rem 1rem; border-bottom: 1px solid hsl(var(--card-border));
+  flex: 0 0 auto;
+}
+.dp-title { font-size: 0.875rem; font-weight: 700; letter-spacing: -0.01em; }
+.dp-body { padding: 1rem; overflow-y: auto; flex: 1 1 auto; font-size: 0.75rem; }
+.dp-note {
+  font-size: 0.6875rem; color: hsl(var(--muted-foreground)); line-height: 1.55;
+  margin-bottom: 0.875rem;
+}
+.dp-subhead {
+  font-size: 0.625rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: hsl(var(--muted-foreground));
+  margin: 1rem 0 0.375rem;
+}
+.dp-table { width: 100%; border-collapse: collapse; }
+.dp-table th {
+  text-align: left; font-size: 0.625rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  color: hsl(var(--muted-foreground)); padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid hsl(var(--card-border));
+  white-space: nowrap;
+}
+.dp-table td {
+  padding: 0.375rem 0.5rem; border-bottom: 1px solid hsl(var(--border) / 0.5);
+  font-variant-numeric: tabular-nums; vertical-align: top;
+}
+.dp-table td:last-child, .dp-table th:last-child { text-align: right; }
+.dp-empty { color: hsl(var(--muted-foreground)); text-align: center; padding: 0.75rem 0.5rem; }
+.dp-flag {
+  font-size: 0.5625rem; font-weight: 600; color: hsl(var(--amber-fg));
+  border: 1px solid hsl(var(--amber-fg) / 0.4); border-radius: 4px;
+  padding: 0.05rem 0.25rem; margin-left: 0.25rem; white-space: nowrap;
+}
+.dp-backdrop {
+  display: none; position: fixed; inset: 0; z-index: 125;
+  background: rgba(0,0,0,0.45);
+}
+.dp-backdrop.open { display: block; }
+
+/* Push the content when the panel is open (desktop only; below 1100px the
+   panel overlays instead of squeezing the dashboard). */
+.main-content.detail-open { margin-right: var(--detail-width); transition: margin-right 0.25s cubic-bezier(0.4,0,0.2,1); }
+
+@media (max-width: 1100px) {
+  .main-content.detail-open { margin-right: 0; }
+  .detail-panel { width: min(420px, 92vw); }
+}

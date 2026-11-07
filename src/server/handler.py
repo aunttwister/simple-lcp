@@ -1154,7 +1154,7 @@ def _build_routes() -> RouteTable:
     t.get("page.in_progress", exact("/in-progress"),
           lambda h, p: h._serve_in_progress_page())
     t.get("page.dashboard", exact("/", "/dashboard"),
-          lambda h, p: h._serve_dashboard())
+          lambda h, p: h._serve_home_page())
     t.get("page.keys", exact("/keys", "/keys/dashboard"),
           lambda h, p: h._serve_keys_dashboard())
     t.get("page.providers", exact("/providers"),

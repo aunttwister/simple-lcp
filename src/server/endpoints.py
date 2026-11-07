@@ -3631,19 +3631,43 @@ class DashboardEndpoints:
         return {"Host": host, "X-Forwarded-Proto": scheme}
 
     def _serve_activity_page(self):
-        """Server-rendered Activity page (?tab=overview|logs[&view=...]).
+        """Server-rendered Activity page (?tab=logs|evidence).
 
-        ``?tab=logs&view=conversations`` is the retired realm — it redirects to the
-        Conversations page rather than rendering an empty table, so an old link
-        still reaches the data it was asking for.
+        The overview tab left in CUR-330 — it is the homepage now. Any overview
+        URL (bare ``?tab=overview``, or the legacy ``?view=overview``) redirects
+        to ``/`` so an old bookmark still reaches the data it was asking for;
+        ``?view=conversations`` keeps its own redirect to the Conversations page.
         """
         qs = self._qs()
+        tab = str(qs.get("tab") or qs.get("view") or "").strip().lower()
         if str(qs.get("view") or "") == "conversations":
             self._redirect("/conversations")
+            return
+        if tab in ("overview", ""):
+            target = "/"
+            if qs.get("profile"):
+                from urllib.parse import quote
+                target += "?profile=" + quote(str(qs["profile"]))
+            self._redirect(target)
             return
         from ..ui.pages import render_activity_page
         self._send_html(render_activity_page(self.config, self.engine,
                                              qs, self._host_headers()))
+
+    def _serve_home_page(self):
+        """Server-rendered Overview homepage — ``/`` (CUR-330).
+
+        ``?period=7|14|30|90|all`` selects the date window every card, trend and
+        breakdown is computed over (default 14). ``?profile=`` scopes the page —
+        the old per-profile dropdown is gone, but the URL it produced keeps
+        working.
+        """
+        qs = self._qs()
+        from ..ui.pages import render_home_page
+        self._send_html(render_home_page(
+            self.config, self.engine, self._host_headers(),
+            profile_filter=qs.get("profile") or None,
+            period=qs.get("period") or "14"))
 
     def _serve_conversations_page(self):
         """Server-rendered Conversations page — live in-flight + history."""
@@ -3687,10 +3711,12 @@ class DashboardEndpoints:
         self._send_json(in_progress_payload(self.engine))
 
     def _serve_dashboard(self, profile_filter: str | None = None):
-        """Legacy / and /dashboard — now the Overview tab of Activity (M2)."""
-        target = "/activity"
+        """Legacy /dashboard and /{profile}/dashboard — CUR-330 moved the overview
+        to ``/``. A 302 (not 301): a UI re-organisation must not be cached forever."""
+        target = "/"
         if profile_filter:
-            target += "?profile=" + profile_filter
+            from urllib.parse import quote
+            target += "?profile=" + quote(profile_filter)
         self._redirect(target)
 
     def _serve_logs_page(self):

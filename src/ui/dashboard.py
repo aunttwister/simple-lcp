@@ -1,9 +1,31 @@
 """Dashboard renderer for the LCP gateway.
 
-Generates the full server-rendered HTML dashboard.
+Builds the view-context for the Overview homepage (CUR-330): the page the LCP
+brand link opens. The arithmetic lives here and nowhere else — the Activity
+page no longer renders an overview tab, it links here.
+
+Design decisions recorded for the next reader:
+
+* **Period is a server-side filter.** The old "14-day" trend labelled an
+  all-time series because ``.limit(14)`` ran against a query that grouped all
+  time; the label lied. Now every card, breakdown and series is computed over
+  the same date cutoff (?period=7|14|30|90|all, default 14), so the number and
+  the chart can never disagree.
+* **Cost is split by billing model**, not shown as one "total": DeepSeek is
+  genuinely metered (what the DB says is what the invoice says), Command Code /
+  OpenCode are subscriptions whose rows are usage *valued* at list price, and
+  the local engines carry synthetic near-zero costs. One grand total mixed
+  three different kinds of dollars.
+* **The old requests card counted every successful request as a "fallback"**
+  (success==1 AND provider != 'error' — 139,206 of 139,206 = 99.9%). A real
+  fallback is a success served by a provider that is NOT the profile's primary
+  chain step; errors are the success==0 rows.
+* **Everything is click-through.** Each card and each trend bar opens the
+  right-hand detail panel (same page, server-computed ``breakdown`` payload) —
+  no profile dropdown, no per-profile mini cards.
 """
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 from ..api.models import Request as RequestModel, get_session
 from ..api.prompt_cache import get_prompt_cache
@@ -15,16 +37,45 @@ logger = get_logger("lcp.dashboard")
 
 from .render import render_page
 
+# CUR-330: billing-model families. A provider's family decides which bucket of
+# the cost card its spend lands in. Declared `type` (the provider_types store)
+# wins; the name heuristics only catch what was never classified.
+_METERED_TYPES = {"deepseek"}
+_SUB_TYPES = {"opencode", "commandcode"}
+_LOCAL_TYPES = {"local"}
+# Providers that never name a real route: error rows and unrouted failures.
+_NON_ROUTE_PROVIDERS = {"error", "unknown", ""}
 
-def dashboard_context(config, engine, headers, profile_filter=None):
-    """Build the overview view-context (what used to be the standalone dashboard).
+_PERIOD_DAYS = {"7": 7, "14": 14, "30": 30, "90": 90}
 
-    Split out of ``render_dashboard`` for M2: the Overview tab of the merged
-    Activity page renders these same numbers, and the arithmetic must live in
-    exactly one place. Returns the kwargs ``render_page`` expects.
+
+def _period_cutoff(period: str) -> str | None:
+    """ISO prefix a `timestamp` string must be >= to fall inside the period.
+
+    The stored timestamps carry a 'T' separator, so the cutoff must too — a
+    space-separated cutoff (datetime('now', …) style) compares as SMALLER than
+    every same-day row and the filter silently matches nothing (see the
+    costs.db timestamp-comparison pitfall in the repo skill notes).
+    """
+    days = _PERIOD_DAYS.get(str(period))
+    if days is None:
+        return None
+    start = (datetime.now(timezone.utc).date() - timedelta(days=days - 1))
+    return f"{start.isoformat()}T00:00:00"
+
+
+def dashboard_context(config, engine, headers, profile_filter=None, period="14"):
+    """Build the Overview homepage view-context.
+
+    Returns the kwargs ``render_page`` expects. ``period`` selects the date
+    window every card, series and breakdown is computed over.
     """
 
     from sqlalchemy import func, case
+
+    period = str(period) if str(period) in ("7", "14", "30", "90", "all") else "14"
+    cutoff = _period_cutoff(period)
+    profile_filter = profile_filter or None
 
     # Map a raw stored model ID (e.g. "deepseek/deepseek-v4-pro" or
     # "deepseek-v4-pro") to its logical gateway name so the graphs group and
@@ -56,306 +107,377 @@ def dashboard_context(config, engine, headers, profile_filter=None):
         except Exception:  # noqa: BLE001 — never break the dashboard on a name
             return model
 
+    def _family_of(provider_name: str) -> str:
+        """Billing-model family of a provider: metered | subs | local | unknown."""
+        name = (provider_name or "").strip().lower()
+        if name in _NON_ROUTE_PROVIDERS:
+            return "nonroute"
+        declared = None
+        try:
+            declared = config.provider_type(name)
+        except Exception:  # noqa: BLE001 — a mock/incomplete config degrades
+            declared = None
+        if not isinstance(declared, str):
+            declared = None
+        declared = (declared or "").strip().lower()
+        if declared in _METERED_TYPES:
+            return "metered"
+        if declared in _SUB_TYPES:
+            return "subs"
+        if declared in _LOCAL_TYPES:
+            return "local"
+        # Name heuristics — only for providers the type store never classified.
+        if name.startswith("local") or name == "llamacpp":
+            return "local"
+        if name.startswith("commandcode") or name.startswith("opencode"):
+            return "subs"
+        if "deepseek" in name:
+            return "metered"
+        return "unknown"
+
+    # Primary chain provider per profile — the step a request is SUPPOSED to hit.
+    # A success served by anything else is a fallback (CUR-330 item 1).
+    def _primary_of(profile: str) -> str:
+        pcfg = (getattr(config, "profiles", {}) or {}).get(profile) or {}
+        chain = pcfg.get("chain") or []
+        if chain and isinstance(chain[0], dict):
+            return (chain[0].get("provider") or "").strip()
+        if chain and not isinstance(chain[0], dict):
+            return (getattr(chain[0], "provider", "") or "").strip()
+        return ""
+
     try:
         with get_session(engine) as session:
-            # ── Summary query ──
-            summary = session.query(
-                func.coalesce(func.sum(RequestModel.cost), 0).label("total_cost"),
-                func.count(RequestModel.id).label("total_requests"),
-                func.coalesce(func.sum(RequestModel.cache_hit_tokens), 0).label("cache_hits"),
-                func.coalesce(func.sum(RequestModel.cache_miss_tokens), 0).label("cache_misses"),
-                func.coalesce(func.sum(RequestModel.prompt_tokens), 0).label(
-                    "prompt_tokens"
-                ),
-                func.coalesce(func.sum(RequestModel.completion_tokens), 0).label(
-                    "output_tokens"
-                ),
-            )
+            base = session.query(RequestModel)
+            if cutoff:
+                base = base.filter(RequestModel.timestamp >= cutoff)
             if profile_filter:
-                summary = summary.filter(
-                    RequestModel.profile == profile_filter
-                )
-            summary = summary.first()
+                base = base.filter(RequestModel.profile == profile_filter)
 
-            # Unpack summary to plain Python types (avoids Column typing issues)
-            _s = summary
-            summary_total_cost: float = float(_s.total_cost) if _s else 0.0
-            summary_total_requests: int = int(_s.total_requests) if _s else 0
-            summary_prompt_tokens: int = int(_s.prompt_tokens) if _s else 0
-            summary_output_tokens: int = int(_s.output_tokens) if _s else 0
-            cache_hit_tokens: int = int(_s.cache_hits) if _s else 0
-            cache_miss_tokens: int = int(_s.cache_misses) if _s else 0
+            # ── One aggregate row over the period ──
+            agg = base.with_entities(
+                func.count(RequestModel.id).label("n"),
+                func.coalesce(func.sum(case((RequestModel.success == 1, 1), else_=0)), 0).label("ok"),
+                func.coalesce(func.sum(case((RequestModel.success == 0, 1), else_=0)), 0).label("err"),
+                func.coalesce(func.sum(RequestModel.cost), 0.0).label("cost"),
+                func.coalesce(func.sum(RequestModel.prompt_tokens), 0).label("ptok"),
+                func.coalesce(func.sum(RequestModel.completion_tokens), 0).label("ctok"),
+                func.coalesce(func.sum(RequestModel.cache_hit_tokens), 0).label("chit"),
+                func.coalesce(func.sum(RequestModel.cache_miss_tokens), 0).label("cmiss"),
+                func.count(func.distinct(func.substr(RequestModel.timestamp, 1, 10))).label("days"),
+            ).first()
 
-            fallback_count = (
-                session.query(func.count(RequestModel.id))
-                .filter(RequestModel.success == 1)
-            )
-            if profile_filter:
-                fallback_count = fallback_count.filter(
-                    RequestModel.profile == profile_filter
-                )
-            fallback_count = (
-                fallback_count.filter(RequestModel.provider != "error").scalar() or 0
-            )
-            total_success = (
-                session.query(func.count(RequestModel.id))
-                .filter(RequestModel.success == 1)
-            )
-            if profile_filter:
-                total_success = total_success.filter(
-                    RequestModel.profile == profile_filter
-                )
-            total_success = total_success.scalar() or 0
+            ok_requests = int(agg.ok) if agg else 0
+            error_count = int(agg.err) if agg else 0
+            total_cost = float(agg.cost) if agg else 0.0
+            prompt_tokens = int(agg.ptok) if agg else 0
+            completion_tokens = int(agg.ctok) if agg else 0
+            cache_hit_tokens = int(agg.chit) if agg else 0
+            cache_miss_tokens = int(agg.cmiss) if agg else 0
+            active_days = int(agg.days) if agg else 0
 
-            cache_total = cache_hit_tokens + cache_miss_tokens
-            cache_hit_rate = (
-                (cache_hit_tokens / cache_total * 100) if cache_total > 0 else 0
-            )
+            # ── Per-provider period aggregates (cost split + breakdowns) ──
+            prov_q = base.with_entities(
+                RequestModel.provider.label("provider"),
+                func.count(RequestModel.id).label("reqs"),
+                func.coalesce(func.sum(case((RequestModel.success == 1, 1), else_=0)), 0).label("ok"),
+                func.coalesce(func.sum(case((RequestModel.success == 0, 1), else_=0)), 0).label("err"),
+                func.coalesce(func.sum(RequestModel.cost), 0.0).label("cost"),
+                func.coalesce(func.sum(RequestModel.prompt_tokens), 0).label("ptok"),
+                func.coalesce(func.sum(RequestModel.completion_tokens), 0).label("ctok"),
+                func.coalesce(func.sum(RequestModel.cache_hit_tokens), 0).label("chit"),
+                func.coalesce(func.sum(RequestModel.cache_miss_tokens), 0).label("cmiss"),
+            ).group_by(RequestModel.provider).all()
 
-            # ── Active days ──
-            active_days_q = session.query(
-                func.count(func.distinct(func.substr(RequestModel.timestamp, 1, 10)))
-            )
-            if profile_filter:
-                active_days_q = active_days_q.filter(
-                    RequestModel.profile == profile_filter
-                )
-            active_days = active_days_q.scalar() or 0
+            provider_rows = []
+            metered_cost = subs_cost = local_cost = unknown_cost = 0.0
+            for r in prov_q:
+                family = _family_of(r.provider)
+                row = {
+                    "provider": r.provider,
+                    "family": family,
+                    "reqs": int(r.reqs), "ok": int(r.ok), "err": int(r.err),
+                    "cost": float(r.cost), "prompt": int(r.ptok),
+                    "completion": int(r.ctok), "hit": int(r.chit),
+                    "miss": int(r.cmiss),
+                    "cache_ratio": (int(r.chit) / (int(r.chit) + int(r.cmiss)) * 100)
+                    if (int(r.chit) + int(r.cmiss)) > 0 else None,
+                }
+                provider_rows.append(row)
+                if family == "metered":
+                    metered_cost += row["cost"]
+                elif family == "subs":
+                    subs_cost += row["cost"]
+                elif family == "local":
+                    local_cost += row["cost"]
+                elif family != "nonroute":
+                    unknown_cost += row["cost"]
 
-            # ── Per-profile cost ──
-            profile_rows_q = session.query(
-                RequestModel.profile,
-                func.sum(RequestModel.cost).label("total_cost"),
-                func.count(RequestModel.id).label("count"),
-            ).filter(RequestModel.success == 1)
-            if profile_filter:
-                profile_rows_q = profile_rows_q.filter(
-                    RequestModel.profile == profile_filter
-                )
-            profile_rows = (
-                profile_rows_q.group_by(RequestModel.profile).all()
-            )
+            # ── Per-profile period aggregates + real fallback counts ──
+            prof_q = base.with_entities(
+                RequestModel.profile.label("profile"),
+                func.count(RequestModel.id).label("reqs"),
+                func.coalesce(func.sum(case((RequestModel.success == 1, 1), else_=0)), 0).label("ok"),
+                func.coalesce(func.sum(case((RequestModel.success == 0, 1), else_=0)), 0).label("err"),
+                func.coalesce(func.sum(RequestModel.cost), 0.0).label("cost"),
+                func.coalesce(func.sum(RequestModel.completion_tokens), 0).label("ctok"),
+            ).group_by(RequestModel.profile).all()
 
-            # ── Daily Costs (all time, grouped by date+profile+model+provider) ──
-            daily_rows = (
-                session.query(
-                    func.substr(RequestModel.timestamp, 1, 10).label("date"),
-                    RequestModel.profile,
-                    RequestModel.model,
-                    RequestModel.provider,
-                    func.count(RequestModel.id).label("reqs"),
-                    func.sum(
-                        case(
-                            (RequestModel.provider != "error", 1), else_=0
-                        )
-                    ).label("fb_count"),
-                    func.coalesce(func.sum(RequestModel.cache_hit_tokens), 0).label(
-                        "cache_hit"
-                    ),
-                    func.coalesce(func.sum(RequestModel.cache_miss_tokens), 0).label(
-                        "cache_miss"
-                    ),
-                    func.coalesce(func.sum(RequestModel.completion_tokens), 0).label(
-                        "output"
-                    ),
-                    func.coalesce(func.sum(RequestModel.cost), 0).label("cost"),
-                )
-            )
-            if profile_filter:
-                daily_rows = daily_rows.filter(
-                    RequestModel.profile == profile_filter
-                )
-            daily_rows = (
-                daily_rows.group_by(
-                    func.substr(RequestModel.timestamp, 1, 10),
-                    RequestModel.profile,
-                    RequestModel.model,
-                    RequestModel.provider,
-                )
-                .order_by(
-                    func.substr(RequestModel.timestamp, 1, 10).desc(),
-                    RequestModel.profile,
-                )
-                .limit(30)
-                .all()
-            )
+            # (profile, provider) -> ok-request count, for fallback detection.
+            pp_q = base.with_entities(
+                RequestModel.profile.label("profile"),
+                RequestModel.provider.label("provider"),
+                func.count(RequestModel.id).label("n"),
+            ).filter(RequestModel.success == 1).group_by(
+                RequestModel.profile, RequestModel.provider).all()
+            fallback_by_profile: dict[str, int] = {}
+            for r in pp_q:
+                primary = _primary_of(r.profile)
+                if r.provider not in _NON_ROUTE_PROVIDERS and r.provider != primary:
+                    fallback_by_profile[r.profile] = (
+                        fallback_by_profile.get(r.profile, 0) + int(r.n))
 
-            # ── Recent Requests ──
-            recent_q = (
-                session.query(RequestModel)
-                .order_by(RequestModel.id.desc())
-            )
-            if profile_filter:
-                recent_q = recent_q.filter(
-                    RequestModel.profile == profile_filter
-                )
-            recent_rows = recent_q.limit(50).all()
+            profile_rows = []
+            fallback_count = 0
+            for r in prof_q:
+                fb = fallback_by_profile.get(r.profile, 0)
+                fallback_count += fb
+                profile_rows.append({
+                    "profile": r.profile,
+                    "reqs": int(r.reqs), "ok": int(r.ok), "err": int(r.err),
+                    "fallbacks": fb,
+                    "cost": float(r.cost), "completion": int(r.ctok),
+                })
 
-            # ── Recent Errors ──
-            error_q = (
-                session.query(RequestModel)
-                .filter(RequestModel.success == 0)
-                .order_by(RequestModel.id.desc())
-            )
-            if profile_filter:
-                error_q = error_q.filter(
-                    RequestModel.profile == profile_filter
-                )
-            error_rows = error_q.limit(20).all()
-
-            # ── Time-series data for Chart.js (last 14 days, daily cost) ──
-            ts_rows = (
-                session.query(
-                    func.substr(RequestModel.timestamp, 1, 10).label("date"),
-                    func.coalesce(func.sum(RequestModel.cost), 0).label("cost"),
-                    func.coalesce(func.avg(RequestModel.latency_ms), 0).label("avg_lat"),
-                    func.count(RequestModel.id).label("count"),
-                )
-            )
-            if profile_filter:
-                ts_rows = ts_rows.filter(
-                    RequestModel.profile == profile_filter
-                )
-            ts_rows = (
-                ts_rows.filter(RequestModel.success == 1)
-                .group_by(func.substr(RequestModel.timestamp, 1, 10))
-                .order_by(func.substr(RequestModel.timestamp, 1, 10).asc())
-                .limit(14)
-                .all()
-            )
-            ts_dates = [r.date for r in ts_rows]
-            ts_costs = [float(r.cost) for r in ts_rows]
-            ts_lats = [float(r.avg_lat) for r in ts_rows]
-
-            # Per-profile time series (grouped bar chart data)
-            pp_rows_q = (
-                session.query(
-                    func.substr(RequestModel.timestamp, 1, 10).label("date"),
-                    RequestModel.profile,
-                    func.coalesce(func.sum(RequestModel.cost), 0).label("cost"),
-                    func.coalesce(func.avg(RequestModel.latency_ms), 0).label("avg_lat"),
-                )
-                .filter(RequestModel.success == 1)
-            )
-            if profile_filter:
-                pp_rows_q = pp_rows_q.filter(
-                    RequestModel.profile == profile_filter
-                )
-            pp_rows = (
-                pp_rows_q.group_by(func.substr(RequestModel.timestamp, 1, 10), RequestModel.profile)
-                .order_by(func.substr(RequestModel.timestamp, 1, 10).asc())
-                .limit(14 * len(config.profiles))
-                .all()
-            )
-            # Pivot into {dates: [...], profiles: {name: {costs:[], lats:[]}}}
-            pp_data = {"dates": sorted(set(r.date for r in pp_rows)), "profiles": {}}
-            for p in config.profiles.keys():
-                pp_data["profiles"][p] = {"costs": [], "lats": []}
-            date_to_idx = {d: i for i, d in enumerate(pp_data["dates"])}
-            for p in config.profiles.keys():
-                pp_data["profiles"][p]["costs"] = [0.0] * len(pp_data["dates"])
-                pp_data["profiles"][p]["lats"] = [0.0] * len(pp_data["dates"])
-            for r in pp_rows:
-                idx = date_to_idx[r.date]
-                # History outlives config: a profile can be dropped from
-                # config.profiles while its requests stay in the DB, and
-                # `pp_data["profiles"][r.profile]` would then raise KeyError and
-                # 500 the whole /activity page. Create the series on demand so the
-                # page shows the retired profile's spend instead of dying.
-                if r.profile not in pp_data["profiles"]:
-                    pp_data["profiles"][r.profile] = {
-                        "costs": [0.0] * len(pp_data["dates"]),
-                        "lats": [0.0] * len(pp_data["dates"]),
-                    }
-                pp_data["profiles"][r.profile]["costs"][idx] = float(r.cost)
-                pp_data["profiles"][r.profile]["lats"][idx] = float(r.avg_lat)
-
-            # Per-model time series (grouped by model)
-            pm_rows_q = (
-                session.query(
-                    func.substr(RequestModel.timestamp, 1, 10).label("date"),
-                    RequestModel.model,
-                    func.coalesce(func.sum(RequestModel.cost), 0).label("cost"),
-                    func.coalesce(func.avg(RequestModel.latency_ms), 0).label("avg_lat"),
-                )
-                .filter(RequestModel.success == 1)
-            )
-            if profile_filter:
-                pm_rows_q = pm_rows_q.filter(
-                    RequestModel.profile == profile_filter
-                )
-            pm_rows = (
-                pm_rows_q.group_by(func.substr(RequestModel.timestamp, 1, 10), RequestModel.model)
-                .order_by(func.substr(RequestModel.timestamp, 1, 10).asc())
-                .all()
-            )
-            pm_data = {"dates": sorted(set(r.date for r in pm_rows)), "models": {}}
-            pm_date_to_idx = {d: i for i, d in enumerate(pm_data["dates"])}
-            for r in pm_rows:
+            # ── Per-model period aggregates (tokens breakdown) ──
+            model_q = base.with_entities(
+                RequestModel.model.label("model"),
+                func.count(RequestModel.id).label("reqs"),
+                func.coalesce(func.sum(RequestModel.prompt_tokens), 0).label("ptok"),
+                func.coalesce(func.sum(RequestModel.completion_tokens), 0).label("ctok"),
+                func.coalesce(func.sum(RequestModel.cache_hit_tokens), 0).label("chit"),
+                func.coalesce(func.sum(RequestModel.cost), 0.0).label("cost"),
+            ).group_by(RequestModel.model).all()
+            model_rows_map: dict[str, dict] = {}
+            for r in model_q:
                 logical = _logical(r.model)
-                if logical not in pm_data["models"]:
-                    pm_data["models"][logical] = {"costs": [0.0] * len(pm_data["dates"]), "lats": [0.0] * len(pm_data["dates"])}
-                idx = pm_date_to_idx[r.date]
-                pm_data["models"][logical]["costs"][idx] = float(r.cost)
-                pm_data["models"][logical]["lats"][idx] = float(r.avg_lat)
+                row = model_rows_map.setdefault(logical, {
+                    "model": logical, "reqs": 0, "prompt": 0,
+                    "completion": 0, "hit": 0, "cost": 0.0,
+                })
+                row["reqs"] += int(r.reqs)
+                row["prompt"] += int(r.ptok)
+                row["completion"] += int(r.ctok)
+                row["hit"] += int(r.chit)
+                row["cost"] += float(r.cost)
+            model_rows = sorted(model_rows_map.values(),
+                                key=lambda m: m["completion"], reverse=True)
+
+            # ── Daily series over the period (cost + tokens + reqs) ──
+            day_q = base.with_entities(
+                func.substr(RequestModel.timestamp, 1, 10).label("date"),
+                func.count(RequestModel.id).label("reqs"),
+                func.coalesce(func.sum(case((RequestModel.success == 1, 1), else_=0)), 0).label("ok"),
+                func.coalesce(func.sum(RequestModel.cost), 0.0).label("cost"),
+                func.coalesce(func.sum(RequestModel.prompt_tokens), 0).label("ptok"),
+                func.coalesce(func.sum(RequestModel.completion_tokens), 0).label("ctok"),
+                func.coalesce(func.avg(case((RequestModel.success == 1, RequestModel.latency_ms), else_=None)), 0.0).label("avg_lat"),
+            ).group_by(func.substr(RequestModel.timestamp, 1, 10)).all()
+            day_rows = [{
+                "date": r.date, "reqs": int(r.reqs), "ok": int(r.ok),
+                "cost": float(r.cost), "prompt": int(r.ptok),
+                "completion": int(r.ctok), "avg_lat": float(r.avg_lat),
+                "providers": [], "profiles": [],
+            } for r in sorted(day_q, key=lambda x: x.date)]
+            day_index = {d["date"]: d for d in day_rows}
+
+            # Per (day, provider) drill-down for the trend-click detail panel.
+            dp_q = base.with_entities(
+                func.substr(RequestModel.timestamp, 1, 10).label("date"),
+                RequestModel.provider.label("provider"),
+                func.count(RequestModel.id).label("reqs"),
+                func.coalesce(func.sum(RequestModel.cost), 0.0).label("cost"),
+                func.coalesce(func.sum(RequestModel.completion_tokens), 0).label("ctok"),
+            ).group_by(
+                func.substr(RequestModel.timestamp, 1, 10),
+                RequestModel.provider).all()
+            for r in dp_q:
+                d = day_index.get(r.date)
+                if d is None:
+                    continue
+                d["providers"].append({
+                    "provider": r.provider, "family": _family_of(r.provider),
+                    "reqs": int(r.reqs), "cost": float(r.cost),
+                    "completion": int(r.ctok),
+                })
+            # Per (day, profile) drill-down too — the day panel shows both cuts.
+            dpr_q = base.with_entities(
+                func.substr(RequestModel.timestamp, 1, 10).label("date"),
+                RequestModel.profile.label("profile"),
+                func.count(RequestModel.id).label("reqs"),
+                func.coalesce(func.sum(RequestModel.cost), 0.0).label("cost"),
+                func.coalesce(func.sum(RequestModel.completion_tokens), 0).label("ctok"),
+            ).group_by(
+                func.substr(RequestModel.timestamp, 1, 10),
+                RequestModel.profile).all()
+            for r in dpr_q:
+                d = day_index.get(r.date)
+                if d is None:
+                    continue
+                d["profiles"].append({
+                    "profile": r.profile, "reqs": int(r.reqs),
+                    "cost": float(r.cost), "completion": int(r.ctok),
+                })
+
+            # ── Trend series for Chart.js (per-day aggregates) ──
+            ts_dates = [d["date"] for d in day_rows]
+            ts_costs = [round(d["cost"], 4) for d in day_rows]
+            ts_ctok = [d["completion"] for d in day_rows]
+            ts_ptok = [d["prompt"] for d in day_rows]
+            ts_reqs = [d["ok"] for d in day_rows]
+
+            # ── Per-profile trend series (costs + completion tokens) ──
+            ppr_q = base.with_entities(
+                func.substr(RequestModel.timestamp, 1, 10).label("date"),
+                RequestModel.profile.label("profile"),
+                func.coalesce(func.sum(RequestModel.cost), 0.0).label("cost"),
+                func.coalesce(func.sum(RequestModel.completion_tokens), 0).label("ctok"),
+            ).filter(RequestModel.success == 1).group_by(
+                func.substr(RequestModel.timestamp, 1, 10),
+                RequestModel.profile).all()
+            pp_data = {"dates": ts_dates, "profiles": {}}
+            date_to_idx = {d: i for i, d in enumerate(ts_dates)}
+            for r in ppr_q:
+                p = pp_data["profiles"].setdefault(
+                    r.profile, {"costs": [0.0] * len(ts_dates),
+                                "toks": [0] * len(ts_dates)})
+                idx = date_to_idx[r.date]
+                p["costs"][idx] = round(float(r.cost), 4)
+                p["toks"][idx] = int(r.ctok)
+
+            # ── Per-model trend series (costs + completion tokens) ──
+            pmm_q = base.with_entities(
+                func.substr(RequestModel.timestamp, 1, 10).label("date"),
+                RequestModel.model.label("model"),
+                func.coalesce(func.sum(RequestModel.cost), 0.0).label("cost"),
+                func.coalesce(func.sum(RequestModel.completion_tokens), 0).label("ctok"),
+            ).filter(RequestModel.success == 1).group_by(
+                func.substr(RequestModel.timestamp, 1, 10),
+                RequestModel.model).all()
+            pm_data = {"dates": ts_dates, "models": {}}
+            for r in pmm_q:
+                logical = _logical(r.model)
+                m = pm_data["models"].setdefault(
+                    logical, {"costs": [0.0] * len(ts_dates),
+                              "toks": [0] * len(ts_dates)})
+                idx = date_to_idx[r.date]
+                m["costs"][idx] = round(float(r.cost), 4)
+                m["toks"][idx] = int(r.ctok)
     except Exception:
         logger.error("dashboard_query_failed", exc_info=True)
-        summary = type("S", (), {"total_cost": 0, "total_requests": 0, "cache_hits": 0, "cache_misses": 0, "prompt_tokens": 0, "output_tokens": 0})()
-        summary_total_cost = 0.0
-        summary_total_requests = 0
-        summary_output_tokens = 0
-        summary_prompt_tokens = 0
-        fallback_count = 0
-        total_success = 0
-        cache_hit_rate = 0
-        cache_hit_tokens = 0
-        cache_miss_tokens = 0
+        ok_requests = fallback_count = error_count = 0
+        total_cost = metered_cost = subs_cost = local_cost = unknown_cost = 0.0
+        prompt_tokens = completion_tokens = 0
+        cache_hit_tokens = cache_miss_tokens = 0
+        cache_hit_rate = 0.0
+        cache_savings = 0.0
         active_days = 0
-        profile_rows = []
-        daily_rows = []
-        recent_rows = []
-        error_rows = []
-        ts_dates = []
-        ts_costs = []
-        ts_lats = []
+        provider_rows, profile_rows, model_rows, day_rows = [], [], [], []
+        ts_dates, ts_costs, ts_ctok, ts_ptok, ts_reqs = [], [], [], [], []
         pp_data = {"dates": [], "profiles": {}}
         pm_data = {"dates": [], "models": {}}
+    else:
+        cache_total = cache_hit_tokens + cache_miss_tokens
+        cache_hit_rate = (cache_hit_tokens / cache_total * 100) if cache_total > 0 else 0.0
 
-    cache = get_prompt_cache()
-    cache_stats = cache.stats
-
-    # ── Cache savings helper ──
-    # Estimate dollars saved via provider prefix caching.
-    # cache_hit tokens are billed at ~0.8% of miss rate.
-    def _savings_for_model(model: str, hit_tokens: int) -> float:
-        if hit_tokens <= 0:
+        # ── Cache savings estimate (period) ──
+        # cache_hit tokens bill at the provider's cache_hit rate instead of the
+        # cache_miss rate; the difference, valued per model, is what prefix
+        # caching saved. Same arithmetic the old dashboard used, now scoped to
+        # the selected period instead of the top-30 daily table.
+        def _savings_for_model(model: str, hit_tokens: int) -> float:
+            if hit_tokens <= 0:
+                return 0.0
+            for p_name, p_cfg in (getattr(config, "providers", {}) or {}).items():
+                if model in (p_cfg.get("models") or []):
+                    try:
+                        pricing = config.get_pricing(p_name, model)
+                        return (hit_tokens / 1_000_000) * (
+                            pricing["cache_miss"] - pricing["cache_hit"]
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
             return 0.0
-        for p_name, p_cfg in config.providers.items():
-            if model in p_cfg.get("models", []):
-                try:
-                    pricing = config.get_pricing(p_name, model)
-                    return (hit_tokens / 1_000_000) * (
-                        pricing["cache_miss"] - pricing["cache_hit"]
-                    )
-                except Exception:
-                    pass
-        return 0.0
 
-    total_cache_savings = sum(
-        _savings_for_model(cast(Any, r).model, cast(Any, r).cache_hit)
-        for r in daily_rows
-    ) if daily_rows else 0.0
+        cache_savings = sum(
+            _savings_for_model(cast(Any, m)["model"], cast(Any, m)["hit"])
+            for m in model_rows)
+
+        # Provider-level savings rollup for the cache detail panel.
+        model_to_providers: dict[str, list[str]] = {}
+        for p_name, p_cfg in (getattr(config, "providers", {}) or {}).items():
+            for m in (p_cfg.get("models") or []):
+                model_to_providers.setdefault(m, []).append(p_name)
+        prov_savings: dict[str, float] = {}
+        for m in model_rows:
+            saved = _savings_for_model(m["model"], m["hit"])
+            if not saved:
+                continue
+            owners = model_to_providers.get(m["model"]) or []
+            for owner in owners or ["unknown"]:
+                prov_savings[owner] = prov_savings.get(owner, 0.0) + saved
+        for row in provider_rows:
+            row["saved"] = round(prov_savings.get(row["provider"], 0.0), 4)
 
     # ── Helper: format large numbers ──
     def _fmt_num(n):
+        if n is None:
+            return "0"
         if n >= 1_000_000:
             return f"{n/1_000_000:.1f}M"
         if n >= 1_000:
             return f"{n/1_000:.1f}K"
         return str(int(n))
 
-    def _fmt_cost(c):
-        return f"${float(c):.6f}" if c else "$0.000000"
+    def _fmt_cost2(c):
+        return f"${float(c):,.2f}"
+
+    # ── Detail-panel payload (CUR-330 item 10): everything a card or a trend
+    #    bar can open, precomputed server-side and embedded as JSON. ──
+    breakdown = {
+        "period": period,
+        "cost": {
+            "totals": {"metered": round(metered_cost, 4),
+                       "subs": round(subs_cost, 4),
+                       "local": round(local_cost, 4),
+                       "unknown": round(unknown_cost, 4),
+                       "total": round(total_cost, 4)},
+            "providers": provider_rows,
+            "profiles": sorted(profile_rows, key=lambda p: -p["cost"]),
+            "active_days": active_days,
+        },
+        "tokens": {
+            "totals": {"completion": completion_tokens, "prompt": prompt_tokens},
+            "providers": sorted(provider_rows, key=lambda p: -p["completion"]),
+            "models": model_rows[:25],
+        },
+        "requests": {
+            "totals": {"ok": ok_requests, "fallbacks": fallback_count,
+                       "errors": error_count,
+                       "fb_pct": round(fallback_count / ok_requests * 100, 1)
+                       if ok_requests else 0.0},
+            "profiles": sorted(profile_rows, key=lambda p: -p["reqs"]),
+        },
+        "cache": {
+            "totals": {"hit": cache_hit_tokens, "miss": cache_miss_tokens,
+                       "ratio": round(cache_hit_rate, 1),
+                       "saved": round(cache_savings, 4)},
+            "providers": sorted(
+                [p for p in provider_rows if (p["hit"] + p["miss"]) > 0],
+                key=lambda p: -(p["hit"] + p["miss"])),
+        },
+        "days": day_rows,
+    }
 
     # ── Data for the Jinja2 dashboard template ──
     host = headers.get("Host", "localhost:8734")
@@ -365,143 +487,21 @@ def dashboard_context(config, engine, headers, profile_filter=None):
     ) else "http"
     host_url = f"{scheme}://{host}"
 
-    # Sidebar profiles: name + chain summary (copy-button title)
-    sidebar_profiles = []
-    for p, pcfg in config.profiles.items():
-        chain = pcfg.get("chain", [])
-        providers_str = ", ".join(s["provider"] for s in chain[:2])
-        if len(chain) > 2:
-            providers_str += f" +{len(chain)-2}"
-        sidebar_profiles.append({"name": p, "providers_str": providers_str})
-
-    # Per-profile summary cards
-    profile_cards = [
-        {"profile": row.profile, "count": row.count,
-         "total_cost": float(row.total_cost)}
-        for row in profile_rows
-    ]
-
-    # Daily costs table rows (cache fields pre-formatted with _fmt_num)
-    daily_rows_data = []
-    for r in daily_rows:
-        daily_saved = _savings_for_model(r.model, r.cache_hit)
-        daily_rows_data.append({
-            "date": r.date,
-            "profile": r.profile,
-            "model": _logical(r.model),
-            "provider": r.provider,
-            "reqs": r.reqs,
-            "fb_count": r.fb_count,
-            "cache_hit": _fmt_num(r.cache_hit),
-            "cache_miss": _fmt_num(r.cache_miss),
-            "output": _fmt_num(r.output),
-            "cost": float(r.cost),
-            "saved": daily_saved,
-        })
-
-    # Recent requests table rows (status badges pre-built as HTML)
-    recent_rows_data = []
-    for r in recent_rows:
-        time_str = r.timestamp[11:19] if r.timestamp and "T" in r.timestamp else str(r.timestamp)[:19]
-        status_badges = ""
-        if r.success:
-            status_badges += '<span class="badge badge-success">ok</span> '
-        else:
-            status_badges += f'<span class="badge badge-error">{r.error_type or "error"}</span> '
-        if r.provider != "error" and r.success and r.provider:
-            prof_cfg = config.profiles.get(r.profile, {})
-            chain = prof_cfg.get("chain", [])
-            if chain and chain[0]["provider"] != r.provider:
-                status_badges += '<span class="badge badge-fallback">FB</span>'
-        req_saved = _savings_for_model(r.model, r.cache_hit_tokens)
-        recent_rows_data.append({
-            "time": time_str,
-            "profile": r.profile,
-            "model": _logical(r.model),
-            "provider": r.provider,
-            "badges": status_badges,
-            "latency_s": r.latency_ms / 1000,
-            "cost": float(r.cost),
-            "saved": req_saved,
-        })
-
-    # Recent errors table rows
-    error_rows_data = [
-        {
-            "time": r.timestamp[:19] if r.timestamp else "",
-            "profile": r.profile,
-            "provider": r.provider,
-            "error_type": r.error_type,
-        }
-        for r in error_rows
-    ]
-
-    # Fallback rate
-    fb_pct = (fallback_count / total_success * 100) if total_success > 0 else 0
-
-    # Phase 5/6 extra cards
-    verifier = get_token_verifier()
-    v_stats = verifier.stats if hasattr(verifier, "stats") else {}
-    router = get_dynamic_router()
-    r_conf = getattr(router, "config", {})
-    token_mismatches = v_stats.get("mismatches", 0)
-    routing_threshold = r_conf.get("flash_threshold_tokens", 4096)
-    cache_entries = cache_stats["entries"]
-    cache_max_entries = cache_stats.get("max_entries", "N/A")
-
-    # ── Monthly usage per provider (for OpenCode display) ──
-    from datetime import date as _date
-    _first_of_month = _date.today().replace(day=1).isoformat()
-    with get_session(engine) as _s:
-        _monthly_rows = _s.query(
-            RequestModel.provider,
-            func.count(RequestModel.id).label("m_reqs"),
-            func.coalesce(func.sum(RequestModel.completion_tokens + RequestModel.prompt_tokens), 0).label("m_tokens"),
-            func.coalesce(func.sum(RequestModel.cost), 0).label("m_cost"),
-        ).filter(
-            RequestModel.timestamp >= _first_of_month,
-            RequestModel.success == 1,
-        )
-        if profile_filter:
-            _monthly_rows = _monthly_rows.filter(
-                RequestModel.profile == profile_filter
-            )
-        _monthly_rows = _monthly_rows.group_by(RequestModel.provider).all()
-    _monthly_data = {}
-    for r in _monthly_rows:
-        _monthly_data[r.provider] = {
-            "reqs": int(r.m_reqs),
-            "tokens": int(r.m_tokens),
-            "cost": float(r.m_cost),
-        }
-
-    # Serialize for JS
-    _monthly_data_json = json.dumps(_monthly_data)
-    _configured_providers_json = json.dumps(sorted(config.providers.keys()))
-
-    # ── Full HTML ──
-    filter_title = f" — {profile_filter.upper()}" if profile_filter else ""
-    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    ts_dates_json = json.dumps(ts_dates)
-    ts_costs_json = json.dumps(ts_costs)
-    ts_lats_json = json.dumps(ts_lats)
-    pp_data_json = json.dumps(pp_data)
-    pm_data_json = json.dumps(pm_data)
-
     import src as _src
     version = getattr(_src, "__version__", "?")
 
-    # Pre-formatted display strings (preserve old dashboard output exactly)
-    total_cost_fmt = _fmt_cost(summary_total_cost)
-    cache_savings_fmt = f"${total_cache_savings:.4f}"
-    cache_hit_rate_fmt = f"{cache_hit_rate:.1f}%"
-    fb_pct_fmt = f"{fb_pct:.1f}%"
-    summary_total_requests_fmt = f"{summary_total_requests:,}"
-    fallback_count_fmt = f"{fallback_count:,}"
-    cache_hit_tokens_fmt = _fmt_num(cache_hit_tokens)
-    cache_miss_tokens_fmt = _fmt_num(cache_miss_tokens)
-    output_tokens_fmt = _fmt_num(summary_output_tokens)
-    prompt_tokens_fmt = _fmt_num(summary_prompt_tokens)
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    period_options = [
+        {"value": "7", "label": "7 days"},
+        {"value": "14", "label": "14 days"},
+        {"value": "30", "label": "30 days"},
+        {"value": "90", "label": "90 days"},
+        {"value": "all", "label": "All time"},
+    ]
+    for opt in period_options:
+        opt["active"] = opt["value"] == period
+
+    filter_title = f" — {profile_filter.upper()}" if profile_filter else ""
 
     # ── Budget status cards ──
     budget_cards = []
@@ -528,46 +528,64 @@ def dashboard_context(config, engine, headers, profile_filter=None):
     except Exception:
         pass
 
+    cache = get_prompt_cache()
+    cache_stats = cache.stats
+
     return {
-        "active_page": "activity",
+        "active_page": "home",
+        "tab": "overview",
         "profile_filter": profile_filter,
         "filter_title": filter_title,
+        "period": period,
+        "period_options": period_options,
         "now_utc": now_utc,
         "version": version,
         "host_url": host_url,
-        "total_cost_fmt": total_cost_fmt,
-        "cache_savings_fmt": cache_savings_fmt,
-        "cache_hit_rate_fmt": cache_hit_rate_fmt,
-        "fb_pct_fmt": fb_pct_fmt,
-        "summary_total_requests_fmt": summary_total_requests_fmt,
-        "fallback_count_fmt": fallback_count_fmt,
-        "cache_hit_tokens_fmt": cache_hit_tokens_fmt,
-        "cache_miss_tokens_fmt": cache_miss_tokens_fmt,
-        "output_tokens_fmt": output_tokens_fmt,
-        "prompt_tokens_fmt": prompt_tokens_fmt,
+        # Cards (period-scoped)
+        "ok_requests_fmt": f"{ok_requests:,}",
+        "fallback_count_fmt": f"{fallback_count:,}",
+        "error_count_fmt": f"{error_count:,}",
+        "fb_pct_fmt": f"{fallback_count / ok_requests * 100:.1f}%" if ok_requests else "0.0%",
+        "usage_value_fmt": _fmt_cost2(total_cost),
+        "metered_cost_fmt": _fmt_cost2(metered_cost),
+        "subs_cost_fmt": _fmt_cost2(subs_cost),
+        "local_cost_fmt": _fmt_cost2(local_cost),
+        "cache_hit_rate_fmt": f"{cache_hit_rate:.1f}%",
+        "cache_hit_tokens_fmt": _fmt_num(cache_hit_tokens),
+        "cache_miss_tokens_fmt": _fmt_num(cache_miss_tokens),
+        "cache_savings_fmt": _fmt_cost2(cache_savings),
+        "output_tokens_fmt": _fmt_num(completion_tokens),
+        "prompt_tokens_fmt": _fmt_num(prompt_tokens),
         "active_days": active_days,
-        "profile_cards": profile_cards,
-        "daily_rows": daily_rows_data,
-        "recent_rows": recent_rows_data,
-        "error_rows": error_rows_data,
-        "sidebar_profiles": sidebar_profiles,
+        # Trend series
+        "ts_dates_json": json.dumps(ts_dates),
+        "ts_costs_json": json.dumps(ts_costs),
+        "ts_ctok_json": json.dumps(ts_ctok),
+        "ts_ptok_json": json.dumps(ts_ptok),
+        "ts_reqs_json": json.dumps(ts_reqs),
+        "pp_data_json": json.dumps(pp_data),
+        "pm_data_json": json.dumps(pm_data),
+        # Detail-panel payload
+        "breakdown_json": json.dumps(breakdown),
+        # Retained for the global header widget + sidebar profiles
+        "sidebar_profiles": [],
         "budget_cards": budget_cards,
         "budget_cards_json": json.dumps(budget_cards),
-        "token_mismatches": token_mismatches,
-        "routing_threshold": routing_threshold,
-        "cache_entries": cache_entries,
-        "cache_max_entries": cache_max_entries,
-        "ts_dates_json": ts_dates_json,
-        "ts_costs_json": ts_costs_json,
-        "ts_lats_json": ts_lats_json,
-        "pp_data_json": pp_data_json,
-        "pm_data_json": pm_data_json,
-        "monthly_json": _monthly_data_json,
-        "configured_providers_json": _configured_providers_json,
+        "cache_entries": cache_stats["entries"],
+        "cache_max_entries": cache_stats.get("max_entries", "N/A"),
+        "token_mismatches": (get_token_verifier().stats or {}).get("mismatches", 0)
+        if hasattr(get_token_verifier(), "stats") else 0,
+        "routing_threshold": getattr(get_dynamic_router(), "config", {}).get(
+            "flash_threshold_tokens", 4096),
+        "monthly_json": json.dumps({}),
+        "configured_providers_json": json.dumps(
+            sorted((getattr(config, "providers", {}) or {}).keys())),
     }
 
 
-def render_dashboard(config, engine, headers, profile_filter=None):
-    """Render the standalone dashboard page (pre-M2 route, now a redirect target)."""
-    return render_page("pages/dashboard.html", config, engine,
-                       **dashboard_context(config, engine, headers, profile_filter))
+def render_dashboard(config, engine, headers, profile_filter=None, period="14"):
+    """Legacy entry point — now renders the Overview homepage (CUR-330)."""
+    return render_page("pages/home.html", config, engine,
+                       **dashboard_context(config, engine, headers,
+                                           profile_filter=profile_filter,
+                                           period=period))

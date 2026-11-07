@@ -148,7 +148,9 @@ def _compute_monthly(engine) -> dict:
 # silently renders the overview instead of Usage).
 # name -> (owning template, tab, any context the section needs to render)
 _LEGACY_PAGE_TABS = {
-    "pages/dashboard.html": ("pages/activity.html", "overview", {}),
+    # CUR-330: the dashboard name IS the homepage now — the overview left
+    # Activity, so the alias points at the home page instead.
+    "pages/dashboard.html": ("pages/home.html", "overview", {}),
     "pages/logs.html": ("pages/activity.html", "logs",
                         {"view": {"tab": "requests"}, "params": {}}),
     "pages/providers.html": ("pages/models.html", "providers", {}),

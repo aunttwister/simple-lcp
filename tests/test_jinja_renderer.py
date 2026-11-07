@@ -547,61 +547,71 @@ class TestSidebarPartial:
 
 
 def _dashboard_kwargs(**overrides):
-    """Build the full context dict the dashboard template expects.
+    """Build the full context dict the Overview homepage template expects.
 
-    Mirrors the kwargs that src.ui.dashboard.render_dashboard() passes to
-    render_page("pages/dashboard.html", ...).
+    Mirrors the kwargs that src.ui.dashboard.dashboard_context() passes to
+    render_page("pages/home.html", ...) (CUR-330 renamed the page; the fixture
+    follows the renderer, not the legacy name).
     """
     base = {
+        "active_page": "home",
+        "tab": "overview",
         "profile_filter": None,
         "filter_title": "",
+        "period": "14",
+        "period_options": [
+            {"value": "7", "label": "7 days", "active": False},
+            {"value": "14", "label": "14 days", "active": True},
+            {"value": "30", "label": "30 days", "active": False},
+            {"value": "90", "label": "90 days", "active": False},
+            {"value": "all", "label": "All time", "active": False},
+        ],
         "now_utc": "2026-08-01 00:00:00 UTC",
         "version": "0.5.0",
         "host_url": "http://localhost:8734",
-        "total_cost_fmt": "$1.234567",
-        "cache_savings_fmt": "$0.1234",
+        "usage_value_fmt": "$1.23",
+        "metered_cost_fmt": "$0.90",
+        "subs_cost_fmt": "$0.30",
+        "local_cost_fmt": "$0.03",
+        "cache_savings_fmt": "$0.12",
         "cache_hit_rate_fmt": "50.0%",
         "fb_pct_fmt": "12.3%",
-        "summary_total_requests_fmt": "1,234",
+        "ok_requests_fmt": "1,234",
         "fallback_count_fmt": "152",
+        "error_count_fmt": "3",
         "cache_hit_tokens_fmt": "1.2K",
         "cache_miss_tokens_fmt": "3.4K",
         "output_tokens_fmt": "5.6K",
         "prompt_tokens_fmt": "7.8K",
         "active_days": 15,
-        "profile_cards": [
-            {"profile": "l2", "count": 10, "total_cost": 0.5},
-        ],
-        "daily_rows": [
-            {"date": "2026-07-20", "profile": "l2", "model": "deepseek-chat",
-             "provider": "deepseek", "reqs": 3, "fb_count": 1,
-             "cache_hit": "10", "cache_miss": "20", "output": "30",
-             "cost": 0.001234, "saved": 0.0001},
-        ],
-        "recent_rows": [
-            {"time": "10:00:00", "profile": "l2", "model": "deepseek-chat",
-             "provider": "deepseek",
-             "badges": '<span class="badge badge-success">ok</span>',
-             "latency_s": 1.2, "cost": 0.001234, "saved": 0.0001},
-        ],
-        "error_rows": [
-            {"time": "2026-07-21T11:00:00", "profile": "l1", "provider": "deepseek",
-             "error_type": "timeout"},
-        ],
-        "sidebar_profiles": [
-            {"name": "l2", "providers_str": "opencode, deepseek"},
-            {"name": "l1", "providers_str": "deepseek"},
-        ],
+        "sidebar_profiles": [],
+        "budget_cards": [],
+        "budget_cards_json": "[]",
         "token_mismatches": 0,
         "routing_threshold": 4096,
         "cache_entries": 0,
         "cache_max_entries": 1000,
         "ts_dates_json": json.dumps(["2026-07-20"]),
         "ts_costs_json": json.dumps([0.001234]),
-        "ts_lats_json": json.dumps([1234.0]),
+        "ts_ctok_json": json.dumps([123]),
+        "ts_ptok_json": json.dumps([456]),
+        "ts_reqs_json": json.dumps([7]),
         "pp_data_json": json.dumps({"dates": [], "profiles": {}}),
         "pm_data_json": json.dumps({"dates": [], "models": {}}),
-        "monthly_json": json.dumps({"deepseek": {"reqs": 1, "tokens": 100, "cost": 0.01}}),
+        "breakdown_json": json.dumps({
+            "cost": {"totals": {"metered": 0.9, "subs": 0.3, "local": 0.03,
+                                "unknown": 0.0, "total": 1.23},
+                     "providers": [], "profiles": [], "active_days": 15},
+            "tokens": {"totals": {"completion": 5600, "prompt": 7800},
+                       "providers": [], "models": []},
+            "requests": {"totals": {"ok": 1234, "fallbacks": 152,
+                                    "errors": 3, "fb_pct": 12.3},
+                         "profiles": []},
+            "cache": {"totals": {"hit": 1200, "miss": 3400, "ratio": 26.1,
+                                 "saved": 0.1234}, "providers": []},
+            "days": [],
+        }),
+        "monthly_json": json.dumps({}),
         "configured_providers_json": json.dumps(["deepseek", "opencode"]),
     }
     base.update(overrides)
@@ -609,50 +619,59 @@ def _dashboard_kwargs(**overrides):
 
 
 class TestDashboardTemplate:
-    """Unit tests for pages/dashboard.html (the migrated dashboard)."""
+    """Unit tests for pages/home.html (the Overview homepage, ex-dashboard)."""
 
     def _render(self, mock_config, **overrides):
         from src.ui.render import render_page
-        return render_page("pages/dashboard.html", mock_config, **_dashboard_kwargs(**overrides))
+        return render_page("pages/home.html", mock_config, **_dashboard_kwargs(**overrides))
 
     def test_dashboard_renders_valid_html(self, mock_config):
         html = self._render(mock_config)
         assert isinstance(html, str)
         assert html.strip().startswith("<!DOCTYPE html>")
-        assert "<title>Activity — LCP</title>" in html
-        assert "Daily Cost Trend (14-day)" in html
+        assert "<title>Overview — LCP</title>" in html
+        assert "Trends" in html
         assert 'id="costChart"' in html
-        assert 'id="provModal"' in html
+        assert 'id="tokensChart"' in html   # CUR-330 item 8: tokens, not latency
+        assert 'id="latencyChart"' not in html
+        assert 'id="provModal"' not in html  # provider modal left with its sidebar
+        assert 'id="detailPanel"' in html
         assert "Generated" in html
 
     def test_dashboard_summary_cards_render(self, mock_config):
         html = self._render(mock_config)
-        assert "$1.234567" in html       # Total Cost
-        assert "1,234" in html           # Total Requests
-        assert "50.0%" in html           # Cache Hit Ratio
-        assert "$0.1234" in html         # Cache Savings
-        assert "5.6K" in html            # Output Tokens
-        assert "15 active days" in html
+        assert "$1.23" in html             # Usage value, 2 decimals (item 2)
+        assert "1,234" in html             # Requests
+        assert "152 fallbacks (12.3%)" in html  # real fallbacks, not fake ones
+        assert "50.0%" in html             # Cache Hit Ratio
+        assert "5.6K" in html              # Generated tokens
+        assert "$0.90" in html and "$0.30" in html  # metered/subs split
 
-    def test_dashboard_table_rows_render(self, mock_config):
+    def test_dashboard_removed_surfaces_are_gone(self, mock_config):
+        """CUR-330 items 5+6: profile mini cards and the filter dropdown left."""
         html = self._render(mock_config)
-        # profile summary cards
-        assert "L2" in html
-        assert "$0.5000" in html         # l2 cost in profile mini card
-        assert "10 reqs" in html
-        # profile filter dropdown
-        assert "lcp-filter-dropdown" in html
-        assert "lcp-filter-menu" in html
-        # Chart canvas still rendered
-        assert 'id="costChart"' in html
-        # metrics row
-        assert "metric-card" in html
+        assert "profile-minis" not in html
+        assert "lcp-filter-dropdown" not in html
+        assert "lcp-filter-menu" not in html
+
+    def test_dashboard_period_selector(self, mock_config):
+        html = self._render(mock_config)
+        assert 'href="/?period=7"' in html
+        assert 'href="/?period=all"' in html
+        # the default window is marked active
+        assert 'class="view-toggle active"\n       href="/?period=14"' in html
+        # no fake "14-day" label on an all-time series any more
+        assert "Daily Cost Trend (14-day)" not in html
 
     def test_dashboard_profile_filter_active(self, mock_config):
         html = self._render(mock_config, profile_filter="l2", filter_title=" — L2")
-        assert "<title>Activity (L2) — LCP</title>" in html
-        # Filter dropdown shows active profile
-        assert "L2" in html
-        assert "lcp-filter-item active" in html
         # host URL injected into the page JS
         assert "http://localhost:8734" in html
+        # the filter is shown and clearable, not a dropdown
+        assert "Clear profile filter (L2)" in html
+        assert 'href="/?period=7&amp;profile=l2"' in html
+
+    def test_dashboard_breakdown_payload_embedded(self, mock_config):
+        html = self._render(mock_config)
+        assert "var breakdown = " in html
+        assert '"fb_pct": 12.3' in html

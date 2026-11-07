@@ -57,7 +57,8 @@ SECTION_TAB = {
 # "what happened" log realm.
 # Activity before Conversations: the log is the surface you open to answer "what
 # did the router do", and a conversation is the drill-down from one of its rows.
-NAV = ["/profiles", "/models", "/activity", "/conversations", "/usage", "/alerts"]
+# CUR-330: Overview (the homepage) is the first entry, and the brand links to it.
+NAV = ["/", "/profiles", "/models", "/activity", "/conversations", "/usage", "/alerts"]
 
 
 @pytest.fixture
@@ -118,7 +119,7 @@ def _nav(html):
 # ── the nav ──────────────────────────────────────────────────────────────────
 
 def test_nav_is_flat_and_ordered_with_profiles_first(cfg):
-    """Six entries, no group labels: the label only made the reader classify."""
+    """Seven entries, no group labels: the label only made the reader classify."""
     from src.ui.render import render_page
     html = render_page("pages/models.html", cfg)
     nav = _nav(html)
@@ -177,8 +178,11 @@ MERGED = [
     # other agent-infrastructure tabs, so it now falls back to the directory.)
     ("/models", "matrix", lambda c, e: _pages().render_models_page(c, e, {})),
     ("/models?tab=providers", "providers", lambda c, e: _pages().render_models_page(c, e, {"tab": "providers"})),
-    ("/activity", "overview", lambda c, e: _pages().render_activity_page(c, e, {}, {"Host": "test:8734"})),
+    # CUR-330: the overview IS the homepage now; Activity defaults to logs.
+    ("/", "overview", lambda c, e: _pages().render_home_page(c, e, {"Host": "test:8734"})),
+    ("/activity", "logs", lambda c, e: _pages().render_activity_page(c, e, {}, {"Host": "test:8734"})),
     ("/activity?tab=logs", "logs", lambda c, e: _pages().render_activity_page(c, e, {"tab": "logs"})),
+    ("/activity?tab=evidence", "evidence", lambda c, e: _pages().render_activity_page(c, e, {"tab": "evidence"})),
     ("/usage", "usage", lambda c, e: _pages().render_usage_page(c, e, {})),
 ]
 
@@ -227,13 +231,14 @@ def test_the_profiles_page_has_no_single_tab_strip(cfg, engine):
         assert "<h1>Profiles</h1>" in html, params
 
 
-def test_activity_has_exactly_overview_logs_and_evidence(cfg, engine):
-    """Usage left Activity in M2b — a dead tab must not linger in the strip."""
+def test_activity_has_exactly_logs_and_evidence(cfg, engine):
+    """CUR-330: the overview left Activity (it is the homepage); only the two log
+    realms remain, plus the link back to the numbers."""
     from src.ui.pages import render_activity_page
     html = render_activity_page(cfg, engine, {}, {"Host": "test:8734"})
     strip = html.split('<div class="page-tabs">')[1].split("</div>")[0]
     assert re.findall(r'href="([^"]+)"', strip) == [
-        "/activity", "/activity?tab=logs", "/activity?tab=evidence"]
+        "/activity", "/activity?tab=evidence", "/"]
 
 
 def test_usage_is_a_page_of_its_own(cfg, engine):
@@ -282,8 +287,8 @@ def test_models_title_follows_the_tab(cfg, engine, params, title):
 
 
 @pytest.mark.parametrize("params,title", [
-    ({}, "Activity — LCP"),
-    ({"tab": "logs"}, "Logs — LCP"),
+    ({}, "Logs — LCP"),
+    ({"tab": "evidence"}, "Evidence — LCP"),
 ])
 def test_activity_title_follows_the_tab(cfg, engine, params, title):
     from src.ui.pages import render_activity_page
@@ -301,7 +306,7 @@ def test_usage_page_title(cfg, engine):
 @pytest.mark.parametrize("page,params,expected", [
     ("profiles", {"tab": "nope"}, "Profiles — LCP"),
     ("models", {"tab": "nope"}, "Models — LCP"),
-    ("activity", {"tab": "usage"}, "Activity — LCP"),  # the dead tab falls back
+    ("activity", {"tab": "usage"}, "Logs — LCP"),  # the dead tab falls back to logs
 ])
 def test_unknown_tab_falls_back_to_the_default(cfg, engine, page, params, expected):
     """A stale bookmark lands somewhere sensible instead of a 404 or a blank page."""

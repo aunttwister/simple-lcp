@@ -225,27 +225,40 @@ def _logs_view(params) -> dict:
     return view
 
 
-def render_activity_page(config, engine=None, params=None, headers=None) -> str:
-    """Render the Activity page — overview | logs (M2, two tabs since M2b).
+def render_home_page(config, engine=None, headers=None, profile_filter=None,
+                     period="14") -> str:
+    """Render the Overview homepage (CUR-330).
 
-    The observability surface in one nav entry. Server-side tabs, the shape the
-    logs page already used: only the active tab's section renders, so a tab pays
-    for its own queries and ships only its own script. ``view`` selects the log
-    realm inside the logs tab. Alerts are deliberately not here (R10), and Usage
-    left in M2b — spend and balances are a billing view, not a log.
+    The page the LCP brand link opens: the old Activity > Overview tab, promoted
+    to ``/``. Every card, the trend and the detail panel are computed over the
+    ``?period=`` window (7|14|30|90|all, default 14) by ``dashboard_context``.
+    ``?profile=`` still scopes the whole page — the old dropdown is gone, but the
+    URL keeps working.
+    """
+    from .dashboard import dashboard_context
+    from .render import render_page
+    ctx = dashboard_context(config, engine, headers or {},
+                            profile_filter=profile_filter, period=period)
+    ctx["crumbs"] = _crumbs(("Overview", None))
+    return render_page("pages/home.html", config, engine, **ctx)
+
+
+def render_activity_page(config, engine=None, params=None, headers=None) -> str:
+    """Render the Activity page — logs | evidence (CUR-330).
+
+    The overview left this page in CUR-330: it is the homepage now (``/``, see
+    ``render_home_page``). ``?tab=overview`` and the bare page land there via a
+    redirect in the endpoint, and this renderer only ever produces the two log
+    realms. Alerts are deliberately not here (R10).
     """
     from .render import render_page
     params = dict(params or {})
-    tab = _tab(params, ("overview", "logs", "evidence"), "overview")
+    tab = _tab(params, ("logs", "evidence"), "logs")
     ctx = {"active_page": "activity", "tab": tab, "params": params,
            "crumbs": _crumbs(("Activity", "/activity"),
-                             ({"logs": "Logs", "evidence": "Evidence"}.get(tab, "Overview"), None))}
+                             ({"evidence": "Evidence"}.get(tab, "Logs"), None))}
     if tab == "logs":
         ctx["view"] = _logs_view(params)
-    elif tab == "overview":
-        from .dashboard import dashboard_context
-        ctx.update(dashboard_context(config, engine, headers or {},
-                                     params.get("profile") or None))
     return render_page("pages/activity.html", config, engine, **ctx)
 
 

@@ -2,15 +2,16 @@
   M2b — flat navigation. No group labels: every entry is a page, and the two
   groups ("Work" / "Gateway") only made the reader classify before clicking.
 
-  Profiles   — the directory: one card per routing subject, and each card opens
+  Overview    — the homepage (CUR-330): cost/tokens/requests over a selectable
+               period, with click-through breakdowns. The LCP brand opens it.
+  Profiles    — the directory: one card per routing subject, and each card opens
                that profile's routing rules, its model pool and the API keys that
                call it. First, because the profile is the unit every other page
                is scoped to.
   Models     — the capability matrix + where those models come from
-  Activity   — what happened: the cost/token overview and every log realm. Before
-               Conversations, because the log is the surface you open to answer
-               "what did the router do", and conversations are the drill-down from
-               a row in it.
+  Activity   — what happened: every log realm (Logs, Evidence). The cost/token
+               overview left for Overview (CUR-330) — an overview is a dashboard,
+               not a log.
   Conversations — what is happening NOW and everything that has happened. The live
                half is the in-process registry: the Requests log gains a row only
                when a call completes, so a running call appears nowhere else. The
@@ -32,11 +33,13 @@
 #}
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
-    <span>LCP</span>
+    {# CUR-330: the brand is the home link — it opens the Overview dashboard. #}
+    <a href="/" class="sb-brand-link" aria-label="LCP Overview home">LCP</a>
   </div>
   <nav class="sidebar-nav" aria-label="Main">
     {# aria-current, not just a colour: the active entry is the one piece of
        navigation state a screen reader can otherwise only infer from position. #}
+    <a href="/"{% if active_page == 'home' %} class="active" aria-current="page"{% endif %}>Overview</a>
     <a href="/profiles"{% if active_page == 'profiles' %} class="active" aria-current="page"{% endif %}>Profiles</a>
     <a href="/models"{% if active_page == 'models' %} class="active" aria-current="page"{% endif %}>Models</a>
     <a href="/activity"{% if active_page == 'activity' %} class="active" aria-current="page"{% endif %}>Activity</a>

@@ -340,9 +340,20 @@ class TestPageRoutes:
 
     def test_activity_page_serves(self, temp_db):
         _seed(temp_db)
+        # CUR-330: the bare overview URL redirects to the homepage (`/`), and
+        # the homepage itself serves 200.
         h = TestHandler(path="/activity", engine=temp_db)
         h.do_GET()
-        assert _status(h) == 200
+        assert _status(h) == 302
+        loc = [call[0][1] for call in h.send_header.call_args_list
+               if call[0] and call[0][0] == "Location"]
+        assert loc == ["/"]
+        home = TestHandler(path="/", engine=temp_db)
+        home.do_GET()
+        assert _status(home) == 200
+        logs = TestHandler(path="/activity?tab=logs", engine=temp_db)
+        logs.do_GET()
+        assert _status(logs) == 200
 
     def test_alerts_page(self, temp_db):
         h = TestHandler(path="/alerts", engine=temp_db)

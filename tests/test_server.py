@@ -700,17 +700,23 @@ class TestStaticEndpoints:
         assert _status(h) == 200
 
     def test_page_activity(self, temp_db):
-        """The Activity page is the observability surface (M2)."""
+        """CUR-330: the overview moved to `/`; /activity redirects there."""
         h = TestHandler(path="/activity", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 302
+        assert _header(h, "Location") == "/"
+
+    def test_page_home(self, temp_db):
+        """`/` IS the overview homepage now — it serves 200."""
+        h = TestHandler(path="/", engine=temp_db)
         h.do_GET()
         assert _status(h) == 200
 
     def test_page_dashboard(self, temp_db):
-        """Legacy /dashboard now redirects to Activity (M2)."""
+        """CUR-330: /dashboard serves the homepage directly, like /."""
         h = TestHandler(path="/dashboard", engine=temp_db)
         h.do_GET()
-        assert _status(h) == 302
-        assert _header(h, "Location") == "/activity"
+        assert _status(h) == 200
 
     def test_page_keys(self, temp_db):
         """Legacy /keys now redirects to the API Keys tab of Profiles (M2)."""
@@ -850,17 +856,17 @@ class TestStaticEndpoints:
         assert _status(h) == 404
 
     def test_dashboard_with_profile_filter(self, temp_db):
-        """The per-profile dashboard URL survives as a filtered Activity redirect."""
+        """The per-profile dashboard URL survives as a filtered homepage redirect."""
         h = TestHandler(path="/l2/dashboard", engine=temp_db)
         h.do_GET()
         assert _status(h) == 302
-        assert _header(h, "Location") == "/activity?profile=l2"
+        assert _header(h, "Location") == "/?profile=l2"
 
     def test_per_profile_dashboard(self, temp_db):
         h = TestHandler(path="/l1/dashboard", engine=temp_db)
         h.do_GET()
         assert _status(h) == 302
-        assert _header(h, "Location") == "/activity?profile=l1"
+        assert _header(h, "Location") == "/?profile=l1"
 
 
 # ═══════════════════════════════════════════════════════════════════════
