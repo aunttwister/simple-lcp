@@ -2793,9 +2793,11 @@ input:disabled {
 .metric-card.clickable .metric-sub { line-height: 1.5; }
 
 /* ── Detail panel (column 3) ──
-   The Slack/X pattern: column 1 is the sidebar (collapsible), column 2 is the
-   dashboard, column 3 slides in from the right with the breakdown of whatever
-   was clicked. Desktop pushes the content; below 1100px it overlays. */
+   The Slack/X pattern, permanent-lane edition (operator, 2026-11-07): column 1
+   is the sidebar (collapsible), column 2 is the dashboard, column 3 is ALWAYS
+   reserved on the right — clicking a card/trend swaps the panel's content in
+   place; the dashboard never re-flows and the panel never closes on its own.
+   Below 1100px there is no third lane: the panel overlays with a backdrop. */
 :root { --detail-width: 380px; }
 .detail-panel {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 130;
@@ -2849,11 +2851,23 @@ input:disabled {
 }
 .dp-backdrop.open { display: block; }
 
-/* Push the content when the panel is open (desktop only; below 1100px the
-   panel overlays instead of squeezing the dashboard). */
-.main-content.detail-open { margin-right: var(--detail-width); transition: margin-right 0.25s cubic-bezier(0.4,0,0.2,1); }
+/* Permanent lane (desktop): the space is reserved whether or not a breakdown
+   is open — column 2 never re-flows. :has() scopes this to the dashboard page
+   so other pages keep their full width. */
+@media (min-width: 1100px) {
+  body:has(.detail-panel) .main-content { margin-right: var(--detail-width); }
+  body:has(.detail-panel) .header-plugin-badge.global {
+    right: calc(var(--detail-width) + 0.75rem);
+  }
+  body:has(.detail-panel) .detail-panel {
+    transform: none; box-shadow: none; transition: none;
+  }
+}
+.dp-empty-state {
+  color: hsl(var(--muted-foreground)); font-size: 0.75rem;
+  line-height: 1.6; padding: 1.5rem 0.5rem; text-align: center;
+}
 
 @media (max-width: 1100px) {
-  .main-content.detail-open { margin-right: 0; }
   .detail-panel { width: min(420px, 92vw); }
 }

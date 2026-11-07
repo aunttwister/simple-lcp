@@ -47,6 +47,11 @@ function pct(hit, miss) {
   return t > 0 ? ((Number(hit)||0) / t * 100).toFixed(1) + '%' : '—';
 }
 
+var DP_EMPTY = '<div class="dp-empty-state">Click a card or a trend bar — the breakdown opens here and stays until you pick another one.</div>';
+
+/* The panel is a permanent column-3 lane: openDetail only swaps content, the
+   dashboard never re-flows and nothing dismisses the panel on its own. The
+   backdrop + .open slide-over remain for < 1100px viewports only. */
 function openDetail(kind, arg) {
   var panel = document.getElementById('detailPanel');
   var backdrop = document.getElementById('dpBackdrop');
@@ -61,22 +66,22 @@ function openDetail(kind, arg) {
   else { return; }
   body.innerHTML = html;
   panel.classList.add('open');
-  panel.setAttribute('aria-hidden', 'false');
   if (backdrop) backdrop.classList.add('open');
-  if (window.innerWidth >= 1100) {
-    document.querySelector('.main-content').classList.add('detail-open');
-  }
 }
 function closeDetail() {
   var panel = document.getElementById('detailPanel');
+  var backdrop = document.getElementById('dpBackdrop');
   panel.classList.remove('open');
-  panel.setAttribute('aria-hidden', 'true');
-  document.getElementById('dpBackdrop').classList.remove('open');
-  document.querySelector('.main-content').classList.remove('detail-open');
+  if (backdrop) backdrop.classList.remove('open');
+  /* Desktop: the lane stays; clear it back to the empty state instead of
+     hiding anything. Mobile: the slide-over closes. */
+  var body = document.getElementById('dpBody');
+  var title = document.getElementById('dpTitle');
+  if (body && window.innerWidth >= 1100) {
+    body.innerHTML = DP_EMPTY;
+    if (title) title.textContent = 'Details';
+  }
 }
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') closeDetail();
-});
 
 function _table(headers, rows) {
   var h = '<table class="dp-table"><thead><tr>';

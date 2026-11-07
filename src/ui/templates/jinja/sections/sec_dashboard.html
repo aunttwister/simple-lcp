@@ -97,13 +97,16 @@
 </div>
 </details>
 
-<!-- ── Detail panel (column 3): opens on card / trend clicks ── -->
-<aside class="detail-panel" id="detailPanel" aria-hidden="true" aria-label="Detail panel">
+<!-- ── Detail panel (column 3): a permanent lane. Clicks in column 2 swap its
+     content; it never closes on its own and column 2 never re-flows. ── -->
+<aside class="detail-panel" id="detailPanel" aria-label="Detail panel">
   <div class="dp-header">
-    <span class="dp-title" id="dpTitle"></span>
-    <button class="modal-close dialog-close" onclick="closeDetail()" aria-label="Close detail panel">✕</button>
+    <span class="dp-title" id="dpTitle">Details</span>
+    <button class="modal-close dialog-close" onclick="closeDetail()" aria-label="Clear detail panel">✕</button>
   </div>
-  <div class="dp-body" id="dpBody"></div>
+  <div class="dp-body" id="dpBody">
+    <div class="dp-empty-state">Click a card or a trend bar — the breakdown opens here and stays until you pick another one.</div>
+  </div>
 </aside>
 <div class="dp-backdrop" id="dpBackdrop" onclick="closeDetail()"></div>
 
