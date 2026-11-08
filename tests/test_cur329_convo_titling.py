@@ -629,3 +629,5 @@ def test_conversations_panel_works_on_mobile():
     assert "if (!CONV_DESKTOP.matches) { convPanelSetEmpty(); return; }" in html, \
         "the sheet auto-opens on mobile page load"
     assert "convPanelShow();" in html, "a row tap does not open the sheet"
+    assert "convSyncOpenToViewport" in html, "viewport flips (rotate/resize) do not resync the sheet"
+    assert "addEventListener('change', convSyncOpenToViewport)" in html
