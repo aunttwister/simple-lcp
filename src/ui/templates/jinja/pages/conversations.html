@@ -770,6 +770,13 @@ function convSyncOpenToViewport(mq) {
   else convPanelHide();
 }
 CONV_DESKTOP.addEventListener('change', convSyncOpenToViewport);
+// Belt and braces for the mobile-never-covers-the-table rule: if this page
+// was restored from the back/forward cache (or any path left .open set), a
+// mobile arrival must start closed — a fresh mobile load shows the TABLE, and
+// the sheet only ever appears on a row tap. The desktop default (newest
+// conversation on first paint) is unaffected: this early-out only fires when
+// the class survived into a mobile document.
+if (!CONV_DESKTOP.matches) convPanelHide();
 
 // Default content: on desktop the newest conversation in the current filter
 // loads on first paint so the lane is never an empty slab on arrival. On
