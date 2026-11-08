@@ -762,6 +762,15 @@ convResizer.addEventListener('dblclick', function () {
   try { localStorage.removeItem('conv-panel-width'); } catch (e) { /* private mode */ }
 });
 
+// Keep the open-state honest across viewport flips: dropping to mobile hides
+// the sheet (a drag-open lane must not land covering the table after a
+// rotate/resize); growing to desktop re-shows it so the lane is never blank.
+function convSyncOpenToViewport(mq) {
+  if (mq.matches) convPanelShow();
+  else convPanelHide();
+}
+CONV_DESKTOP.addEventListener('change', convSyncOpenToViewport);
+
 // Default content: on desktop the newest conversation in the current filter
 // loads on first paint so the lane is never an empty slab on arrival. On
 // mobile the sheet stays closed until a row is tapped — covering the table on
