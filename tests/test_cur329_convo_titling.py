@@ -631,3 +631,7 @@ def test_conversations_panel_works_on_mobile():
     assert "convPanelShow();" in html, "a row tap does not open the sheet"
     assert "convSyncOpenToViewport" in html, "viewport flips (rotate/resize) do not resync the sheet"
     assert "addEventListener('change', convSyncOpenToViewport)" in html
+    # A mobile arrival must start closed even if some path left .open set
+    # (back/forward-cache restore, viewport flip without a change event):
+    # the guard runs before the desktop auto-load IIFE.
+    assert "if (!CONV_DESKTOP.matches) convPanelHide();" in html
