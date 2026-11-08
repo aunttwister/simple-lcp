@@ -635,3 +635,17 @@ def test_conversations_panel_works_on_mobile():
     # (back/forward-cache restore, viewport flip without a change event):
     # the guard runs before the desktop auto-load IIFE.
     assert "if (!CONV_DESKTOP.matches) convPanelHide();" in html
+
+
+def test_overview_cost_breakdown_autoloads_desktop_only():
+    """The overview's detail panel opens the Cost breakdown on init on DESKTOP
+    only; a mobile arrival (reload, navbar click, bfcache restore) lands on
+    the dashboard itself, and the sheet only opens on a card/trend tap."""
+    path = "src/ui/templates/jinja/sections/sec_dashboard_script.html"
+    html = open(path, encoding="utf-8").read()
+    assert "DP_DESKTOP = window.matchMedia('(min-width: 1100px)')" in html
+    assert "if (DP_DESKTOP.matches) {\n  openDetail('cost');" in html, \
+        "the overview auto-opens the cost breakdown regardless of viewport"
+    assert "} else {\n  closeDetail();" in html, "mobile init does not force the sheet closed"
+    assert "DP_DESKTOP.addEventListener('change'" in html, \
+        "viewport flips do not resync the overview sheet"

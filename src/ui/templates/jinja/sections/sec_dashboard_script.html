@@ -446,8 +446,22 @@ function switchView(view) {
 buildCharts('aggregate');
 
 // The detail panel is a permanent column-3 lane with the Cost breakdown as
-// its default content — never an empty modal waiting for a click.
-openDetail('cost');
+// its default content — on DESKTOP. On mobile (< 1100px) the panel is a
+// slide-over sheet and must NEVER open on init (reload, navbar click, bfcache
+// restore all re-run this): the operator lands on the dashboard itself and
+// the sheet only ever appears when a card or trend bar is tapped (operator,
+// 2026-11-08). A live media-query listener keeps the rule across viewport
+// flips, the same pattern the conversations panel uses.
+var DP_DESKTOP = window.matchMedia('(min-width: 1100px)');
+if (DP_DESKTOP.matches) {
+  openDetail('cost');
+} else {
+  closeDetail();
+}
+DP_DESKTOP.addEventListener('change', function (mq) {
+  if (mq.matches) openDetail('cost');
+  else closeDetail();
+});
 
 function loadProvBadges(){
   fetch('/health').then(function(r){return r.json()}).then(function(d){
