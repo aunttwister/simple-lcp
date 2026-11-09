@@ -635,3 +635,82 @@ def test_conversations_panel_works_on_mobile():
     # (back/forward-cache restore, viewport flip without a change event):
     # the guard runs before the desktop auto-load IIFE.
     assert "if (!CONV_DESKTOP.matches) convPanelHide();" in html
+
+
+# ── 7. the chat-style transcript (bubbles, diffs, tool chips, bottom-start) ──
+
+def test_conversations_transcript_is_chat_bubbles():
+    """User messages render on the right (the operator's side), assistant on
+    the left, and the transcript column flexes so the bubbles honour their
+    side instead of a flat list."""
+    path = "src/ui/templates/jinja/pages/conversations.html"
+    html = open(path, encoding="utf-8").read()
+    assert "conv-msg-right" in html, "no right-side (user) chat class"
+    assert "conv-msg-left" in html, "no left-side (assistant) chat class"
+    css = open("src/ui/templates/jinja/static/dashboard.css", encoding="utf-8").read()
+    assert "flex-direction: column" in css and ".conv-msg-right" in css
+
+
+def test_assistant_patch_uses_a_real_diff_view():
+    """A patch-shaped assistant message (---/+++ or @@) renders as the red/green
+    unified-diff viewer — old in red, new in green — not as a raw wall of +/-."""
+    path = "src/ui/templates/jinja/pages/conversations.html"
+    html = open(path, encoding="utf-8").read()
+    assert "looksLikeDiff" in html, "no diff detector"
+    assert "renderDiff" in html, "no diff renderer"
+    assert "conv-diff" in html and "conv-diff-old" in html and "conv-diff-new" in html
+    css = open("src/ui/templates/jinja/static/dashboard.css", encoding="utf-8").read()
+    assert ".conv-diff" in css and "--destructive" in css
+
+
+def test_tool_calls_render_as_compact_chips():
+    """Tool calls are a dotted chip per call (name + expandable args) instead of
+    a sea of text; the chip is a `details` that opens on demand."""
+    path = "src/ui/templates/jinja/pages/conversations.html"
+    html = open(path, encoding="utf-8").read()
+    assert "conv-call-chip" in html and "conv-call-sum" in html
+    assert "conv-call-detail" in html, "the chip has no expandable body"
+    css = open("src/ui/templates/jinja/static/dashboard.css", encoding="utf-8").read()
+    assert ".conv-call-chip" in css
+
+
+def test_transcript_starts_at_the_bottom():
+    """The transcript loads the TAIL (newest) and anchors at the bottom — like a
+    chat — and grows upward with 'Show older', not the old top-first pager."""
+    path = "src/ui/templates/jinja/pages/conversations.html"
+    html = open(path, encoding="utf-8").read()
+    assert "rows.slice(-CONV.shown)" in html, "the transcript does not load the tail"
+    assert "scroll.scrollTop = scroll.scrollHeight" in html, "the transcript is not bottom-anchored"
+    assert "older" in html, "the growth direction is not reversed"
+
+
+def test_conversation_detail_drops_the_usage_widget():
+    """The Tokens/Cost usage figures were removed from the conversation detail
+    (redundant with the third column): the audit frames the transcript with
+    First/Last seen only. They stay in the HISTORY table."""
+    path = "src/ui/templates/jinja/pages/conversations.html"
+    html = open(path, encoding="utf-8").read()
+    assert "First seen" in html and "Last seen" in html
+    assert "['Tokens', ipFmt(a.tokens)]" not in html, "the usage widget came back"
+    assert "['Cost', ipFmt(a.cost)]" not in html, "the usage/cost cell came back"
+
+
+def test_unnamed_tool_resolves_the_name_from_the_calling_turn():
+    """A generic OpenAI tool result that carries only a tool_call_id is stored
+    with the name of the call that produced it (from the assistant's tool_calls),
+    so transcripts stop showing '(unnamed)' for tools that have a name."""
+    msgs = [
+        {"role": "assistant", "content": "",
+         "tool_calls": [{"id": "call_1", "type": "function",
+                         "function": {"name": "list_spark_cards", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "out"},
+    ]
+    prepped = [conv_store._prepare(m, conv_store._tool_name_lookup(msgs)) for m in msgs]
+    assert prepped[1]["tool_name"] == "list_spark_cards", \
+        "the tool result is still stored unnamed"
+
+
+def test_tool_result_without_a_caller_stays_unnamed():
+    msgs = [{"role": "tool", "tool_call_id": "x", "content": "y"}]
+    prepped = [conv_store._prepare(m, conv_store._tool_name_lookup(msgs)) for m in msgs]
+    assert prepped[0]["tool_name"] is None
