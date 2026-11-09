@@ -448,33 +448,24 @@ function looksLikeDiff(content) {
          /(^|\n)@@ -/m.test(content);
 }
 
-// Build a red/green diff view: a pair of monospaced columns, deletions (lines
-// starting -) in red on the left, additions (+) in green on the right,
-// context shared in the middle column. Line numbers help the eye track a hunk.
+// Build the patch view: one monospaced column, per-line colour-coded so the
+// old vs new reads immediately — removed lines tinted red with a "-" prefix,
+// added lines tinted green with a "+", @@ hunks emphasised, context plain.
+// A single stacked column (not two side-by-side panes) because a two-pane
+// diff is cramped inside a chat bubble and duplicates every context line;
+// this is the standard way patch output reads, and the strongest separation
+// of old (red) from new (green).
 function renderDiff(body) {
   var col = el('div', 'conv-diff');
   var lines = String(body).split('\n');
-  var added = [], removed = [], hasDiff = false;
   lines.forEach(function (ln) {
-    if (ln[0] === '+') { added.push(ln.slice(1)); removed.push(''); hasDiff = true; }
-    else if (ln[0] === '-') { removed.push(ln.slice(1)); added.push(''); hasDiff = true; }
-    else if (ln[0] === '@' && ln[1] === '@') { added.push(ln); removed.push(''); hasDiff = true; }
-    else { added.push(ln); removed.push(ln); }
+    var cls = 'conv-diff-line';
+    var text = ln;
+    if (ln[0] === '+') { cls += ' conv-diff-add'; }
+    else if (ln[0] === '-') { cls += ' conv-diff-del'; }
+    else if (ln[0] === '@' && ln[1] === '@') { cls += ' conv-diff-hunk'; }
+    col.appendChild(el('div', cls, text || '\u00a0'));
   });
-  if (!hasDiff) { added = lines; removed = []; }
-  var oldBox = el('div', 'conv-diff-old');
-  var newBox = el('div', 'conv-diff-new');
-  added.forEach(function (t, i) {
-    var r = el('div', 'conv-diff-line' + (t[0] === '@' ? ' conv-diff-hunk' : ''),
-               t || '\u00a0');
-    newBox.appendChild(r);
-  });
-  removed.forEach(function (t) {
-    oldBox.appendChild(el('div', 'conv-diff-line' + (t ? '' : ' conv-diff-blank'),
-                          t || '\u00a0'));
-  });
-  col.appendChild(oldBox);
-  col.appendChild(newBox);
   return col;
 }
 

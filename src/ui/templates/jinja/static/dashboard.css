@@ -2057,19 +2057,20 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 .conv-messages .conv-scroll,
 #convMessages > .conv-scroll { display: flex; flex-direction: column; align-items: stretch; }
 
-/* ── Unified-diff view (red/green columns) ──
-   Assistant patch-messages render as two side-by-side monospaced columns:
-   deletions (old) tinted red, additions (new) tinted green, hunks highlighted,
-   so the change reads at a glance instead of as a wall of +/- prefixes. */
-.conv-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
-             max-height: 22rem; overflow: auto; }
-.conv-diff-old, .conv-diff-new { font-family: var(--font-mono, monospace);
-             font-size: 0.75rem; line-height: 1.5; white-space: pre; overflow: auto; }
-.conv-diff-new  { color: hsl(var(--success, 142 76% 45%) / 0.9); }
-.conv-diff-old  { color: hsl(var(--destructive, 0 84% 60%) / 0.9); }
-.conv-diff-hunk { background: hsl(var(--muted) / 0.35); color: hsl(var(--muted-foreground));
-                  font-weight: 600; }
-.conv-diff-blank, .conv-diff-old .conv-diff-blank { background: transparent; color: transparent; }
+/* ── Unified-diff view (old in red, new in green) ──
+   Assistant patch-messages render as one monospaced block, per line: removed
+   lines tinted red with a "-", added tinted green with a "+", @@ hunks
+   emphasised. A stacked column (not two narrow side panes) so the old/new
+   separation stays strong without crowding a chat bubble or duplicating every
+   context line. */
+.conv-diff { max-height: 24rem; overflow: auto; font-family: var(--font-mono, monospace);
+             font-size: 0.75rem; line-height: 1.5; border: 1px solid hsl(var(--card-border));
+             border-radius: var(--radius); padding: 0.25rem 0; }
+.conv-diff-line { white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 0.4rem; }
+.conv-diff-add { background: hsl(142 76% 45% / 0.12); color: hsl(142 76% 60%); }
+.conv-diff-del { background: hsl(0 84% 60% / 0.12); color: hsl(0 84% 68%); }
+.conv-diff-hunk { background: hsl(var(--muted) / 0.4); color: hsl(var(--muted-foreground));
+                  font-weight: 700; }
 
 /* ── Tool calls: compact dotted chips per call ──
    Each call is a clickable `details` — name + an icon on the summary line, the
