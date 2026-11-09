@@ -652,15 +652,16 @@ def test_conversations_transcript_is_chat_bubbles():
 
 
 def test_assistant_patch_uses_a_real_diff_view():
-    """A patch-shaped assistant message (---/+++ or @@) renders as the red/green
-    unified-diff viewer — old in red, new in green — not as a raw wall of +/-."""
+    """A patch-shaped assistant message (---/+++ or @@) renders as a stacked
+    unified-diff view — removed lines red, added lines green, hunks emphasised —
+    not as a raw wall of +/- prefixes."""
     path = "src/ui/templates/jinja/pages/conversations.html"
     html = open(path, encoding="utf-8").read()
     assert "looksLikeDiff" in html, "no diff detector"
     assert "renderDiff" in html, "no diff renderer"
-    assert "conv-diff" in html and "conv-diff-old" in html and "conv-diff-new" in html
+    assert "conv-diff" in html and "conv-diff-add" in html and "conv-diff-del" in html
     css = open("src/ui/templates/jinja/static/dashboard.css", encoding="utf-8").read()
-    assert ".conv-diff" in css and "--destructive" in css
+    assert ".conv-diff" in css and ".conv-diff-add" in css and ".conv-diff-del" in css
 
 
 def test_tool_calls_render_as_compact_chips():
