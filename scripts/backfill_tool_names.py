@@ -79,40 +79,59 @@ def backfill(db_path: str, apply: bool = False,
     con = sqlite3.connect(db_path)
     try:
         caller = _build_caller_map(con)
-        unnamed = con.execute(
+        # STREAM the unnamed rows — never ``fetchall()`` a multi-million-row
+        # table. Loading 1.9M rows (with their content) into a list peaked at
+        # ~4.2 GB and the OOM killer took the process inside a worker cgroup
+        # (the loss was silent: Python flushes piped stdout only at exit). Iterate
+        # the cursor and flush a batch at a time, so peak memory is the caller
+        # map plus one batch.
+        cur = con.execute(
             "SELECT id, tool_call_id, content FROM conv_messages "
             "WHERE role = 'tool' AND (tool_name IS NULL OR tool_name = '')"
-        ).fetchall()
-        scanned = len(unnamed)
-        updates: list[tuple[str, int]] = []
-        by_map = by_prefix = 0
-        for row_id, tool_call_id, content in unnamed:
-            name = caller.get(tool_call_id) if tool_call_id else None
-            if name:
-                by_map += 1
-            elif content:
-                m = _PREFIX_RE.match(content)
-                if m:
-                    name = m.group(1)
-                    by_prefix += 1
-            if name:
-                updates.append((name, row_id))
-        if apply:
-            if rollback_file:
-                with open(rollback_file, "w") as fh:
-                    for _, row_id in updates:
-                        fh.write(f"{row_id}\n")
-            for i in range(0, len(updates), batch):
-                chunk = updates[i:i + batch]
+        )
+        scanned = resolvable = by_map = by_prefix = 0
+        batch_buf: list[tuple[str, int]] = []
+        rb_fh = open(rollback_file, "w") if (apply and rollback_file) else None
+        try:
+            for row_id, tool_call_id, content in cur:
+                scanned += 1
+                name = caller.get(tool_call_id) if tool_call_id else None
+                if name:
+                    by_map += 1
+                elif content:
+                    m = _PREFIX_RE.match(content)
+                    if m:
+                        name = m.group(1)
+                        by_prefix += 1
+                if not name:
+                    continue
+                resolvable += 1
+                if rb_fh:
+                    rb_fh.write(f"{row_id}\n")
+                if apply:
+                    batch_buf.append((name, row_id))
+                    if len(batch_buf) >= batch:
+                        con.executemany(
+                            "UPDATE conv_messages SET tool_name = ? "
+                            "WHERE id = ? AND (tool_name IS NULL OR tool_name = '')",
+                            batch_buf,
+                        )
+                        con.commit()
+                        batch_buf.clear()
+            if apply and batch_buf:
                 con.executemany(
                     "UPDATE conv_messages SET tool_name = ? "
                     "WHERE id = ? AND (tool_name IS NULL OR tool_name = '')",
-                    chunk,
+                    batch_buf,
                 )
                 con.commit()
-        return {"scanned": scanned, "resolvable": len(updates),
+                batch_buf.clear()
+        finally:
+            if rb_fh:
+                rb_fh.close()
+        return {"scanned": scanned, "resolvable": resolvable,
                 "by_map": by_map, "by_prefix": by_prefix,
-                "applied": len(updates) if apply else 0}
+                "applied": resolvable if apply else 0}
     finally:
         con.close()
 
