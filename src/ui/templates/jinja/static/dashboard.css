@@ -2038,6 +2038,61 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
                       border-left-color: hsl(var(--muted-foreground) / 0.5); }
 .conv-msg-user .conv-role { color: hsl(var(--cyan-fg)); }
 
+/* ── Chat bubbles ──────────────
+   User messages sit on the RIGHT (the operator's own side of a chat),
+   assistant on the LEFT. Long tool output / code must not crush the bubble,
+   so code and tool blocks stay full-width while prose bubbles are narrow. The
+   bubble is the message; the role glyph sits at the top edge of the same side. */
+.conv-msg-right {
+  align-self: flex-end; max-width: min(100%, 24rem);
+  text-align: left;      /* text stays left even though the bubble is right */
+}
+.conv-msg-left {
+  align-self: flex-start; max-width: min(100%, 30rem);
+}
+.conv-msg-right .conv-role::before { content: "\25C0"; }   /* left-point, sitting right */
+.conv-msg-left .conv-role::before  { content: "\25B6"; }   /* right-point, sitting left */
+/* The transcript column becomes a chat lane: each bubble honors its side. */
+#convMessages .conv-scroll,
+.conv-messages .conv-scroll,
+#convMessages > .conv-scroll { display: flex; flex-direction: column; align-items: stretch; }
+
+/* ── Unified-diff view (red/green columns) ──
+   Assistant patch-messages render as two side-by-side monospaced columns:
+   deletions (old) tinted red, additions (new) tinted green, hunks highlighted,
+   so the change reads at a glance instead of as a wall of +/- prefixes. */
+.conv-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
+             max-height: 22rem; overflow: auto; }
+.conv-diff-old, .conv-diff-new { font-family: var(--font-mono, monospace);
+             font-size: 0.75rem; line-height: 1.5; white-space: pre; overflow: auto; }
+.conv-diff-new  { color: hsl(var(--success, 142 76% 45%) / 0.9); }
+.conv-diff-old  { color: hsl(var(--destructive, 0 84% 60%) / 0.9); }
+.conv-diff-hunk { background: hsl(var(--muted) / 0.35); color: hsl(var(--muted-foreground));
+                  font-weight: 600; }
+.conv-diff-blank, .conv-diff-old .conv-diff-blank { background: transparent; color: transparent; }
+
+/* ── Tool calls: compact dotted chips per call ──
+   Each call is a clickable `details` — name + an icon on the summary line, the
+   args expand below when you open it. The conversation no longer reads as a
+   wall of wrapped JSON. */
+.conv-calls { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.conv-call-chip { border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
+             background: hsl(var(--muted) / 0.2); }
+.conv-call-sum { display: inline-flex; align-items: center; gap: 0.3rem;
+             cursor: pointer; list-style: none; padding: 0.25rem 0.4rem;
+             list-style-position: inside; font-size: 0.7rem; }
+.conv-call-sum::-webkit-details-marker { display: none; }
+.conv-call-sum::before { content: "\25B8"; font-size: 0.6rem; color: hsl(var(--muted-foreground)); }
+.conv-call-chip[open] .conv-call-sum::before { content: "\25BE"; }
+.conv-call-ico { color: hsl(var(--muted-foreground)); font-size: 0.7rem; }
+.conv-call-name { font-weight: 600; color: hsl(var(--foreground)); white-space: nowrap; }
+.conv-call-chip[open] .conv-call-detail { padding: 0.25rem 0.5rem 0.35rem;
+             border-top: 1px solid hsl(var(--card-border)); }
+.conv-call-field { display: flex; flex-direction: column; gap: 0.1rem; }
+.conv-call-key { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.conv-call-args { margin: 0; font-size: 0.75rem; line-height: 1.4; white-space: pre-wrap;
+             overflow-wrap: anywhere; max-height: 14rem; overflow: auto; }
+
 /* The compacted/live split, stated once instead of on every affected message. */
 .conv-boundary {
   display: flex; align-items: center; gap: 0.5rem;
@@ -2165,24 +2220,6 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   font-size: 0.75rem; max-height: 30rem;
 }
 .conv-tool-more { font-style: italic; }
-
-/* ── Tool calls inside an assistant turn (no prose, calls only) ── */
-.conv-calls { display: flex; flex-direction: column; gap: 0.25rem; }
-.conv-call {
-  display: flex; flex-direction: column; gap: 0.15rem;
-  padding: 0.3rem 0.5rem; border-radius: var(--radius);
-  background: hsl(var(--muted) / 0.3);
-}
-.conv-call-name { font-size: 0.6875rem; font-weight: 600; color: hsl(var(--foreground)); }
-.conv-call-field { display: flex; flex-direction: column; gap: 0.1rem; }
-.conv-call-key {
-  font-size: 0.5625rem; text-transform: uppercase; letter-spacing: 0.05em;
-}
-.conv-call-args {
-  margin: 0; font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-  font-size: 0.6875rem; color: hsl(var(--muted-foreground));
-  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 8rem; overflow: auto;
-}
 
 /* CUR-329: the not-yet-titled marker. Italic, because it is a STATE ("nothing
    has named this yet"), not a name — the same reason a form placeholder reads

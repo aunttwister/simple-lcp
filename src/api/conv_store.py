@@ -162,7 +162,36 @@ def content_hash(role: Optional[str], content: Optional[str],
     return h.hexdigest()
 
 
-def _prepare(message: dict[str, Any]) -> dict[str, Any]:
+def _tool_name_lookup(messages: Iterable[dict[str, Any]]) -> dict[str, str]:
+    """Map a ``tool_call_id`` to its tool's name from a capture batch.
+
+    The assistant turn that calls a tool carries ``tool_calls[]`` with the name
+    (under ``function.name``); the follow-up ``tool`` result carries only the
+    ``tool_call_id``. Building the map once lets every tool row in the batch be
+    named from the call that produced it, instead of storing NULL names.
+    """
+    lookup: dict[str, str] = {}
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        tcs = m.get("tool_calls")
+        if not isinstance(tcs, list):
+            continue
+        for tc in tcs:
+            if not isinstance(tc, dict):
+                continue
+            tc_id = tc.get("id")
+            if not tc_id or tc_id in lookup:
+                continue
+            fn = tc.get("function") or {}
+            name = (fn.get("name") if isinstance(fn, dict) else None) or tc.get("name")
+            if name:
+                lookup[tc_id] = name
+    return lookup
+
+
+def _prepare(message: dict[str, Any],
+             tool_names: Optional[dict[str, str]] = None) -> dict[str, Any]:
     """Normalise one incoming message into a storable row (content capped)."""
     raw = message.get("content")
     body = raw if isinstance(raw, str) else ("" if raw is None else str(raw))
@@ -173,6 +202,13 @@ def _prepare(message: dict[str, Any]) -> dict[str, Any]:
     role = message.get("role")
     tool_name = message.get("tool_name")
     tool_call_id = message.get("tool_call_id")
+    # A generic OpenAI-format `tool` result carries only a `tool_call_id` — the
+    # tool's NAME lives on the assistant turn that called it (`tool_calls[]`).
+    # Resolve it here so a stored tool row is never left with a NULL name when
+    # the call that produced it is in the same capture batch. (Anonymous
+    # user-tools with no caller still stay unnamed.)
+    if not tool_name and tool_call_id and tool_names:
+        tool_name = tool_names.get(tool_call_id)
     return {
         "role": role,
         "content": body,
@@ -215,7 +251,8 @@ def append_messages(conversation_id: str, messages: Iterable[dict[str, Any]],
     still preserves legitimate repeats: an identical "ok" sent twice is stored
     twice, because the count is compared, not membership.
     """
-    prepared = [_prepare(m) for m in messages]
+    _tool_names = _tool_name_lookup(messages)
+    prepared = [_prepare(m, _tool_names) for m in messages]
     if not prepared:
         return 0
 
