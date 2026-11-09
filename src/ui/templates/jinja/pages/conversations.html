@@ -361,11 +361,13 @@ function renderAudit(box, a) {
 
   var inner = el('div', 'conv-audit-inner');
   var grid = el('div', 'conv-audit-grid');
+  // Usage (tokens/cost) was dropped from the conversation detail: the third
+  // column's job now is the transcript itself, and a spend figure beside the
+  // messages was framing the wrong thing. Sprinkle: it stays in the HISTORY
+  // table (where one reads the estate's spend) and nowhere in the panel.
   [
     ['First seen', tsFmt(a.started_at)],
-    ['Last seen', tsFmt(a.last_at)],
-    ['Tokens', ipFmt(a.tokens)],
-    ['Cost', ipFmt(a.cost)]
+    ['Last seen', tsFmt(a.last_at)]
   ].forEach(function (pair) {
     var cell = el('div', 'conv-audit-cell');
     cell.appendChild(el('div', 'muted', pair[0]));
@@ -435,6 +437,38 @@ function callsOf(row) {
   });
 }
 
+// Is this assistant content a unified diff? The operator approved a real diff
+// viewer (old/new in red/green columns) for the patch-shaped messages the
+// agent produces. Heuristic: a `---`/`+++` pair (or an `@@` hunk) anywhere in
+// the content, which a plan/prose reply never has. Anything else stays a plain
+// message — the diff view is opt-in by shape, not a blanket restyle.
+function looksLikeDiff(content) {
+  if (!content) return false;
+  return /(^|\n)--- .*\n\+\+\+ /m.test(content) ||
+         /(^|\n)@@ -/m.test(content);
+}
+
+// Build the patch view: one monospaced column, per-line colour-coded so the
+// old vs new reads immediately — removed lines tinted red with a "-" prefix,
+// added lines tinted green with a "+", @@ hunks emphasised, context plain.
+// A single stacked column (not two side-by-side panes) because a two-pane
+// diff is cramped inside a chat bubble and duplicates every context line;
+// this is the standard way patch output reads, and the strongest separation
+// of old (red) from new (green).
+function renderDiff(body) {
+  var col = el('div', 'conv-diff');
+  var lines = String(body).split('\n');
+  lines.forEach(function (ln) {
+    var cls = 'conv-diff-line';
+    var text = ln;
+    if (ln[0] === '+') { cls += ' conv-diff-add'; }
+    else if (ln[0] === '-') { cls += ' conv-diff-del'; }
+    else if (ln[0] === '@' && ln[1] === '@') { cls += ' conv-diff-hunk'; }
+    col.appendChild(el('div', cls, text || '\u00a0'));
+  });
+  return col;
+}
+
 // Arguments arrive as a JSON string, so rendering it raw shows literal \n and \"
 // escapes. Parsing turns them back into real line breaks; a command then reads as
 // the command it was. Anything that will not parse is shown as-is rather than
@@ -452,17 +486,26 @@ function callArgs(raw) {
 }
 
 function callList(calls) {
+  // Tool calls as a compact dotted chip row: each is a `details` whose open
+  // state you expand only when you want the args. No more sea of text; the eye
+  // sees names. (The operator wants calls to read as the work they were, not
+  // as a wall of wrapped JSON.)
   var list = el('div', 'conv-calls');
   calls.forEach(function (c) {
-    var row = el('div', 'conv-call');
-    row.appendChild(el('span', 'mono conv-call-name', c.name));
+    var chip = el('details', 'conv-call-chip');
+    var sum = el('summary', 'conv-call-sum');
+    sum.appendChild(el('span', 'conv-call-ico', '\u2699'));
+    sum.appendChild(el('span', 'mono conv-call-name', c.name));
+    chip.appendChild(sum);
+    var body = el('div', 'conv-call-detail');
     callArgs(c.args).forEach(function (a) {
       var field = el('div', 'conv-call-field');
       if (a.label) field.appendChild(el('span', 'muted conv-call-key', a.label));
       field.appendChild(el('pre', 'conv-call-args', a.text));
-      row.appendChild(field);
+      body.appendChild(field);
     });
-    list.appendChild(row);
+    chip.appendChild(body);
+    list.appendChild(chip);
   });
   return list;
 }
@@ -511,13 +554,25 @@ function appendGrouped(scroll, rows) {
       prev = role;
       continue;
     }
-    var wrap = el('div', 'conv-msg conv-msg-' + roleClass(role));
+
+    var wrap = el('div', 'conv-msg conv-msg-' + roleClass(role) +
+                         (role === 'user' ? ' conv-msg-right' : role === 'assistant' ? ' conv-msg-left' : ''));
     if (role === prev) wrap.classList.add('conv-msg-cont');
     // The glyph comes from CSS (::before) so the role distinction is a character,
-    // not only a colour — it survives a monochrome render.
+    // not only a colour — it survives a monochrome render. User messages sit on
+    // the RIGHT (the operator's own side), assistant on the LEFT, like a chat.
     wrap.appendChild(el('span', 'conv-role conv-role-' + roleClass(role), role));
+
     var calls = callsOf(m);
-    if (m.content) wrap.appendChild(el('pre', 'conv-pre', m.content));
+    if (m.content) {
+      // Assistant patch-messages get the real diff view (red/green columns);
+      // everything else is a normal monospaced block.
+      if (role === 'assistant' && looksLikeDiff(m.content)) {
+        wrap.appendChild(renderDiff(m.content));
+      } else {
+        wrap.appendChild(el('pre', 'conv-pre', m.content));
+      }
+    }
     if (calls.length) wrap.appendChild(callList(calls));
     if (!m.content && !calls.length) {
       wrap.appendChild(el('div', 'muted conv-trunc-note',
@@ -591,20 +646,28 @@ function renderMessages(box, msgs, truncated, total) {
     if (CONV.total > CONV.msgs.length) bits.push(CONV.total + ' in store');
     if (rows.length > CONV.shown) bits.push('showing ' + CONV.shown);
     if (bits.length) count.appendChild(el('span', 'muted', bits.join(' \u00b7 ')));
+
+    // The transcript reads newest-at-bottom, like a chat: we load the TAIL
+    // (the most recent CONV.shown), then grow UPWARD as the operator asks for
+    // more — "Show older", the opposite of a blog paginator.
+    var tail = rows.slice(-CONV.shown);
     scroll.textContent = '';
-    if (!rows.length) {
+    if (!tail.length) {
       scroll.appendChild(el('p', 'muted conv-none', 'Nothing matches this filter in the loaded range.'));
       return;
     }
-    appendGrouped(scroll, withBoundary(rows.slice(0, CONV.shown)));
+    appendGrouped(scroll, withBoundary(tail));
     if (rows.length > CONV.shown) {
       var left = rows.length - CONV.shown;
       var more = el('button', 'btn-sm conv-more',
-        'Show ' + Math.min(PAGE, left) + ' more of ' + left + ' remaining');
+        'Show ' + Math.min(PAGE, left) + ' older of ' + left + ' remaining');
       more.type = 'button';
       more.addEventListener('click', function () { CONV.shown += PAGE; paint(); });
-      scroll.appendChild(more);
+      scroll.insertBefore(more, scroll.firstChild);
     }
+    // Anchor at the bottom so the latest messages are what you see on load,
+    // and stay pinned to the bottom on a filter change.
+    scroll.scrollTop = scroll.scrollHeight;
   }
 
   paint();
