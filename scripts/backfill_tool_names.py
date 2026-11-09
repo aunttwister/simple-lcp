@@ -8,9 +8,18 @@ captures now resolve the name from the assistant turn that called the tool
 (``_tool_name_lookup`` in conv_store.py); this script repairs the rows already
 on disk.
 
+Two resolution passes, cheapest first:
+
+1. **Caller map** — every ``tool_call_id`` named by an assistant turn's
+   ``tool_calls[]``, built ONCE for the whole DB (not a query per row, which is
+   what makes a multi-million-row table resolvable in one pass).
+2. **Content prefix** — many captured tool rows were written as
+   ``[tool_name] rest…``; where the id map has no entry, read the name back out
+   of that prefix.
+
 Fill-only and idempotent: it sets a name ONLY where the row is currently
-unnamed AND a matching ``tool_calls`` entry in the same conversation supplies
-one. It never overwrites an existing name, and it is safe to re-run.
+unnamed AND one of the passes supplies one. It never overwrites an existing
+name, and it is safe to re-run.
 
 Usage:
     python3 scripts/backfill_tool_names.py [path/to/costs.db] [--apply]
@@ -22,62 +31,87 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 
+# `[tool_name] …` — the name captured inline when the caller map has no entry.
+_PREFIX_RE = re.compile(r"^\[([A-Za-z0-9_.\-]+)")
 
-def _name_for(tool_calls_json: str | None, tool_call_id: str | None) -> str | None:
-    """Return the tool name a given tool_call_id maps to, or None."""
-    if not tool_calls_json or not tool_call_id:
-        return None
-    try:
-        arr = json.loads(tool_calls_json)
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(arr, list):
-        return None
-    for tc in arr:
-        if not isinstance(tc, dict) or tc.get("id") != tool_call_id:
+
+def _build_caller_map(con: sqlite3.Connection) -> dict[str, str]:
+    """Map every tool_call_id referenced by an assistant turn to its name."""
+    lookup: dict[str, str] = {}
+    for (tc_json,) in con.execute(
+        "SELECT tool_calls FROM conv_messages "
+        "WHERE role = 'assistant' AND tool_calls IS NOT NULL"
+    ):
+        try:
+            arr = json.loads(tc_json)
+        except (ValueError, TypeError):
             continue
-        fn = tc.get("function") or {}
-        name = (fn.get("name") if isinstance(fn, dict) else None) or tc.get("name")
-        if name:
-            return str(name)
-    return None
+        if not isinstance(arr, list):
+            continue
+        for tc in arr:
+            if not isinstance(tc, dict):
+                continue
+            tc_id = tc.get("id")
+            if not tc_id or tc_id in lookup:
+                continue
+            fn = tc.get("function") or {}
+            name = (fn.get("name") if isinstance(fn, dict) else None) or tc.get("name")
+            if name:
+                lookup[tc_id] = str(name)
+    return lookup
 
 
-def backfill(db_path: str, apply: bool = False) -> dict[str, int]:
-    """Resolve unnamed tool rows from their caller; return a small report."""
+def backfill(db_path: str, apply: bool = False,
+             batch: int = 50000,
+             rollback_file: str | None = None) -> dict[str, int]:
+    """Resolve unnamed tool rows in one batched pass; return a small report.
+
+    The UPDATE runs in ``batch``-sized transactions so the write lock is held
+    only briefly per chunk — on a live DB the gateway's own capture keeps
+    writing, and one 1.9M-row transaction would stall it. In ``apply`` mode a
+    rollback file listing the row ids that were unnamed (and so are the only
+    rows the fill can touch) is written first, so the revert is exact.
+    """
     con = sqlite3.connect(db_path)
     try:
+        caller = _build_caller_map(con)
         unnamed = con.execute(
-            "SELECT id, conversation_id, tool_call_id FROM conv_messages "
+            "SELECT id, tool_call_id, content FROM conv_messages "
             "WHERE role = 'tool' AND (tool_name IS NULL OR tool_name = '')"
         ).fetchall()
         scanned = len(unnamed)
         updates: list[tuple[str, int]] = []
-        for row_id, conv_id, tool_call_id in unnamed:
-            calls = con.execute(
-                "SELECT tool_calls FROM conv_messages "
-                "WHERE conversation_id = ? AND role = 'assistant' "
-                "AND tool_calls IS NOT NULL",
-                (conv_id,),
-            ).fetchall()
-            name = None
-            for (tc_json,) in calls:
-                name = _name_for(tc_json, tool_call_id)
-                if name:
-                    break
+        by_map = by_prefix = 0
+        for row_id, tool_call_id, content in unnamed:
+            name = caller.get(tool_call_id) if tool_call_id else None
+            if name:
+                by_map += 1
+            elif content:
+                m = _PREFIX_RE.match(content)
+                if m:
+                    name = m.group(1)
+                    by_prefix += 1
             if name:
                 updates.append((name, row_id))
-        if apply and updates:
-            con.executemany(
-                "UPDATE conv_messages SET tool_name = ? "
-                "WHERE id = ? AND (tool_name IS NULL OR tool_name = '')",
-                updates,
-            )
-            con.commit()
+        if apply:
+            if rollback_file:
+                with open(rollback_file, "w") as fh:
+                    for _, row_id in updates:
+                        fh.write(f"{row_id}\n")
+            for i in range(0, len(updates), batch):
+                chunk = updates[i:i + batch]
+                con.executemany(
+                    "UPDATE conv_messages SET tool_name = ? "
+                    "WHERE id = ? AND (tool_name IS NULL OR tool_name = '')",
+                    chunk,
+                )
+                con.commit()
         return {"scanned": scanned, "resolvable": len(updates),
+                "by_map": by_map, "by_prefix": by_prefix,
                 "applied": len(updates) if apply else 0}
     finally:
         con.close()
@@ -87,10 +121,18 @@ def main(argv: list[str]) -> int:
     apply = "--apply" in argv
     args = [a for a in argv[1:] if not a.startswith("--")]
     db_path = args[0] if args else os.environ.get("LCP_DB_PATH", "/app/data/costs.db")
-    report = backfill(db_path, apply=apply)
+    rb = f"/tmp/backfill_tool_names_rollback_{os.getpid()}.txt" if apply else None
+    report = backfill(db_path, apply=apply,
+                      rollback_file=rb)
     mode = "APPLIED" if apply else "DRY RUN"
     print(f"[{mode}] {db_path}: scanned={report['scanned']} "
-          f"resolvable={report['resolvable']} applied={report['applied']}")
+          f"resolvable={report['resolvable']} "
+          f"(by_map={report['by_map']} by_prefix={report['by_prefix']}) "
+          f"applied={report['applied']}")
+    if rb and report["applied"]:
+        print(f"rollback file: {rb} "
+              f"({report['applied']} ids) — revert with "
+              "'UPDATE conv_messages SET tool_name=NULL WHERE id IN (...)'")
     if not apply and report["resolvable"]:
         print("Re-run with --apply to write these names.")
     return 0
