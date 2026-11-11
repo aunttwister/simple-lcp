@@ -3064,14 +3064,77 @@ class SettingsEndpoints:
         else:
             stored_model = None  # unset = default profile's chain head
 
+        # CUR-329: interval_hours (how often the scheduled pass runs) and scope
+        # (untitled|all) extend the section. interval clamped to [1, 168]; scope
+        # falls back to 'untitled' if not one of the two valid values.
+        interval_raw = body.get("interval_hours")
+        if interval_raw is not None and not isinstance(interval_raw, (int, float)):
+            self._send_json({"error": "interval_hours must be a number"}, 400)
+            return
+        try:
+            interval = int(interval_raw) if interval_raw is not None else 24
+            if interval < 1 or interval > 168:
+                self._send_json({"error": "interval_hours must be 1..168"}, 400)
+                return
+        except (TypeError, ValueError):
+            self._send_json({"error": "interval_hours must be an integer 1..168"}, 400)
+            return
+
+        scope_raw = body.get("scope")
+        if scope_raw is None:
+            stored_scope = "untitled"
+        elif isinstance(scope_raw, str) and scope_raw.strip().lower() in ("untitled", "all"):
+            stored_scope = scope_raw.strip().lower()
+        else:
+            self._send_json({"error": "scope must be 'untitled' or 'all'"}, 400)
+            return
+
+        # Start the scheduler so the interval applies immediately; it
+        # self-governs (no-op if already alive).
+        try:
+            from ..api import conv_titler
+            conv_titler.ensure_scheduler()
+        except Exception:  # noqa: BLE001 — scheduling must not fail the save
+            pass
+
         self.config.raw["conversation_titling"] = {
             "enabled": enabled,
             "model": stored_model,
+            "interval_hours": interval,
+            "scope": stored_scope,
         }
         self.config.save()
         self._audit("settings.conversation_titling", enabled=enabled,
-                    model=stored_model)
-        self._send_json({"ok": True, "enabled": enabled, "model": stored_model})
+                    model=stored_model, interval_hours=interval, scope=stored_scope)
+        self._send_json({"ok": True, "enabled": enabled, "model": stored_model,
+                         "interval_hours": interval, "scope": stored_scope})
+
+    def _serve_conversations_title_api(self):
+        """POST /api/settings/conversations/title — run a titling pass now.
+
+        Body ``{scope?: 'untitled'|'all'}`` (defaults to config.scope).
+        ``scope='all'`` forces a fresh re-title of every conversation. Runs
+        synchronously in the request; a bad pass returns the error rather than
+        failing the connection. Returns the pass stats.
+        """
+        try:
+            body = self._read_body()
+        except Exception:
+            body = {}
+        if body is None:
+            body = {}
+        req_scope = body.get("scope") if isinstance(body, dict) else None
+        if req_scope is not None and req_scope not in ("untitled", "all"):
+            self._send_json({"error": "scope must be 'untitled' or 'all'"}, 400)
+            return
+        from ..api import conv_titler
+        stats = conv_titler.run_titling_pass(scope_value=req_scope)
+        if stats.get("error"):
+            self._send_json({"error": stats["error"]}, 500)
+            return
+        self._audit("settings.conversation_titling.run", scope=stats.get("scope"),
+                    titled=stats.get("titled"), scanned=stats.get("scanned"))
+        self._send_json({"ok": True, **stats})
 
     def _serve_routing_status_api(self):
         """GET /api/routing/status — dynamic-routing snapshot for the UI.
