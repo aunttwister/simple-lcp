@@ -829,6 +829,18 @@ class Config:
         """
         return self._data.get("plugins", {})
 
+    @property
+    def conversation_titling(self) -> dict:
+        """Conversation titling/summarizing settings.
+
+        Every other section is exposed as a property; this one had no accessor,
+        so `config.conversation_titling` raised AttributeError and the titler
+        fail-opened into doing nothing on every pass. Mirror the sibling pattern
+        (default section) so callers in conv_titler and the settings surface can
+        read it the same way they read `config.circuit_breaker` / `config.retry`.
+        """
+        return self._data.get("conversation_titling", {})
+
     # ── Model identity (registry-aware lookups) ───────────────────────────
     #
     # One model reaches the gateway under several spellings: the provider's
