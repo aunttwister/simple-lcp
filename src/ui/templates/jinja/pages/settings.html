@@ -47,8 +47,34 @@
     </select>
   </div>
   <div class="settings-row">
+    <label for="titlingInterval">Run automatically every</label>
+    <div class="settings-inline">
+      <input type="number" id="titlingInterval" min="1" max="168" value="{{ payload['titling'].interval_hours }}">
+      <span class="muted">hours</span>
+    </div>
+  </div>
+  <div class="settings-row">
+    <span class="settings-label">Scope</span>
+    <div class="settings-inline">
+      <label class="radio" for="titlingScopeUntitled">
+        <input type="radio" id="titlingScopeUntitled" name="titlingScope" value="untitled"
+          {% if payload['titling'].scope == 'untitled' %}checked{% endif %}>
+        <span>Only untitled / unsaved</span>
+      </label>
+      <label class="radio" for="titlingScopeAll">
+        <input type="radio" id="titlingScopeAll" name="titlingScope" value="all"
+          {% if payload['titling'].scope == 'all' %}checked{% endif %}>
+        <span>Re-title everything fresh</span>
+      </label>
+    </div>
+  </div>
+  <div class="settings-row">
     <button type="button" class="btn-sm" id="titlingSave">Save</button>
+    <button type="button" class="btn-sm" id="titlingRun">Run now</button>
     <span class="muted" id="titlingStatus" role="status" aria-live="polite"></span>
+  </div>
+  <div class="settings-row">
+    <span class="muted">Last pass: <span id="titlingLastRun">{% if payload['titling'].last_run %}{{ payload['titling'].last_run }}{% else %}never{% endif %}</span></span>
   </div>
 </div>
 {% endblock %}
@@ -61,10 +87,20 @@
 (function () {
   var btn = document.getElementById('titlingSave');
   var status = document.getElementById('titlingStatus');
+  var runBtn = document.getElementById('titlingRun');
+  var lastRun = document.getElementById('titlingLastRun');
+
+  function scopeValue() {
+    var r = document.querySelector('input[name="titlingScope"]:checked');
+    return r ? r.value : 'untitled';
+  }
+
   btn.addEventListener('click', function () {
     var body = {
       enabled: document.getElementById('titlingEnabled').checked,
-      model: document.getElementById('titlingModel').value || null
+      model: document.getElementById('titlingModel').value || null,
+      interval_hours: parseInt(document.getElementById('titlingInterval').value, 10) || 24,
+      scope: scopeValue()
     };
     btn.disabled = true;
     status.textContent = 'Saving…';
@@ -83,6 +119,28 @@
     }).catch(function () {
       status.textContent = 'Save failed.';
     }).finally(function () { btn.disabled = false; });
+  });
+
+  runBtn.addEventListener('click', function () {
+    runBtn.disabled = true;
+    status.textContent = 'Titling…';
+    fetch('/api/settings/conversations/title', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({scope: scopeValue()})
+    }).then(function (r) {
+      return r.json().then(function (data) { return {ok: r.ok, data: data}; });
+    }).then(function (res) {
+      if (res.ok && res.data.ok) {
+        status.textContent = 'Titled ' + res.data.titled + ' / scanned ' + res.data.scanned +
+          ' (' + res.data.scope + ').';
+        if (res.data.at && lastRun) { lastRun.textContent = res.data.at; }
+      } else {
+        status.textContent = (res.data && res.data.error) || 'Titling failed.';
+      }
+    }).catch(function () {
+      status.textContent = 'Titling failed.';
+    }).finally(function () { runBtn.disabled = false; });
   });
 })();
 </script>

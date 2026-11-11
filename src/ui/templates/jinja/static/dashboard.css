@@ -2266,7 +2266,16 @@ body.conv-resizing { user-select: none; cursor: col-resize; }
   .conv-backdrop { display: none !important; } /* no modal layer on the desktop lane */
   body:has(.conv-panel) .main-content {
     margin-right: var(--conv-width, var(--detail-width));
+    /* The reserved lane already claims the right edge; the page's 2rem right
+       padding is redundant space INSIDE that reservation, so it reads as a
+       dead gutter between the table and the panel. Tighten it to 1rem so more
+       table shows. Left padding is untouched — that's the sidebar separation. */
+    padding-right: 1rem;
   }
+  /* Same idea for the table's own wrapper: a single-column grid needs no
+     column gap when the only column fills the lane, and the 1rem contributed
+     to the seam between table and panel. Squeeze it to 0.5rem. */
+  .conv-layout { gap: 0.5rem; }
   /* The fixed top-right badge would sit over the reserved lane; offset it. */
   body:has(.conv-panel) .header-plugin-badge.global {
     right: calc(var(--conv-width, var(--detail-width)) + 0.75rem);
@@ -2305,6 +2314,14 @@ body.conv-resizing { user-select: none; cursor: col-resize; }
 .conv-name-cell {
   font-weight: 600; overflow-wrap: anywhere;
 }
+.settings-inline { display: flex; align-items: center; gap: 0.5rem; }
+.settings-inline input[type="number"] {
+  width: 5rem; background: hsl(var(--secondary)); color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--card-border)); border-radius: 0.375rem;
+  padding: 0.35rem 0.5rem; font-size: 0.8125rem;
+}
+.settings-inline .radio { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8125rem; }
+.settings-label { min-width: 12rem; }
 .conv-summary {
   font-weight: 400; margin-top: 0.15rem;
 }

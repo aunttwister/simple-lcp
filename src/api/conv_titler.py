@@ -65,6 +65,13 @@ _lock = threading.Lock()
 _worker: Optional[threading.Thread] = None
 _started = False
 
+# Scheduler (interval_hours) + manual "run now" pass. Started lazily via
+# ensure_scheduler(); lives alongside the per-request enqueue worker.
+_sched: Optional[threading.Thread] = None
+_sched_stop = threading.Event()
+_sched_lock = threading.Lock()
+_LAST_RUN_AT: Optional[str] = None
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -99,6 +106,33 @@ def enqueue(conversation_id: Optional[str], *, config=None) -> None:
             _worker.start()
     except Exception:  # noqa: BLE001 — bookkeeping must not fail a request
         logger.debug("conv_titler_enqueue_failed")
+
+
+def _config_section(config) -> dict:
+    """The conversation_titling config section, tolerant of duck-typed configs."""
+    try:
+        section = config.conversation_titling
+        return section if isinstance(section, dict) else {}
+    except Exception:
+        return {}
+
+
+def interval_hours(config) -> int:
+    """How often the scheduled titling pass runs. Config, default 24, min 1."""
+    try:
+        v = int(_config_section(config).get("interval_hours", 24))
+        return v if v >= 1 else 24
+    except Exception:
+        return 24
+
+
+def scope(config) -> str:
+    """Which conversations a pass titles. Config, default 'untitled'."""
+    try:
+        s = str(_config_section(config).get("scope", "untitled")).strip().lower()
+        return s if s in ("untitled", "all") else "untitled"
+    except Exception:
+        return "untitled"
 
 
 def _enabled(config) -> bool:
@@ -241,8 +275,12 @@ def _resolve_step(config) -> Optional[dict]:
     return dict(chain[0]) if chain else None
 
 
-def _title_one(cid: str) -> None:
-    """Ask the chain head for a title and store it. Fail-open end to end."""
+def _title_one(cid: str, *, force: bool = False) -> None:
+    """Ask the chain head for a title and store it. Fail-open end to end.
+
+    ``force=True`` backs the ``scope=all`` re-title: it bypasses the
+    already-titled skip so a fresh pass can regenerate every conversation.
+    """
     try:
         from . import conv_store
         from .config import get_config
@@ -254,7 +292,8 @@ def _title_one(cid: str) -> None:
 
         # Re-check under the same condition the dequeue used: the audit read is
         # the last chance to drop an id whose conversation got titled meanwhile.
-        if not _should_title(cid):
+        # force=True (scope=all re-title) deliberately skips this.
+        if not force and not _should_title(cid):
             return
         transcript = _build_transcript(cid)
         if not transcript:
@@ -305,11 +344,106 @@ def _reply_text(resp: dict) -> str:
         return ""
 
 
+# ── Scheduled / manual titling pass ─────────────────────────────────────────
+def _candidate_ids(scope_value: str, limit: int = 500) -> list[str]:
+    """Conversation ids to title in one pass.
+
+    scope='untitled' -> only rows missing a name OR a summary.
+    scope='all'      -> every conversation (fresh re-title). Bounded by `limit`
+    so a single scheduled pass cannot run away.
+    """
+    from . import conv_store
+    rows = conv_store.list_conversations({"limit": limit})
+    items = rows.get("conversations") or []
+    out = []
+    for c in items:
+        cid = c.get("id")
+        if not cid:
+            continue
+        if scope_value == "untitled":
+            if c.get("name") and c.get("summary"):
+                continue
+        out.append(cid)
+    return out
+
+
+def run_titling_pass(scope_value: Optional[str] = None, limit: int = 500) -> dict:
+    """Run one titling pass. Returns {titled, scanned, scope, at}.
+
+    scope_value None -> config.scope(). Uses the fail-open _title_one per id
+    (out-of-band; never raises; a failure just leaves that conversation
+    untitled). ``scope='all'`` forces a re-title via _title_one(force=True).
+    """
+    global _LAST_RUN_AT
+    try:
+        from .config import get_config
+        cfg = get_config()
+        eff_scope = scope_value or scope(cfg) or "untitled"
+        ids = _candidate_ids(eff_scope, limit)
+        titled = 0
+        for cid in ids:
+            try:
+                _title_one(cid, force=(eff_scope == "all"))
+                titled += 1
+            except Exception:  # noqa: BLE001 — per-id, out-of-band
+                continue
+        _LAST_RUN_AT = _now_iso()
+        return {"titled": titled, "scanned": len(ids),
+                "scope": eff_scope, "at": _LAST_RUN_AT}
+    except Exception as exc:  # noqa: BLE001 — never fail the caller (a request)
+        return {"error": str(exc), "titled": 0, "scanned": 0}
+
+
+def _scheduler_loop() -> None:
+    """Every interval_hours, run a titling pass. Polls the stop flag so a
+    shutdown or interval change is prompt even on long intervals."""
+    while not _sched_stop.is_set():
+        try:
+            from .config import get_config
+            cfg = get_config()
+            interval = max(1, interval_hours(cfg))
+        except Exception:
+            interval = 24
+        waited = 0
+        step = min(30, max(1, interval * 3600))
+        while waited < interval * 3600 and not _sched_stop.is_set():
+            _sched_stop.wait(step)
+            waited += step
+        if _sched_stop.is_set():
+            break
+        try:
+            run_titling_pass()
+        except Exception:  # noqa: BLE001 — the loop must outlive one bad pass
+            pass
+
+
+def ensure_scheduler() -> None:
+    """Start the scheduler thread if not already running. Safe at startup and
+    from the settings POST (after an interval change) — it self-governs."""
+    global _sched
+    with _sched_lock:
+        if _sched and _sched.is_alive():
+            return
+        _sched_stop.clear()
+        _sched = threading.Thread(target=_scheduler_loop,
+                                  name="lcp-conv-titler-scheduler",
+                                  daemon=True)
+        _sched.start()
+
+
+def last_run_at() -> Optional[str]:
+    """ISO string of the last completed pass (for the /settings status)."""
+    return _LAST_RUN_AT
+
+
 def reset_for_tests() -> None:
-    """Empty the queue and forget the worker. Tests only, never the server."""
-    global _worker, _started
+    """Empty the queue and forget the worker + scheduler. Tests only."""
+    global _worker, _started, _sched, _LAST_RUN_AT
     with _lock:
         _pending.clear()
         _pending_set.clear()
         _started = False
     _worker = None
+    _sched_stop.set()
+    _sched = None
+    _LAST_RUN_AT = None

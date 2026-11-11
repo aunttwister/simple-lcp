@@ -1284,6 +1284,9 @@ def _build_routes() -> RouteTable:
     # they do not — but it sits with its siblings for readability.
     t.get("api.settings.conversations", exact("/api/settings/conversations"),
           lambda h, p: h._serve_conversations_settings_api())
+    t.post("api.settings.conversations.title",
+          exact("/api/settings/conversations/title"),
+          lambda h, p: h._serve_conversations_title_api())
     t.get("api.routing.status", exact("/api/routing/status"),
           lambda h, p: h._serve_routing_status_api())
     # ── Work layer ──
