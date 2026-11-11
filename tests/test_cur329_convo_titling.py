@@ -378,7 +378,8 @@ class _Cfg:
     writes, without a DB (``save`` is recorded, not executed)."""
 
     def __init__(self, enabled=True, model=None):
-        self.raw = {"conversation_titling": {"enabled": enabled, "model": model}}
+        self.raw = {"conversation_titling": {"enabled": enabled, "model": model,
+                                         "interval_hours": 24, "scope": "untitled"}}
         self.server = {"default_profile": "l2"}
         self.profiles = {"l2": {"chain": [
             {"provider": "prov", "model": "m-a", "base_url": "https://p/v1"},
@@ -420,7 +421,9 @@ def test_settings_payload_lists_chained_models_only():
     cfg = _Cfg()
     cfg.profiles["l2"]["chain"][0]["model"] = "m-a"
     p = _payload(cfg)
-    assert p["titling"] == {"enabled": True, "model": ""}
+    assert p["titling"] == {"enabled": True, "model": "",
+                            "interval_hours": 24, "scope": "untitled",
+                            "last_run": ""}
     assert p["models"] == ["m-a", "m-b"]
 
 
@@ -445,7 +448,9 @@ def test_settings_post_persists_and_audits():
     h._serve_conversations_settings_update_api()
     assert _status(h) == 200
     assert _sent(h)["ok"] is True
-    assert cfg.raw["conversation_titling"] == {"enabled": False, "model": "m-b"}
+    assert cfg.raw["conversation_titling"] == {"enabled": False, "model": "m-b",
+                                               "interval_hours": 24,
+                                               "scope": "untitled"}
     assert cfg.saved == 1
 
 
@@ -728,3 +733,148 @@ def test_tool_result_without_a_caller_stays_unnamed():
     msgs = [{"role": "tool", "tool_call_id": "x", "content": "y"}]
     prepped = [conv_store._prepare(m, conv_store._tool_name_lookup(msgs)) for m in msgs]
     assert prepped[0]["tool_name"] is None
+
+
+# ── 8. scheduled + manual titling (interval, scope, run-now) ────────────────
+
+def test_interval_hours_defaults_to_24():
+    cfg = _Cfg()
+    assert ct.interval_hours(cfg) == 24
+
+
+def test_interval_hours_reads_config_and_clamps():
+    cfg = _Cfg()
+    cfg.conversation_titling["interval_hours"] = 4
+    assert ct.interval_hours(cfg) == 4
+    cfg.conversation_titling["interval_hours"] = 0
+    assert ct.interval_hours(cfg) == 24  # clamped up
+    cfg.conversation_titling["interval_hours"] = "bad"
+    assert ct.interval_hours(cfg) == 24  # parse failure → default
+
+
+def test_scope_defaults_to_untitled():
+    assert ct.scope(_Cfg()) == "untitled"
+
+
+def test_scope_reads_config_and_falls_back():
+    cfg = _Cfg()
+    cfg.conversation_titling["scope"] = "all"
+    assert ct.scope(cfg) == "all"
+    cfg.conversation_titling["scope"] = "bogus"
+    assert ct.scope(cfg) == "untitled"
+
+
+def test_candidate_ids_untitled_filters_named(store):
+    conv_store.capture_request(
+        "sess-named2", {"messages": [{"role": "user", "content": "check"}]},
+        reply="ok", profile="l2", model="m1",
+        ts="2026-11-07T11:00:00+00:00")
+    conv_store.upsert_conversation("sess-named2", name="Named one",
+                                   summary="has both", profile="l2", model="m1")
+    conv_store.recount_conversation("sess-named2")
+    conv_store.capture_request(
+        "sess-anon", {"messages": [{"role": "user", "content": "check"}]},
+        reply="ok", profile="l2", model="m1",
+        ts="2026-11-07T11:05:00+00:00")
+    conv_store.upsert_conversation("sess-anon", profile="l2", model="m1")
+    conv_store.recount_conversation("sess-anon")
+    ids = ct._candidate_ids("untitled")
+    assert "sess-named2" not in ids, "a fully named conversation was offered again"
+    assert "sess-anon" in ids, "an untitled conversation is not offered"
+
+
+def test_candidate_ids_all_includes_every_conversation(store):
+    conv_store.capture_request(
+        "sess-named3", {"messages": [{"role": "user", "content": "check"}]},
+        reply="ok", profile="l2", model="m1",
+        ts="2026-11-07T11:00:00+00:00")
+    conv_store.upsert_conversation("sess-named3", name="x", summary="y",
+                                   profile="l2", model="m1")
+    conv_store.recount_conversation("sess-named3")
+    ids = ct._candidate_ids("all")
+    assert "sess-named3" in ids, "scope=all must offer already-named conversations"
+
+
+def test_run_titling_pass_titles_candidates(store, monkeypatch):
+    conv_store.capture_request(
+        "sess-pass", {"messages": [{"role": "user", "content": "check"}]},
+        reply="ok", profile="l2", model="m1",
+        ts="2026-11-07T11:00:00+00:00")
+    conv_store.upsert_conversation("sess-pass", profile="l2", model="m1")
+    conv_store.recount_conversation("sess-pass")
+    called = {}
+    with patch.object(ct, "_title_one", side_effect=lambda cid, force=False: called.update({cid: force})):
+        stats = ct.run_titling_pass(scope_value="untitled")
+    assert stats["scope"] == "untitled"
+    assert stats["at"]
+    assert "sess-pass" in called
+    assert called["sess-pass"] is False
+
+
+def test_run_titling_pass_all_forces():
+    with patch.object(ct, "_candidate_ids", return_value=["c1"]), \
+         patch.object(ct, "_title_one") as title:
+        ct.run_titling_pass(scope_value="all")
+    title.assert_called_once_with("c1", force=True)
+
+
+def test_run_titling_pass_never_raises(store, monkeypatch):
+    with patch.object(ct, "_candidate_ids", side_effect=RuntimeError("boom")):
+        stats = ct.run_titling_pass()
+    assert "error" in stats
+    assert stats["titled"] == 0
+
+
+def test_scheduler_route_is_registered():
+    from src.server.handler import LCPHandler
+    rt = LCPHandler._route_table()
+    names = [r.name for r in rt.rules]
+    assert "api.settings.conversations.title" in names
+
+
+def test_settings_post_persists_interval_and_scope():
+    cfg = _Cfg()
+    h = _make_handler(path="/api/settings/conversations", method="POST",
+                      body={"enabled": True, "model": "m-b",
+                            "interval_hours": 6, "scope": "all"}, config=cfg)
+    h._serve_conversations_settings_update_api()
+    assert _status(h) == 200
+    assert _sent(h)["interval_hours"] == 6
+    assert _sent(h)["scope"] == "all"
+    assert cfg.raw["conversation_titling"]["interval_hours"] == 6
+    assert cfg.raw["conversation_titling"]["scope"] == "all"
+
+
+def test_settings_post_rejects_out_of_range_interval():
+    h = _make_handler(path="/api/settings/conversations", method="POST",
+                      body={"enabled": True, "interval_hours": 0}, config=_Cfg())
+    h._serve_conversations_settings_update_api()
+    assert _status(h) == 400
+
+
+def test_settings_post_rejects_bad_scope():
+    h = _make_handler(path="/api/settings/conversations", method="POST",
+                      body={"enabled": True, "scope": "nope"}, config=_Cfg())
+    h._serve_conversations_settings_update_api()
+    assert _status(h) == 400
+
+
+def test_settings_title_api_runs_a_pass():
+    h = _make_handler(path="/api/settings/conversations/title", method="POST",
+                      body={"scope": "untitled"}, config=_Cfg())
+    with patch("src.api.conv_titler.run_titling_pass",
+               return_value={"titled": 2, "scanned": 2, "scope": "untitled", "at": "t"}):
+        h._serve_conversations_title_api()
+    assert _status(h) == 200
+    body = _sent(h)
+    assert body["ok"] is True and body["titled"] == 2
+
+
+def test_settings_page_has_interval_scope_and_run_now():
+    from src.ui.pages import render_settings_page
+    html = render_settings_page(_Cfg())
+    assert 'id="titlingInterval"' in html, "no interval field"
+    assert 'name="titlingScope"' in html, "no scope radio group"
+    assert 'id="titlingRun"' in html, "no run-now button"
+    assert "api/settings/conversations/title" in html, "run-now has no endpoint call"
+    assert 'id="titlingLastRun"' in html, "no last-run status"

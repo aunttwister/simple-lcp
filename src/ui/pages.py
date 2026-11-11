@@ -827,13 +827,22 @@ def settings_payload(config=None) -> dict:
     cannot resolve.
     """
     import json as _json
-    section = {"enabled": True, "model": None}
+    section = {"enabled": True, "model": None,
+               "interval_hours": 24, "scope": "untitled"}
     try:
         raw = getattr(config, "conversation_titling", None)
         if isinstance(raw, dict):
             section = dict(raw)
     except Exception:  # noqa: BLE001 — the page must render, not 500
         pass
+    # last run time comes from the live titler module, not config (it is
+    # runtime state, not persisted config).
+    last_run = ""
+    try:
+        from ..api import conv_titler
+        last_run = conv_titler.last_run_at() or ""
+    except Exception:  # noqa: BLE001
+        last_run = ""
     models: list[str] = []
     try:
         profiles = getattr(config, "profiles", None) or {}
@@ -845,10 +854,22 @@ def settings_payload(config=None) -> dict:
         models.sort()
     except Exception:  # noqa: BLE001
         models = []
+    def _clamp_int(v, lo, hi, default):
+        try:
+            iv = int(v)
+            return iv if lo <= iv <= hi else default
+        except (TypeError, ValueError):
+            return default
+
     return {
         "titling": {
             "enabled": bool(section.get("enabled", True)),
             "model": section.get("model") or "",
+            "interval_hours": _clamp_int(section.get("interval_hours"), 1, 168, 24),
+            "scope": str(section.get("scope", "untitled")).strip().lower()
+                     if str(section.get("scope", "untitled")).strip().lower()
+                     in ("untitled", "all") else "untitled",
+            "last_run": last_run,
         },
         "models": models,
         "models_json": _json.dumps(models),

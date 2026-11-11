@@ -192,6 +192,17 @@ def main():
     except Exception:  # noqa: BLE001 — a prober must never stop the gateway
         logger.warning("health_prober_start_failed", error=True)
 
+    # Scheduled conversation titling: every interval_hours (default 24) a pass
+    # titles untitled conversations; the settings page also offers a manual
+    # "run now". The thread is daemon and self-governing; a start failure here
+    # must never stop the gateway (the manual endpoint + per-request enqueue
+    # still work regardless).
+    try:
+        from .api import conv_titler
+        conv_titler.ensure_scheduler()
+    except Exception:  # noqa: BLE001 — a scheduler must never stop the gateway
+        logger.warning("conv_titler_scheduler_start_failed", error=True)
+
     server = create_server(config, engine, port)
     t0 = _startup_step("server_create", t0)
 
