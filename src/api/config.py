@@ -817,18 +817,15 @@ class Config:
 
     @property
     def conversation_titling(self) -> dict:
-        """CUR-329 background titler settings: ``enabled`` and ``model``.
+        """Conversation titling/summarizing settings.
 
-        Optional section, like ``dynamic_routing``: a DB written before this
-        feature has no row, and the defaults here ARE the feature on with the
-        chain-head model. ``model`` names a gateway logical model; when unset
-        the titler uses the default profile's chain head, which is the model
-        the operator already chose to run the estate on.
+        Every other section is exposed as a property; this one had no accessor,
+        so `config.conversation_titling` raised AttributeError and the titler
+        fail-opened into doing nothing on every pass. Mirror the sibling pattern
+        (default section) so callers in conv_titler and the settings surface can
+        read it the same way they read `config.circuit_breaker` / `config.retry`.
         """
-        return self._data.get("conversation_titling", {
-            "enabled": True,
-            "model": None,
-        })
+        return self._data.get("conversation_titling", {})
 
     # ── Model identity (registry-aware lookups) ───────────────────────────
     #
