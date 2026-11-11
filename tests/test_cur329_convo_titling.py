@@ -729,6 +729,34 @@ def test_interval_hours_defaults_to_24():
     assert ct.interval_hours(cfg) == 24
 
 
+def test_real_config_exposes_conversation_titling_section():
+    """Regression: Config lacked a `conversation_titling` property, so
+    config.conversation_titling raised AttributeError and the titler
+    fail-opened into doing nothing (run-now counted attempts, typed none).
+    Every sibling section (circuit_breaker, retry, plugins…) is exposed as a
+    property; this one had no accessor. A duck-typed _Cfg in the unit tests
+    masked the defect."""
+    from src.api.config import Config
+    import copy
+    # A seed that carries all required sections so _hydrate/_validate succeed,
+    # plus the conversation_titling block the accessor must surface.
+    seed = {
+        "server": {"port": 1, "default_profile": ""},
+        "profiles": {},
+        "providers": {},
+        "pricing": [],
+        "conversation_titling": {"enabled": True, "model": "m-x",
+                                 "interval_hours": 6, "scope": "all"},
+    }
+    cfg = Config(store=None, seed=copy.deepcopy(seed))
+    assert hasattr(cfg, "conversation_titling")
+    assert cfg.conversation_titling == seed["conversation_titling"]
+    # The titler reads through the same accessor.
+    from src.api import conv_titler
+    assert conv_titler.interval_hours(cfg) == 6
+    assert conv_titler.scope(cfg) == "all"
+
+
 def test_interval_hours_reads_config_and_clamps():
     cfg = _Cfg()
     cfg.conversation_titling["interval_hours"] = 4

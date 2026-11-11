@@ -141,8 +141,6 @@
         <th scope="col">Profile</th>
         <th scope="col">Model</th>
         <th scope="col">Messages</th>
-        <th scope="col" class="num">Tokens</th>
-        <th scope="col" class="num">Cost</th>
         <th scope="col">Last activity</th>
       </tr>
     </thead>
@@ -175,10 +173,6 @@
            stored. That is "unknown", not "zero": rendering 0 beside a summary
            that describes 16 tool calls was the table contradicting itself. #}
         <td class="mono" data-label="Messages">{% if c.messages is none %}<span class="muted" title="No transcript stored">—</span>{% else %}{{ c.messages }}{% if c.active_messages is not none and c.active_messages != c.messages %} <span class="muted" title="Messages still in the agent's context window; the rest were compacted">({{ c.active_messages }})</span>{% endif %}{% endif %}</td>
-        {# Right-aligned and tabular: these are compared down the column, which is
-           what an operator does with a spend column. #}
-        <td class="mono num" data-label="Tokens">{% if c.measured %}{{ c.tokens | fmt_num }}{% else %}<span class="muted">—</span>{% endif %}</td>
-        <td class="mono num" data-label="Cost">{% if c.measured %}{{ '%.4f' % c.cost }}{% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="mono conv-last" data-label="Last activity">{{ c.last_at | fmt_iso }}</td>
       </tr>
       {% endfor %}
