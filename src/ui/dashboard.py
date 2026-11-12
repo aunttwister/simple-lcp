@@ -355,7 +355,10 @@ def dashboard_context(config, engine, headers, profile_filter=None):
         return str(int(n))
 
     def _fmt_cost(c):
-        return f"${float(c):.6f}" if c else "$0.000000"
+        # Headline money: 2dp with thousands separators ("$1,121.69"), not six
+        # decimals of noise. Precision lives in the underlying data and the
+        # per-model tables, not in a headline.
+        return f"${float(c):,.2f}" if c else "$0.00"
 
     # ── Data for the Jinja2 dashboard template ──
     host = headers.get("Host", "localhost:8734")
@@ -380,6 +383,15 @@ def dashboard_context(config, engine, headers, profile_filter=None):
          "total_cost": float(row.total_cost)}
         for row in profile_rows
     ]
+    # Cost-share bars on the mini cards: each card draws a bar proportional to
+    # its share of the busiest profile, so $0.01 and $562 are comparable at a
+    # glance without reading the numbers.
+    _max_profile_cost = max((pc["total_cost"] for pc in profile_cards), default=0.0)
+    for _pc in profile_cards:
+        _pc["cost_share"] = (
+            round(_pc["total_cost"] / _max_profile_cost * 100, 1)
+            if _max_profile_cost > 0 else 0.0
+        )
 
     # Daily costs table rows (cache fields pre-formatted with _fmt_num)
     daily_rows_data = []

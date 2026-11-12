@@ -5,14 +5,14 @@
 {% if tab == 'overview' %}
 <div class="header-row">
   <div>
-    <p class="subtitle">Cost tracking · Request history · Phase 5/6 intelligence</p>
+    <p class="subtitle">Cost tracking and request history across every log realm.</p>
   </div>
 </div>
 
 <!-- ── Profile Filter Dropdown ── -->
 <div class="lcp-filter-dropdown" style="margin-bottom:1.5rem;display:flex;justify-content:flex-end">
   <button class="lcp-filter-trigger" id="filterTrigger" onclick="toggleFilterDropdown(event)">
-    {% if profile_filter %}{{ profile_filter.upper() }}{% else %}All{% endif %}
+    {% if profile_filter %}{{ profile_filter.upper() }}{% else %}All profiles{% endif %}
     <span class="caret">▾</span>
   </button>
   <div class="lcp-filter-menu" id="filterMenu">
@@ -33,7 +33,7 @@
   <div class="metric-card">
     <div class="metric-label">Requests</div>
     <div class="metric-value">{{ summary_total_requests_fmt }}</div>
-    <div class="metric-sub">{{ fallback_count_fmt }} fallbacks ({{ fb_pct_fmt }})</div>
+    <div class="metric-sub">{{ fallback_count_fmt }} served by a fallback link ({{ fb_pct_fmt }})</div>
   </div>
   <div class="metric-card">
     <div class="metric-label">Cache Ratio</div>
@@ -41,7 +41,7 @@
     <div class="metric-sub">saved {{ cache_savings_fmt }}</div>
   </div>
   <div class="metric-card">
-    <div class="metric-label">Tokens</div>
+    <div class="metric-label">Output Tokens</div>
     <div class="metric-value">{{ output_tokens_fmt }}</div>
     <div class="metric-sub">prompt {{ prompt_tokens_fmt }}</div>
   </div>
@@ -52,8 +52,9 @@
   {% for pc in profile_cards %}
   <a href="/activity?profile={{ pc.profile }}" class="profile-mini" style="text-decoration:none">
     <div class="pm-name">{{ pc.profile.upper() }}</div>
-    <div class="pm-cost">${{ "%.4f"|format(pc.total_cost) }}</div>
-    <div class="pm-reqs">{{ pc.count }} reqs</div>
+    <div class="pm-cost">${{ "%.2f"|format(pc.total_cost) }}</div>
+    <div class="pm-reqs">{{ "{:,}".format(pc.count) }} reqs</div>
+    <div class="pm-share-track" title="{{ pc.cost_share }}% of the busiest profile's spend"><div class="pm-share-fill" style="width:{{ pc.cost_share }}%"></div></div>
   </a>
   {% endfor %}
 </div>

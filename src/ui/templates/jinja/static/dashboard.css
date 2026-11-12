@@ -244,8 +244,8 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.01em;
 }
 .badge-fallback { background: hsl(var(--amber-bg)); color: hsl(var(--amber-fg)); }
-.badge-error { background: hsl(var(--red-bg)); color: hsl(var(--red-fg)); }
-.badge-success { background: hsl(var(--green-bg)); color: hsl(var(--green-fg)); }
+.badge-error { background: hsl(var(--red-bg)); color: hsl(var(--red-fg)); font-weight: 600; border: 1px solid hsl(var(--red-fg) / 0.35); }
+.badge-success { background: hsl(var(--green-bg)); color: hsl(var(--green-fg)); font-weight: 600; }
 .badge-cache { background: hsl(var(--cyan-bg)); color: hsl(var(--cyan-fg)); }
 .cache-row-fresh td { animation: cacheFreshFade 3s ease-out; }
 @keyframes cacheFreshFade {
@@ -3051,3 +3051,18 @@ pre.spark { line-height: 1.15; letter-spacing: 0.02em; }
   .tab-panel .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .tab-panel table { min-width: 480px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 3 (2026-11-11): activity overview credibility
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Cost-share bar on the profile mini cards: $0.01 vs $562 comparable at a
+   glance. The fill width comes from the server (cost_share, % of busiest). */
+.pm-share-track {
+  height: 3px; border-radius: 2px; margin-top: 0.4rem;
+  background: hsl(var(--secondary)); overflow: hidden;
+}
+.pm-share-fill { height: 100%; border-radius: 2px; background: hsl(var(--primary)); }
+
+/* Profile mini cards keep their number columns on one baseline */
+.pm-cost, .pm-reqs { font-variant-numeric: tabular-nums; }
