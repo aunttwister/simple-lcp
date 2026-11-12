@@ -41,7 +41,7 @@
   <div class="pd-identity">
     <h1>{{ profile.name }}</h1>
     {% if profile.words %}
-    <p class="subtitle">{{ profile.description }}</p>
+    <p class="subtitle pd-desc" id="pdDesc" title="Click to expand the full description">{{ profile.description }}</p>
     {% else %}
     {# M2d: a profile without an agent behind it is a different kind, not an incomplete
        one — so it is offered a description rather than told it is missing a summary. #}
@@ -71,7 +71,9 @@
       {% endif %}
     </p>
     {% if profile.routed_by %}
-    <p class="pd-note">Also routed here by {{ profile.routed_by|join(', ') }} &mdash; their traffic is served by this profile's chain.</p>
+    <p class="pd-note">Also routed here by
+      {%- for rb in profile.routed_by %}{% if not loop.first %}, {% endif %}<a class="mono" href="/profiles/{{ rb }}">{{ rb }}</a>{% endfor %}
+      &mdash; their traffic is served by this profile's chain.</p>
     {% endif %}
     {% if profile.intents %}
     <p class="pd-note">Intents: {% for it in profile.intents %}<span class="pc-badge">{{ it }}</span> {% endfor %}</p>
@@ -148,5 +150,17 @@ function removeAvatar(name) {
     location.reload();
   });
 }
+
+// The description clamps at 2 lines; clicking it expands to full length (and
+// clicks back to clamp). The tooltip says so up front.
+(function () {
+  var d = document.getElementById('pdDesc');
+  if (!d) return;
+  d.addEventListener('click', function () {
+    d.classList.toggle('pd-desc-open');
+    d.title = d.classList.contains('pd-desc-open')
+      ? 'Click to collapse' : 'Click to expand the full description';
+  });
+})();
 </script>
 {% endblock %}

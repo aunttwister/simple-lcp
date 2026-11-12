@@ -1314,6 +1314,48 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   position: sticky; top: 0; z-index: 2;
   background: hsl(var(--card));
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 6 (2026-11-11): profile detail + models page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Description clamps at 2 lines; clicking expands (handler in the page) */
+.pd-desc { cursor: pointer; }
+.pd-desc.pd-desc-open { display: block; -webkit-line-clamp: unset; }
+
+/* The chain row wraps instead of clipping at narrow widths */
+.pd-chain { overflow-wrap: anywhere; white-space: normal; }
+
+/* The gateway endpoint reads as a copyable value, not plain prose */
+.pd-identity .mono {
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--card-border));
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.05rem 0.4rem;
+  font-size: 0.72rem;
+}
+
+/* Avatar actions align to the top of the header, with a gap between the
+   benign and destructive buttons */
+.pd-identity { align-items: flex-start; }
+.pd-identity .btn-danger { margin-left: 0.5rem; }
+
+/* Tab badge breathes: no more hugging the label */
+.tab-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+
+/* ROUTE BY select: room before the chevron */
+.prou-sect-body select { padding-right: 2rem; min-width: 0; max-width: 100%; }
+.prou-sect-body .pd-note { margin-bottom: 0.75rem; }
+
+/* Models chain/registered tables keep their header while scrolling */
+.table-wrap .pp-table thead th, .table-wrap .capability-table thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: hsl(var(--card));
+}
+
+/* Profile directory cards: the whole card is the click target — show it */
+.profile-card { transition: border-color 0.15s ease, transform 0.15s ease; }
+.profile-card:hover { border-color: hsl(var(--primary) / 0.45); transform: translateY(-1px); }
 .work-chip-ok { color: #3fb950; border-color: #3fb950; }
 .work-job-name { font-weight: 600; overflow-wrap: anywhere; }
 .work-rel { color: var(--text-muted, #8b949e); font-size: 0.72rem; }
