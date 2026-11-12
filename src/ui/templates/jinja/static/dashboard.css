@@ -2919,13 +2919,20 @@ input:disabled {
 }
 .conv-model-cell { max-width: 220px; }
 
-/* 2. Profile chip colour map — one stable hue per profile, reads as a facet */
+/* 2. Profile chip colour map — one stable hue per profile, reads as a facet.
+      Shared by the conversations chips AND the profile-directory cards. */
 .conv-prof-chip { border-left: 3px solid var(--prof-color, hsl(var(--card-border))); }
 .conv-prof-chip[data-prof="l2"]  { --prof-color: #22c55e; }
 .conv-prof-chip[data-prof="l1"]  { --prof-color: #38bdf8; }
 .conv-prof-chip[data-prof="blog"]{ --prof-color: #f59e0b; }
 .conv-prof-chip[data-prof="api"] { --prof-color: #a78bfa; }
 .conv-prof-chip[data-prof="cron"]{ --prof-color: #f472b6; }
+.profile-card-dot { --prof-color: hsl(var(--muted-foreground)); }
+.profile-card-dot[data-prof="l2"]  { --prof-color: #22c55e; }
+.profile-card-dot[data-prof="l1"]  { --prof-color: #38bdf8; }
+.profile-card-dot[data-prof="blog"]{ --prof-color: #f59e0b; }
+.profile-card-dot[data-prof="api"] { --prof-color: #a78bfa; }
+.profile-card-dot[data-prof="cron"]{ --prof-color: #f472b6; }
 
 /* 3. Relative activity: fresh rows read "now", older rows recede */
 .conv-last-rel { color: hsl(var(--muted-foreground)); }
@@ -2974,4 +2981,73 @@ input:disabled {
   .conv-table thead th { white-space: nowrap; }
   .hp-usage-label { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; }
   .header-plugin-badge.global { max-width: 72%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 2 (2026-11-11): usage mobile, models, profiles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 1. Provider tab bar: scrollable horizontally on narrow screens, with a right
+      fade so a truncated tab is discoverable instead of silently cut */
+.tab-bar {
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1.5rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1.5rem), transparent 100%);
+}
+.tab-btn { white-space: nowrap; flex-shrink: 0; }
+
+/* 2. Spark caption ("min $0.0000 · max …"): readable + wraps instead of
+      overflowing when values grow */
+.spark-sum { font-size: 0.72rem; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* 3. Braille sparks align as blocks; keep line-height tight */
+pre.spark { line-height: 1.15; letter-spacing: 0.02em; }
+
+/* 4. Sign-in card: (border-box fix lives in admin_login.py) — belt and braces
+      here is not possible; the page is self-contained. */
+
+/* 5. Credentials / collapse rows: wrap cleanly on narrow cards */
+.ttl-collapse-head { flex-wrap: wrap; gap: 0.5rem; }
+
+/* 6. Models matrix: model keys as bounded mono chips, consistent with the
+      conversations table (models focus) */
+.pmodel-key {
+  display: inline-block; max-width: 260px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: bottom;
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.72rem;
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--card-border));
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.05rem 0.4rem;
+}
+
+/* 7. Model family hue — a left border tint by prefix, same idea as profile map */
+.pmodel-key[data-family="deepseek"] { border-left: 3px solid #38bdf8; }
+.pmodel-key[data-family="glm"]      { border-left: 3px solid #22c55e; }
+.pmodel-key[data-family="claude"]   { border-left: 3px solid #f59e0b; }
+.pmodel-key[data-family="gpt"]      { border-left: 3px solid #a78bfa; }
+
+/* 8. Profile cards: colour dot keyed to the same map as the conversations
+      chips (profile focus) */
+.profile-card-dot {
+  display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%;
+  margin-right: 0.4rem; vertical-align: baseline;
+  background: var(--prof-color, hsl(var(--muted-foreground)));
+}
+
+/* 9. Mobile header row: hamburger right-sized, credits card gets room */
+@media (max-width: 767px) {
+  .nav-toggle, .menu-toggle, button[class*="hamburger"] { width: 44px; height: 44px; }
+  .hp-usage-bar + .hp-usage-pct, .hp-usage-pct { flex-shrink: 0; }
+  .spark-sum { display: grid; grid-template-columns: repeat(2, auto); gap: 0 0.75rem; justify-content: start; }
+  .subtitle { font-size: 0.85rem; }
+}
+
+/* 10. Tables inside usage panels never force page-wide overflow on mobile */
+@media (max-width: 767px) {
+  .tab-panel .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab-panel table { min-width: 480px; }
 }
