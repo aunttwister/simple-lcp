@@ -1444,6 +1444,32 @@ table.capability-table thead th { white-space: nowrap; }
 @media (max-width: 767px) {
   .task-toolbar-row select, .task-toolbar-row input[type="text"] { width: 100%; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 10 (2026-11-11): cross-cutting closeout
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Active tab: colour alone was too quiet between Matrix and Providers */
+.tab-btn.active, .dialog-tab.active { font-weight: 600; }
+.tab-btn:focus-visible, .dialog-tab:focus-visible {
+  outline: 2px solid hsl(var(--primary)); outline-offset: 2px;
+}
+
+/* Global keyboard focus ring — every control, consistent offset */
+a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 2px solid hsl(var(--primary)); outline-offset: 2px;
+}
+
+/* Dynamic routing: the controls block ends before the table starts */
+.prou-sect-body table { margin-top: 1rem; }
+
+/* Print: the sidebar, pulse dots and header widgets are screen furniture */
+@media print {
+  .sidebar, .live-pulse, .header-plugin-badge, .skip-link { display: none !important; }
+  .main-content { margin: 0 !important; color: #111 !important; background: #fff !important; }
+  .main-content * { color: #111 !important; }
+  .card { border-color: #ccc !important; background: #fff !important; }
+}
 .work-chip-ok { color: #3fb950; border-color: #3fb950; }
 .work-job-name { font-weight: 600; overflow-wrap: anywhere; }
 .work-rel { color: var(--text-muted, #8b949e); font-size: 0.72rem; }
