@@ -79,6 +79,8 @@
     hpFill.style.width = Math.min(top.pct, 100) + '%';
     hpFill.className = 'hp-usage-fill ' + barColor(top.pct);
     hpLabel.textContent = top.name + ' ' + top.pct.toFixed(0) + '%';
+    // The compact bar says how full; the hover tooltip says when it clears.
+    if (hdrBadge) hdrBadge.title = top.name + ' window ' + top.pct.toFixed(0) + '% used — resets in ' + fmtCountdown(top.reset);
     windows.forEach(function (w) {
       if (w.pct == null) return;
       rows += '<div class="hp-usage-popover-row">' +
@@ -109,6 +111,8 @@
     hpFill.style.width = Math.min(top.pct, 100) + '%';
     hpFill.className = 'hp-usage-fill ' + barColor(top.pct);
     hpLabel.textContent = top.name + ' ' + top.pct.toFixed(0) + '%';
+    // Same tooltip contract as the OpenCode path: hover says when it clears.
+    if (hdrBadge) hdrBadge.title = top.name + ' window ' + top.pct.toFixed(0) + '% used — resets in ' + fmtCountdown(top.reset);
     var rows = '';
     windows.forEach(function (w) {
       if (w.pct == null) return;
@@ -214,7 +218,11 @@
 
       hdrDot.className = 'header-plugin-dot on';
       hdrText.textContent = hdrLabel;
-      hdrBadge.title = providerDisplayName(latest) + ' \u2014 latest active provider';
+      // renderCommandCodeUsage/renderOpenCodeUsage may already have put a
+      // window-reset tooltip here; keep it and append the provider context
+      // instead of overwriting the reset countdown with less information.
+      var winTip = hdrBadge.title && hdrBadge.title.indexOf('window') !== -1 ? hdrBadge.title + ' — ' : '';
+      hdrBadge.title = winTip + providerDisplayName(latest) + ' \u2014 latest active provider';
     });
   }
 

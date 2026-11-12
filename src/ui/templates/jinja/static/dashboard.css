@@ -244,8 +244,8 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.01em;
 }
 .badge-fallback { background: hsl(var(--amber-bg)); color: hsl(var(--amber-fg)); }
-.badge-error { background: hsl(var(--red-bg)); color: hsl(var(--red-fg)); }
-.badge-success { background: hsl(var(--green-bg)); color: hsl(var(--green-fg)); }
+.badge-error { background: hsl(var(--red-bg)); color: hsl(var(--red-fg)); font-weight: 600; border: 1px solid hsl(var(--red-fg) / 0.35); }
+.badge-success { background: hsl(var(--green-bg)); color: hsl(var(--green-fg)); font-weight: 600; }
 .badge-cache { background: hsl(var(--cyan-bg)); color: hsl(var(--cyan-fg)); }
 .cache-row-fresh td { animation: cacheFreshFade 3s ease-out; }
 @keyframes cacheFreshFade {
@@ -331,8 +331,11 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   width: 0.9375rem; height: 0.9375rem; border-radius: 9999px;
   background: hsl(var(--muted-foreground)); transition: transform 0.18s ease, background 0.18s ease;
 }
-.toggle input:checked + .toggle-track { background: hsl(var(--primary)); border-color: hsl(var(--primary)); }
-.toggle input:checked + .toggle-track::after { transform: translate(1rem, -50%); background: hsl(var(--primary-foreground)); }
+.toggle input:checked + .toggle-track { background: hsl(var(--green-fg)); border-color: hsl(var(--green-fg)); }
+.toggle input:checked + .toggle-track::after { transform: translate(1rem, -50%); background: #0b0f14; }
+/* Radios: an unselected option must read empty, not "dark filled circle" */
+.settings-inline .radio input[type="radio"] { accent-color: hsl(var(--primary)); width: 0.9rem; height: 0.9rem; }
+.settings-inline { gap: 1.1rem; }
 .toggle input:focus-visible + .toggle-track { outline: 2px solid hsl(var(--ring, 217.2, 91.2%, 59.8%)); outline-offset: 2px; }
 .toggle .toggle-label { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
 .toggle.disabled { opacity: 0.5; cursor: not-allowed; }
@@ -3022,3 +3025,366 @@ input:disabled {
 @media (max-width: 1100px) {
   .detail-panel { width: min(420px, 92vw); }
 }
+/* Status survives a monochrome render: dot + word, never colour alone */
+.work-chip-ok::before, .work-chip-active::before { content: "\25CF "; font-size: 0.55rem; vertical-align: 0.08em; }
+.work-chip-error::before { content: "\25CF "; font-size: 0.55rem; vertical-align: 0.08em; }
+/* Log table: the header stays visible while the panel scrolls */
+.work-scroll .work-table thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: hsl(var(--card));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 6 (2026-11-11): profile detail + models page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Description clamps at 2 lines; clicking expands (handler in the page) */
+.pd-desc { cursor: pointer; }
+.pd-desc.pd-desc-open { display: block; -webkit-line-clamp: unset; }
+
+/* The chain row wraps instead of clipping at narrow widths */
+.pd-chain { overflow-wrap: anywhere; white-space: normal; }
+
+/* The gateway endpoint reads as a copyable value, not plain prose */
+.pd-identity .mono {
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--card-border));
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.05rem 0.4rem;
+  font-size: 0.72rem;
+}
+
+/* Avatar actions align to the top of the header, with a gap between the
+   benign and destructive buttons */
+.pd-identity { align-items: flex-start; }
+.pd-identity .btn-danger { margin-left: 0.5rem; }
+
+/* Tab badge breathes: no more hugging the label */
+.tab-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+
+/* ROUTE BY select: room before the chevron */
+.prou-sect-body select { padding-right: 2rem; min-width: 0; max-width: 100%; }
+.prou-sect-body .pd-note { margin-bottom: 0.75rem; }
+
+/* Models chain/registered tables keep their header while scrolling */
+.table-wrap .pp-table thead th, .table-wrap .capability-table thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: hsl(var(--card));
+}
+
+/* Profile directory cards: the whole card is the click target — show it */
+.profile-card { transition: border-color 0.15s ease, transform 0.15s ease; }
+.profile-card:hover { border-color: hsl(var(--primary) / 0.45); transform: translateY(-1px); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 7 (2026-11-11): models matrix list + detail
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Meta line: best score and provider list are two distinct facts with a gap,
+   and the provider list ellipses with a tooltip instead of clipping mid-word */
+.mli-meta {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  overflow: hidden;
+}
+.mli-best { flex-shrink: 0; font-weight: 600; color: hsl(var(--green-fg)); }
+.mli-prov {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: default;
+}
+
+/* Provider names read as chips, not a comma-run */
+.mli-prov .prov-chip {
+  display: inline-block; margin-right: 0.25rem;
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--card-border));
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0 0.3rem; font-size: 0.55rem;
+}
+
+/* List items keep their right border clear of the scrollbar track */
+#modelList { padding-right: 0.35rem; }
+#modelList .model-list-item { margin-bottom: 0.3rem; }
+
+/* Detail header: title and action buttons share one baseline */
+.model-detail-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.model-detail-head h3, .model-detail-head .mono { margin-right: auto; }
+.pd-head-row, .mhead { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+/* Breadcrumb separators breathe and the crumb is readable */
+.breadcrumb, .crumb { color: hsl(var(--muted-foreground)); }
+.breadcrumb .sep, .crumb-sep { margin: 0 0.3rem; opacity: 0.7; }
+
+/* Models toolbar: filter input and its two buttons get consistent rhythm */
+.models-pane, .models-split { gap: 0.75rem; }
+#addRegistryBtn, #configuredOnlyBtn { margin-top: 0.4rem; }
+#configuredOnlyBtn { margin-left: 0.4rem; }
+
+/* "(latest)" / "(active)" release qualifiers sit apart from the date */
+.model-detail dd .muted { margin-left: 0.25rem; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 8 (2026-11-11): settings form affordances
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Field boundaries readable on the dark card surface */
+.card select, .card input[type="number"], .card input[type="text"] {
+  border-color: hsl(var(--card-border) / 1.6);
+}
+.card .settings-row { align-items: center; }
+
+/* Usage panel toolbar buttons wrap instead of cramming on narrow panels */
+.usage-head, .ttl-row { flex-wrap: wrap; gap: 0.5rem; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 9 (2026-11-11): conversations ergonomics
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* "In flight" polls every 2s: a quiet pulse says the section is live */
+.live-pulse {
+  display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%;
+  background: hsl(var(--green-fg)); margin-left: 0.4rem; vertical-align: middle;
+  animation: livePulse 2s ease-in-out infinite;
+}
+@keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .live-pulse { animation: none; } }
+
+/* In-flight headers never wrap ("Prompt tokens" stays one line) */
+table.capability-table thead th { white-space: nowrap; }
+.conv-live table th.num, table.capability-table th.num, table.capability-table tbody td:nth-child(6), table.capability-table tbody td:nth-child(7) { text-align: right; }
+
+/* History rows separate cleanly without full zebra noise */
+.conv-table tbody td { border-bottom: 1px solid hsl(var(--card-border) / 0.5); }
+
+/* Filter selects stretch on mobile instead of shrinking */
+@media (max-width: 767px) {
+  .task-toolbar-row select, .task-toolbar-row input[type="text"] { width: 100%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 10 (2026-11-11): cross-cutting closeout
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Active tab: colour alone was too quiet between Matrix and Providers */
+.tab-btn.active, .dialog-tab.active { font-weight: 600; }
+.tab-btn:focus-visible, .dialog-tab:focus-visible {
+  outline: 2px solid hsl(var(--primary)); outline-offset: 2px;
+}
+
+/* Global keyboard focus ring — every control, consistent offset */
+a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 2px solid hsl(var(--primary)); outline-offset: 2px;
+}
+
+/* Dynamic routing: the controls block ends before the table starts */
+.prou-sect-body table { margin-top: 1rem; }
+
+/* Print: the sidebar, pulse dots and header widgets are screen furniture */
+@media print {
+  .sidebar, .live-pulse, .header-plugin-badge, .skip-link { display: none !important; }
+  .main-content { margin: 0 !important; color: #111 !important; background: #fff !important; }
+  .main-content * { color: #111 !important; }
+  .card { border-color: #ccc !important; background: #fff !important; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 1 (2026-11-11): models, activity, profile, polish
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 1. Model chip: mono, bounded, ellipsis — a model name is a facet, not a novel */
+.conv-model-chip {
+  display: inline-block; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: bottom;
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem;
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--card-border));
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.1rem 0.45rem;
+}
+.conv-model-cell { max-width: 220px; }
+
+/* 2. Profile chip colour map — one stable hue per profile, reads as a facet.
+      Shared by the conversations chips AND the profile-directory cards. */
+.conv-prof-chip { border-left: 3px solid var(--prof-color, hsl(var(--card-border))); }
+.conv-prof-chip[data-prof="l2"]  { --prof-color: #22c55e; }
+.conv-prof-chip[data-prof="l1"]  { --prof-color: #38bdf8; }
+.conv-prof-chip[data-prof="blog"]{ --prof-color: #f59e0b; }
+.conv-prof-chip[data-prof="api"] { --prof-color: #a78bfa; }
+.conv-prof-chip[data-prof="cron"]{ --prof-color: #f472b6; }
+.profile-card-dot { --prof-color: hsl(var(--muted-foreground)); }
+.profile-card-dot[data-prof="l2"]  { --prof-color: #22c55e; }
+.profile-card-dot[data-prof="l1"]  { --prof-color: #38bdf8; }
+.profile-card-dot[data-prof="blog"]{ --prof-color: #f59e0b; }
+.profile-card-dot[data-prof="api"] { --prof-color: #a78bfa; }
+.profile-card-dot[data-prof="cron"]{ --prof-color: #f472b6; }
+
+/* 3. Relative activity: fresh rows read "now", older rows recede */
+.conv-last-rel { color: hsl(var(--muted-foreground)); }
+.conv-last-fresh { color: hsl(var(--green-fg)); font-weight: 600; }
+
+/* 4. Row hover lift + focus ring — clickable rows must look clickable */
+.conv-table tbody tr.conv-row { transition: background 0.12s ease; }
+.conv-table tbody tr.conv-row:hover { background: hsl(var(--secondary) / 0.55); }
+.conv-table tbody tr.conv-row:focus-visible {
+  outline: 2px solid hsl(var(--ring)); outline-offset: -2px;
+}
+
+/* 5. Sticky table header — the header stays visible while the table scrolls */
+.table-wrap { overflow: auto; }
+.conv-table thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: hsl(var(--card));
+}
+
+/* 6. Empty-state polish: icon dot + tighter copy */
+.empty { text-align: center; padding: 1.5rem 1rem; }
+
+/* 7. Header credits widget: never clip the page title — static flow at ALL
+      widths so it can never overlap the h1; it sits above the content instead */
+.header-plugin-badge.global {
+  position: static;
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: 0.375rem; max-width: min(100%, 340px);
+  margin-left: auto; margin-bottom: 0.5rem;
+  white-space: nowrap;
+}
+
+/* 8. Right-panel transcript: wrap long tokens instead of clipping */
+.conv-pre, .conv-first-ask {
+  overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-word;
+}
+
+/* 9. Chips row breathing room in the panel head */
+.conv-panel-head { gap: 0.5rem; }
+
+/* 10. Mobile: usage + conversation tables stack instead of overflowing */
+@media (max-width: 767px) {
+  .cards { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+  .card { padding: 0.6rem 0.75rem; }
+  .conv-model-cell { max-width: 140px; }
+  .conv-table thead th { white-space: nowrap; }
+  .hp-usage-label { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; }
+  .header-plugin-badge.global { max-width: 72%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 2 (2026-11-11): usage mobile, models, profiles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 1. Provider tab bar: scrollable horizontally on narrow screens, with a right
+      fade so a truncated tab is discoverable instead of silently cut */
+.tab-bar {
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1.5rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1.5rem), transparent 100%);
+}
+.tab-btn { white-space: nowrap; flex-shrink: 0; }
+
+/* 2. Spark caption ("min $0.0000 · max …"): readable + wraps instead of
+      overflowing when values grow */
+.spark-sum { font-size: 0.72rem; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* 3. Braille sparks align as blocks; keep line-height tight */
+pre.spark { line-height: 1.15; letter-spacing: 0.02em; }
+
+/* 4. Sign-in card: (border-box fix lives in admin_login.py) — belt and braces
+      here is not possible; the page is self-contained. */
+
+/* 5. Credentials / collapse rows: wrap cleanly on narrow cards */
+.ttl-collapse-head { flex-wrap: wrap; gap: 0.5rem; }
+
+/* 6. Models matrix: model keys as bounded mono chips, consistent with the
+      conversations table (models focus) */
+.pmodel-key {
+  display: inline-block; max-width: 260px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: bottom;
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.72rem;
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--card-border));
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.05rem 0.4rem;
+}
+
+/* 7. Model family hue — a left border tint by prefix, same idea as profile map */
+.pmodel-key[data-family="deepseek"] { border-left: 3px solid #38bdf8; }
+.pmodel-key[data-family="glm"]      { border-left: 3px solid #22c55e; }
+.pmodel-key[data-family="claude"]   { border-left: 3px solid #f59e0b; }
+.pmodel-key[data-family="gpt"]      { border-left: 3px solid #a78bfa; }
+
+/* 8. Profile cards: colour dot keyed to the same map as the conversations
+      chips (profile focus) */
+.profile-card-dot {
+  display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%;
+  margin-right: 0.4rem; vertical-align: baseline;
+  background: var(--prof-color, hsl(var(--muted-foreground)));
+}
+
+/* 9. Mobile header row: hamburger right-sized, credits card gets room */
+@media (max-width: 767px) {
+  .nav-toggle, .menu-toggle, button[class*="hamburger"] { width: 44px; height: 44px; }
+  .hp-usage-bar + .hp-usage-pct, .hp-usage-pct { flex-shrink: 0; }
+  .spark-sum { display: grid; grid-template-columns: repeat(2, auto); gap: 0 0.75rem; justify-content: start; }
+  .subtitle { font-size: 0.85rem; }
+}
+
+/* 10. Tables inside usage panels never force page-wide overflow on mobile */
+@media (max-width: 767px) {
+  .tab-panel .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab-panel table { min-width: 480px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 3 (2026-11-11): activity overview credibility
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Cost-share bar on the profile mini cards: $0.01 vs $562 comparable at a
+   glance. The fill width comes from the server (cost_share, % of busiest). */
+.pm-share-track {
+  height: 3px; border-radius: 2px; margin-top: 0.4rem;
+  background: hsl(var(--secondary)); overflow: hidden;
+}
+.pm-share-fill { height: 100%; border-radius: 2px; background: hsl(var(--primary)); }
+
+/* Profile mini cards keep their number columns on one baseline */
+.pm-cost, .pm-reqs { font-variant-numeric: tabular-nums; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 4 (2026-11-11): conversation panel transcript
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Per-message timestamp: small, muted, sits beside the role label */
+.conv-msg-ts {
+  font-size: 0.625rem; color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap;
+}
+.conv-role { flex: 0 0 auto; }
+.conv-msg > .conv-role:first-child { display: inline-flex; }
+/* role + timestamp share the first row */
+.conv-msg { flex-wrap: wrap; }
+.conv-msg > .conv-role { margin-right: 0.5rem; }
+
+/* Bubble measure: comfortable line length, user/assistant alike */
+.conv-pre, .conv-first-ask { max-width: 72ch; }
+
+/* Sticky transcript head: filter chips + count stay visible while scrolling */
+.conv-msgs-head {
+  position: sticky; top: -0.75rem; z-index: 2;
+  background: hsl(var(--card));
+  align-items: center;
+}
+
+/* Scroll affordance: a soft fade where older messages continue below.
+   The scrolling container is .conv-panel-body (flex child), not .conv-scroll. */
+.conv-panel-body {
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 1.25rem),
+              hsl(0 0% 0% / 0.6) calc(100% - 0.4rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 1.25rem),
+              hsl(0 0% 0% / 0.6) calc(100% - 0.4rem), transparent 100%);
+}
+/* ...but only when the transcript actually overflows */
+.conv-panel-body.no-fade { mask-image: none; -webkit-mask-image: none; }

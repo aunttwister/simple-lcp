@@ -171,9 +171,13 @@ function renderModelList() {
     const configured = activeModels().has(m) ? 'configured' : '';
     const best = bestScore(m);
     const provs = pmap[m] || [];
+    const provHtml = provs.length
+      ? '<span class="mli-prov" title="' + esc(provs.join(', ')) + '">' +
+        provs.map(p => '<span class="prov-chip">' + esc(p) + '</span>').join('') + '</span>'
+      : '';
     return `<div class="model-list-item ${active} ${configured}" data-model="${m}">
       <div class="mli-name" title="${m}">${m}</div>
-      <div class="mli-meta">${best ? '<span class="mli-best">' + best + '</span>' : ''}${provs.length ? '<span class="mli-prov">' + provs.join(', ') + '</span>' : ''}</div>
+      <div class="mli-meta">${best ? '<span class="mli-best">' + best + '</span>' : ''}${provHtml}</div>
     </div>`;
   }).join('');
   container.querySelectorAll('.model-list-item').forEach(el => {

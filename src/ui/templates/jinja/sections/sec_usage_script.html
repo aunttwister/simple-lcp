@@ -419,7 +419,7 @@ function renderTrendAndGauges() {
     var el = document.getElementById('spark-trend-' + prov);
     if (!el) return;
     var series = _sparkSeries[prov];
-    var info = LCPSpark.mount(el, series, { mode: 'ascii', width: 46 });
+    var info = LCPSpark.mount(el, series, { mode: 'braille', width: 46 });
     var sumEl = document.getElementById('spark-sum-' + prov);
     if (!sumEl) return;
     if (!info) { sumEl.textContent = ''; return; }
@@ -427,6 +427,12 @@ function renderTrendAndGauges() {
     var fmt = isLocal
       ? function (n) { return Math.round(n).toLocaleString() + ' tok'; }
       : function (n) { return '$' + n.toFixed(n < 1 ? 4 : 2); };
+    // A flat series carries no trend; saying so beats "min X · max X · last X"
+    // repeating one number three times.
+    if (info.points > 1 && info.min === info.max) {
+      sumEl.textContent = 'flat — no variance across ' + info.points + ' points (' + fmt(info.last) + ')';
+      return;
+    }
     sumEl.textContent = 'min ' + fmt(info.min) + ' · max ' + fmt(info.max) +
       ' · last ' + fmt(info.last) + ' · ' + info.points + ' points';
   });

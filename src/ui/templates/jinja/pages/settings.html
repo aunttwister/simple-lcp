@@ -25,6 +25,12 @@
   the Conversations history searchable by what it was about instead of
   "Untitled". Titling never runs on the request path and never fails a request.
 </p>
+<p class="muted" id="titlingSummary">
+  Currently: {% if payload["titling"].enabled %}enabled{% else %}disabled{% endif %},
+  {{ payload['titling'].scope == 'all' and 're-titles everything' or 'titles untitled conversations' }}
+  every {{ payload['titling'].interval_hours }}h
+  with {{ payload['titling'].model or 'the chain head' }}.
+</p>
 
 <div class="card" style="max-width:36rem">
   <div class="settings-row">
@@ -50,7 +56,7 @@
     <label for="titlingInterval">Run automatically every</label>
     <div class="settings-inline">
       <input type="number" id="titlingInterval" min="1" max="168" value="{{ payload['titling'].interval_hours }}">
-      <span class="muted">hours</span>
+      <span class="muted">hours (1&ndash;168, clamped on save)</span>
     </div>
   </div>
   <div class="settings-row">
@@ -69,7 +75,10 @@
     </div>
   </div>
   <div class="settings-row">
-    <button type="button" class="btn-sm" id="titlingSave">Save</button>
+    <span class="muted" id="titlingSummaryChipWrap"><span class="badge badge-success" id="titlingSummaryChip" style="display:none">enabled</span><span class="badge badge-error" id="titlingSummaryChipOff" style="display:none">disabled</span></span>
+  </div>
+  <div class="settings-row">
+    <button type="button" class="btn-sm btn-primary" id="titlingSave">Save</button>
     <button type="button" class="btn-sm" id="titlingRun">Run now</button>
     <span class="muted" id="titlingStatus" role="status" aria-live="polite"></span>
   </div>
@@ -95,6 +104,26 @@
     return r ? r.value : 'untitled';
   }
 
+  // Live clamp feedback: the server clamps 1-168, but the operator should see
+  // the correction happen instead of saving a value they did not intend.
+  var intervalInput = document.getElementById('titlingInterval');
+  var chipOn = document.getElementById('titlingSummaryChip');
+  var chipOff = document.getElementById('titlingSummaryChipOff');
+  function paintEnabledChip(on) {
+    if (chipOn) chipOn.style.display = on ? '' : 'none';
+    if (chipOff) chipOff.style.display = on ? 'none' : '';
+  }
+  paintEnabledChip(document.getElementById('titlingEnabled').checked);
+  intervalInput.addEventListener('change', function () {
+    var v = parseInt(intervalInput.value, 10);
+    if (isNaN(v)) return;
+    var clamped = Math.min(168, Math.max(1, v));
+    if (clamped !== v) {
+      intervalInput.value = clamped;
+      status.textContent = 'Interval clamped to ' + clamped + 'h (allowed 1-168).';
+    }
+  });
+
   btn.addEventListener('click', function () {
     var body = {
       enabled: document.getElementById('titlingEnabled').checked,
@@ -102,6 +131,7 @@
       interval_hours: parseInt(document.getElementById('titlingInterval').value, 10) || 24,
       scope: scopeValue()
     };
+    paintEnabledChip(body.enabled);
     btn.disabled = true;
     status.textContent = 'Saving…';
     fetch('/api/settings/conversations', {

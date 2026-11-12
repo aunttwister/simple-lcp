@@ -77,9 +77,20 @@
     // conflated).
     if (typeof s === 'number' || /^\d+(\.\d+)?$/.test(String(s))) {
       var d = new Date(Number(s) * 1000);
-      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 19).replace('T', ' ') + 'Z';
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
     }
-    return String(s).slice(0, 19).replace('T', ' ');
+    return String(s).slice(0, 19).replace('T', ' ') + ' UTC';
+  }
+
+  // Latency auto-scales across the unit boundary: 812 ms, 47.4 s, 1m 04s.
+  // A raw "47,445 ms" reads like 47.445 and hides the seconds magnitude.
+  function latency(ms) {
+    if (ms == null || ms === '' || isNaN(Number(ms))) return '—';
+    var v = Number(ms);
+    if (v < 1000) return Math.round(v) + ' ms';
+    if (v < 60000) return (v / 1000).toFixed(1) + ' s';
+    var m = Math.floor(v / 60000), s = Math.round((v % 60000) / 1000);
+    return m + 'm ' + String(s).padStart(2, '0') + 's';
   }
 
   // rowsKey may be a path ("ledger.rows") for views that nest their rows.
@@ -573,5 +584,5 @@
     return {state: state, refresh: fetchRows};
   }
 
-  window.LCPTable = {mount: mount, esc: esc, num: num, ts: ts};
+  window.LCPTable = {mount: mount, esc: esc, num: num, ts: ts, latency: latency};
 })();
