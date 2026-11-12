@@ -18,8 +18,15 @@
 .badge-info { background: #1e3a5f; color: #93c5fd; }
 .badge-warning { background: #5c4a00; color: #fde047; }
 .badge-critical { background: #7f1d1d; color: #fca5a5; }
-.badge-firing { background: #7f1d1d; color: #fca5a5; }
+/* FIRING is a state, not a severity: it used critical-red and every INFO row
+   read as an emergency. Amber outline keeps "attention" without spending red,
+   which stays reserved for critical severity. */
+.badge-firing { background: hsl(38 90% 20% / 0.55); color: #fde047; border: 1px solid rgb(253 224 71 / 0.35); }
 .badge-resolved { background: #14532d; color: #86efac; }
+/* Shape prefixes: severity survives a monochrome / colour-blind render */
+.badge-info::before { content: "\2139 "; }
+.badge-warning::before { content: "\25B2 "; }
+.badge-critical::before { content: "\25CF "; }
 .alert-detail { display: none; background: hsl(var(--card)); padding: 0.75rem 1rem; margin-top: 0.25rem; border-left: 3px solid hsl(var(--primary)); border-radius: 0 var(--radius) var(--radius) 0; font-size: 0.75rem; }
 .alert-detail.open { display: block; }
 .alert-detail pre { background: hsl(var(--background)); padding: 0.5rem 0.75rem; border-radius: var(--radius); overflow-x: auto; font-size: 0.7rem; white-space: pre-wrap; word-break: break-word; margin-top: 0.25rem; }
@@ -30,7 +37,11 @@
 .ack-btn:disabled { opacity: 0.4; cursor: default; }
 .empty-state { text-align: center; padding: 3rem 1rem; color: hsl(var(--muted-foreground)); }
 .empty-state h3 { color: hsl(var(--foreground)); margin-bottom: 0.5rem; }
-.active-count { background: hsl(var(--red-fg) / 0.15); color: hsl(var(--red-fg)); padding: 0.12rem 0.5rem; border-radius: 9999px; font-size: 0.68rem; font-weight: 700; margin-left: 0.35rem; display: none; }
+/* A count badge is information, not an alarm: it used alert-red and competed
+   with real danger signals. Neutral accent now. */
+.active-count { background: hsl(var(--primary) / 0.15); color: hsl(var(--primary)); padding: 0.12rem 0.5rem; border-radius: 9999px; font-size: 0.68rem; font-weight: 700; margin-left: 0.35rem; display: none; }
+/* Timestamps never wrap into two lines */
+.alerts-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .active-count.show { display: inline; }
 /* Thresholds panel — collapsible, one group per provider. */
 .threshold-panel { margin-bottom: 1rem; }
@@ -167,7 +178,7 @@ function renderAlerts() {
   if (window.LCPUI) LCPUI.busy(body, false);
   if (filtered.length === 0) {
     var span = allAlerts.length === 0 ? 7 : 7;
-    body.innerHTML = '<tr><td colspan="' + span + '" class="empty-state"><h3>No alerts found</h3><p>Alerts will appear here when triggered by config changes, provider failures, or budget thresholds.</p></td></tr>';
+    body.innerHTML = '<tr><td colspan="' + span + '" class="empty-state"><h3>No alerts found</h3><p>Alerts will appear here when triggered by config changes, provider failures, or budget thresholds.</p><p>Nothing matches the current filters — set Severity and Status back to All to widen the view.</p></td></tr>';
     if (window.LCPUI) LCPUI.announce('No alerts found');
     return;
   }

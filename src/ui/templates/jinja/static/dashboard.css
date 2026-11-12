@@ -1306,6 +1306,14 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 .work-chip-paused { color: #d29922; border-color: #d29922; }
 .work-chip-disabled { color: var(--text-muted, #8b949e); }
 .work-chip-error { color: #f85149; border-color: #f85149; }
+/* Status survives a monochrome render: dot + word, never colour alone */
+.work-chip-ok::before, .work-chip-active::before { content: "\25CF "; font-size: 0.55rem; vertical-align: 0.08em; }
+.work-chip-error::before { content: "\25CF "; font-size: 0.55rem; vertical-align: 0.08em; }
+/* Log table: the header stays visible while the panel scrolls */
+.work-scroll .work-table thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: hsl(var(--card));
+}
 .work-chip-ok { color: #3fb950; border-color: #3fb950; }
 .work-job-name { font-weight: 600; overflow-wrap: anywhere; }
 .work-rel { color: var(--text-muted, #8b949e); font-size: 0.72rem; }
