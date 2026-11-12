@@ -141,7 +141,7 @@
         <th scope="col">Profile</th>
         <th scope="col">Model</th>
         <th scope="col">Messages</th>
-        <th scope="col">Last activity</th>
+        <th scope="col" class="num">Last activity</th>
       </tr>
     </thead>
     <tbody>
@@ -166,14 +166,14 @@
         </td>
         {# Profile / model as chips, not bare text: they are the two facets the
            table is scanned by, and a chip reads as a facet at a glance. #}
-        <td data-label="Profile">{% if c.profile %}<span class="chip">{{ c.profile }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-        <td class="mono conv-model-cell" data-label="Model">{{ c.model or '—' }}</td>
+        <td data-label="Profile">{% if c.profile %}<span class="chip conv-prof-chip" data-prof="{{ c.profile }}">{{ c.profile }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="conv-model-cell" data-label="Model">{% if c.model %}<span class="chip conv-model-chip mono" title="{{ c.model }}">{{ c.model }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         {# `messages is none` means the rollup was never recounted — the
            conversation was imported from the request log with no transcript
            stored. That is "unknown", not "zero": rendering 0 beside a summary
            that describes 16 tool calls was the table contradicting itself. #}
         <td class="mono" data-label="Messages">{% if c.messages is none %}<span class="muted" title="No transcript stored">—</span>{% else %}{{ c.messages }}{% if c.active_messages is not none and c.active_messages != c.messages %} <span class="muted" title="Messages still in the agent's context window; the rest were compacted">({{ c.active_messages }})</span>{% endif %}{% endif %}</td>
-        <td class="mono conv-last" data-label="Last activity">{{ c.last_at | fmt_iso }}</td>
+        <td class="mono conv-last" data-label="Last activity" data-ts="{{ c.last_at }}" title="{{ c.last_at | fmt_iso }}">{{ c.last_at | fmt_iso }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -239,7 +239,7 @@
     <div class="conv-panel-head">
       <h3 class="conv-panel-title" id="convPanelTitle">Conversation</h3>
       <button type="button" class="btn-sm conv-panel-close" id="convPanelClose"
-              aria-label="Reset panel">Reset</button>
+              aria-label="Clear panel">Clear</button>
     </div>
     <div class="conv-panel-body">
       <div class="conv-audit" id="convAudit"><span class="muted">Loading…</span></div>
@@ -253,6 +253,38 @@
 
 {% block scripts %}
 <script>
+// ── Relative "last activity" (activity focus) ────────────────────────────────
+// The table reads best when the recency is instant: "2m ago" instead of a raw
+// ISO timestamp. The absolute value stays in data-ts / title for hover + copy.
+function relTime(ts) {
+  if (!ts) return '—';
+  var t = Date.parse(ts);
+  if (isNaN(t)) return ts;
+  var s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return s + 's ago';
+  var m = Math.round(s / 60);
+  if (m < 60) return m + 'm ago';
+  var h = Math.round(m / 60);
+  if (h < 24) return h + 'h ago';
+  var d = Math.round(h / 24);
+  if (d < 30) return d + 'd ago';
+  return Math.round(d / 30) + 'mo ago';
+}
+function renderRelativeActivity() {
+  document.querySelectorAll('.conv-last[data-ts]').forEach(function (td) {
+    var rel = relTime(td.getAttribute('data-ts'));
+    if (rel && rel !== '—') {
+      td.textContent = rel;
+      td.classList.add('conv-last-rel');
+      var fresh = /^(s|m)in?/.test(rel) || /^([0-9]+)s ago/.test(rel) ||
+                  (/^([0-9]+)m ago/.test(rel) && parseInt(rel, 10) < 15);
+      td.classList.toggle('conv-last-fresh', fresh);
+    }
+  });
+}
+renderRelativeActivity();
+setInterval(renderRelativeActivity, 30000); // keep "2m ago" honest while the page sits open
+
 // ── Live refresh ─────────────────────────────────────────────────────────────
 var IP_POLL_MS = 2000;
 
@@ -317,8 +349,13 @@ function el(tag, cls, text) {
 }
 
 function rep(value, small) {
-  var b = el('b', null, String(value));
-  if (small) b.appendChild(el('small', 'muted', ' ' + small));
+  // Bold count + muted noun, singularised when the count is exactly 1.
+  // The noun arrives as `small` ("messages", "user messages", "tool messages").
+  var n = Number(value) || 0;
+  var noun = String(small == null ? '' : small);
+  if (n === 1) noun = noun.replace(/ies$/, 'y').replace(/s$/, '');
+  var b = el('b', null, n.toLocaleString());
+  if (noun) b.appendChild(el('small', 'muted', ' ' + noun));
   return b;
 }
 
@@ -343,11 +380,13 @@ function renderAudit(box, a) {
   // knows is still one click away.
   var det = el('details', 'conv-audit');
   var line = el('summary', 'conv-audit-line');
+  function msgWord(n) { return n === 1 ? 'message' : 'messages'; }
+  function turnWord(n) { return n === 1 ? 'turn' : 'turns'; }
   [
     ipFmt(a.profile), ipFmt(a.model), ipFmt(a.source),
-    ipFmt(a.messages) + ' messages', ipFmt(a.active_messages) + ' live',
+    ipFmt(a.messages) + ' ' + msgWord(a.messages), ipFmt(a.active_messages) + ' live',
     ipFmt(a.tool_calls) + ' tool calls',
-    ipFmt(a.user_turns) + ' user / ' + ipFmt(a.assistant_turns) + ' assistant turns'
+    ipFmt(a.user_turns) + ' user / ' + ipFmt(a.assistant_turns) + ' assistant ' + turnWord(a.assistant_turns)
   ].forEach(function (part) {
     line.appendChild(el('span', null, String(part)));
   });
