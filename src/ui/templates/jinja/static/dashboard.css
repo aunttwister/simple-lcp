@@ -1356,6 +1356,53 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 /* Profile directory cards: the whole card is the click target — show it */
 .profile-card { transition: border-color 0.15s ease, transform 0.15s ease; }
 .profile-card:hover { border-color: hsl(var(--primary) / 0.45); transform: translateY(-1px); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 7 (2026-11-11): models matrix list + detail
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Meta line: best score and provider list are two distinct facts with a gap,
+   and the provider list ellipses with a tooltip instead of clipping mid-word */
+.mli-meta {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  overflow: hidden;
+}
+.mli-best { flex-shrink: 0; font-weight: 600; color: hsl(var(--green-fg)); }
+.mli-prov {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: default;
+}
+
+/* Provider names read as chips, not a comma-run */
+.mli-prov .prov-chip {
+  display: inline-block; margin-right: 0.25rem;
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--card-border));
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0 0.3rem; font-size: 0.55rem;
+}
+
+/* List items keep their right border clear of the scrollbar track */
+#modelList { padding-right: 0.35rem; }
+#modelList .model-list-item { margin-bottom: 0.3rem; }
+
+/* Detail header: title and action buttons share one baseline */
+.model-detail-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.model-detail-head h3, .model-detail-head .mono { margin-right: auto; }
+.pd-head-row, .mhead { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+/* Breadcrumb separators breathe and the crumb is readable */
+.breadcrumb, .crumb { color: hsl(var(--muted-foreground)); }
+.breadcrumb .sep, .crumb-sep { margin: 0 0.3rem; opacity: 0.7; }
+
+/* Models toolbar: filter input and its two buttons get consistent rhythm */
+.models-pane, .models-split { gap: 0.75rem; }
+#addRegistryBtn, #configuredOnlyBtn { margin-top: 0.4rem; }
+#configuredOnlyBtn { margin-left: 0.4rem; }
+
+/* "(latest)" / "(active)" release qualifiers sit apart from the date */
+.model-detail dd .muted { margin-left: 0.25rem; }
 .work-chip-ok { color: #3fb950; border-color: #3fb950; }
 .work-job-name { font-weight: 600; overflow-wrap: anywhere; }
 .work-rel { color: var(--text-muted, #8b949e); font-size: 0.72rem; }
