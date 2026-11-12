@@ -331,8 +331,11 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
   width: 0.9375rem; height: 0.9375rem; border-radius: 9999px;
   background: hsl(var(--muted-foreground)); transition: transform 0.18s ease, background 0.18s ease;
 }
-.toggle input:checked + .toggle-track { background: hsl(var(--primary)); border-color: hsl(var(--primary)); }
-.toggle input:checked + .toggle-track::after { transform: translate(1rem, -50%); background: hsl(var(--primary-foreground)); }
+.toggle input:checked + .toggle-track { background: hsl(var(--green-fg)); border-color: hsl(var(--green-fg)); }
+.toggle input:checked + .toggle-track::after { transform: translate(1rem, -50%); background: #0b0f14; }
+/* Radios: an unselected option must read empty, not "dark filled circle" */
+.settings-inline .radio input[type="radio"] { accent-color: hsl(var(--primary)); width: 0.9rem; height: 0.9rem; }
+.settings-inline { gap: 1.1rem; }
 .toggle input:focus-visible + .toggle-track { outline: 2px solid hsl(var(--ring, 217.2, 91.2%, 59.8%)); outline-offset: 2px; }
 .toggle .toggle-label { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
 .toggle.disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1403,6 +1406,19 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 
 /* "(latest)" / "(active)" release qualifiers sit apart from the date */
 .model-detail dd .muted { margin-left: 0.25rem; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 8 (2026-11-11): settings form affordances
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Field boundaries readable on the dark card surface */
+.card select, .card input[type="number"], .card input[type="text"] {
+  border-color: hsl(var(--card-border) / 1.6);
+}
+.card .settings-row { align-items: center; }
+
+/* Usage panel toolbar buttons wrap instead of cramming on narrow panels */
+.usage-head, .ttl-row { flex-wrap: wrap; gap: 0.5rem; }
 .work-chip-ok { color: #3fb950; border-color: #3fb950; }
 .work-job-name { font-weight: 600; overflow-wrap: anywhere; }
 .work-rel { color: var(--text-muted, #8b949e); font-size: 0.72rem; }

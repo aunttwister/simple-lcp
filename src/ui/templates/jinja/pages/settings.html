@@ -75,7 +75,10 @@
     </div>
   </div>
   <div class="settings-row">
-    <button type="button" class="btn-sm" id="titlingSave">Save</button>
+    <span class="muted" id="titlingSummaryChipWrap"><span class="badge badge-success" id="titlingSummaryChip" style="display:none">enabled</span><span class="badge badge-error" id="titlingSummaryChipOff" style="display:none">disabled</span></span>
+  </div>
+  <div class="settings-row">
+    <button type="button" class="btn-sm btn-primary" id="titlingSave">Save</button>
     <button type="button" class="btn-sm" id="titlingRun">Run now</button>
     <span class="muted" id="titlingStatus" role="status" aria-live="polite"></span>
   </div>
@@ -104,6 +107,13 @@
   // Live clamp feedback: the server clamps 1-168, but the operator should see
   // the correction happen instead of saving a value they did not intend.
   var intervalInput = document.getElementById('titlingInterval');
+  var chipOn = document.getElementById('titlingSummaryChip');
+  var chipOff = document.getElementById('titlingSummaryChipOff');
+  function paintEnabledChip(on) {
+    if (chipOn) chipOn.style.display = on ? '' : 'none';
+    if (chipOff) chipOff.style.display = on ? 'none' : '';
+  }
+  paintEnabledChip(document.getElementById('titlingEnabled').checked);
   intervalInput.addEventListener('change', function () {
     var v = parseInt(intervalInput.value, 10);
     if (isNaN(v)) return;
@@ -121,6 +131,7 @@
       interval_hours: parseInt(document.getElementById('titlingInterval').value, 10) || 24,
       scope: scopeValue()
     };
+    paintEnabledChip(body.enabled);
     btn.disabled = true;
     status.textContent = 'Saving…';
     fetch('/api/settings/conversations', {
