@@ -2900,3 +2900,78 @@ input:disabled {
 }
 .task-pager-jump input:focus-visible { border-color: hsl(var(--ring)); }
 .task-pager-jump .muted { font-size: 0.7rem; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 1 (2026-11-11): models, activity, profile, polish
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 1. Model chip: mono, bounded, ellipsis — a model name is a facet, not a novel */
+.conv-model-chip {
+  display: inline-block; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: bottom;
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem;
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--card-border));
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.1rem 0.45rem;
+}
+.conv-model-cell { max-width: 220px; }
+
+/* 2. Profile chip colour map — one stable hue per profile, reads as a facet */
+.conv-prof-chip { border-left: 3px solid var(--prof-color, hsl(var(--card-border))); }
+.conv-prof-chip[data-prof="l2"]  { --prof-color: #22c55e; }
+.conv-prof-chip[data-prof="l1"]  { --prof-color: #38bdf8; }
+.conv-prof-chip[data-prof="blog"]{ --prof-color: #f59e0b; }
+.conv-prof-chip[data-prof="api"] { --prof-color: #a78bfa; }
+.conv-prof-chip[data-prof="cron"]{ --prof-color: #f472b6; }
+
+/* 3. Relative activity: fresh rows read "now", older rows recede */
+.conv-last-rel { color: hsl(var(--muted-foreground)); }
+.conv-last-fresh { color: hsl(var(--green-fg)); font-weight: 600; }
+
+/* 4. Row hover lift + focus ring — clickable rows must look clickable */
+.conv-table tbody tr.conv-row { transition: background 0.12s ease; }
+.conv-table tbody tr.conv-row:hover { background: hsl(var(--secondary) / 0.55); }
+.conv-table tbody tr.conv-row:focus-visible {
+  outline: 2px solid hsl(var(--ring)); outline-offset: -2px;
+}
+
+/* 5. Sticky table header — the header stays visible while the table scrolls */
+.table-wrap { overflow: auto; }
+.conv-table thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: hsl(var(--card));
+}
+
+/* 6. Empty-state polish: icon dot + tighter copy */
+.empty { text-align: center; padding: 1.5rem 1rem; }
+
+/* 7. Header credits widget: never clip the page title — static flow at ALL
+      widths so it can never overlap the h1; it sits above the content instead */
+.header-plugin-badge.global {
+  position: static;
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: 0.375rem; max-width: min(100%, 340px);
+  margin-left: auto; margin-bottom: 0.5rem;
+  white-space: nowrap;
+}
+
+/* 8. Right-panel transcript: wrap long tokens instead of clipping */
+.conv-pre, .conv-first-ask {
+  overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-word;
+}
+
+/* 9. Chips row breathing room in the panel head */
+.conv-panel-head { gap: 0.5rem; }
+
+/* 10. Mobile: usage + conversation tables stack instead of overflowing */
+@media (max-width: 767px) {
+  .cards { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+  .card { padding: 0.6rem 0.75rem; }
+  .conv-model-cell { max-width: 140px; }
+  .conv-table thead th { white-space: nowrap; }
+  .hp-usage-label { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; }
+  .header-plugin-badge.global { max-width: 72%; }
+}
