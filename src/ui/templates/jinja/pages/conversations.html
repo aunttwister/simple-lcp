@@ -29,7 +29,7 @@
   panel persists while you browse the table.</span>
 </p>
 
-<h2>In flight</h2>
+<h2>In flight <span class="live-pulse" title="This section auto-refreshes every 2 seconds" aria-hidden="true"></span></h2>
 <div class="cards">
   <div class="card">
     <div class="muted">In flight</div>
@@ -37,11 +37,11 @@
   </div>
   <div class="card">
     <div class="muted">Profiles</div>
-    <div class="mono" id="ipProfiles">{{ payload["live"].profiles | join(', ') if payload["live"].profiles else '—' }}</div>
+    <div class="mono" id="ipProfiles">{{ payload["live"].profiles | join(', ') if payload["live"].profiles else '0' }}</div>
   </div>
   <div class="card">
     <div class="muted">Providers</div>
-    <div class="mono" id="ipProviders">{{ payload["live"].providers | join(', ') if payload["live"].providers else '—' }}</div>
+    <div class="mono" id="ipProviders">{{ payload["live"].providers | join(', ') if payload["live"].providers else '0' }}</div>
   </div>
   <div class="card">
     <div class="muted">Longest running</div>
@@ -59,8 +59,8 @@
         <th scope="col">Provider</th>
         <th scope="col">Model</th>
         <th scope="col">Conversation</th>
-        <th scope="col">Prompt tok</th>
-        <th scope="col">Tools</th>
+        <th scope="col" class="num">Prompt tokens</th>
+        <th scope="col" class="num">Tools</th>
         <th scope="col">Mode</th>
       </tr>
     </thead>
@@ -109,7 +109,7 @@
     {% endfor %}
   </select>
   <label for="convQ">Search</label>
-  <input id="convQ" type="text" name="q" value="{{ f.q }}" placeholder="name or id">
+  <input id="convQ" type="text" name="q" value="{{ f.q }}" placeholder="name, id or model  (press /)" autocomplete="off">
   {# The API advertises four sorts and this form offered none, so three of them
      were unreachable from the UI. Options come from f.sorts — the same list the
      server resolves the ORDER BY against — so a sort can never be offered here
@@ -285,6 +285,26 @@ function renderRelativeActivity() {
 renderRelativeActivity();
 setInterval(renderRelativeActivity, 30000); // keep "2m ago" honest while the page sits open
 
+// ── History filter ergonomics ────────────────────────────────────────────────
+// Profile/Sort submit immediately (they are single-choice; a separate Filter
+// click adds nothing), and "/" focuses Search from anywhere on the page.
+(function () {
+  var form = document.querySelector('.task-toolbar-row');
+  if (!form) return;
+  ['convProfile', 'convSort'].forEach(function (id) {
+    var sel = document.getElementById(id);
+    if (sel) sel.addEventListener('change', function () { form.submit(); });
+  });
+  var q = document.getElementById('convQ');
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target && e.target.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') return;
+    e.preventDefault();
+    if (q) { q.focus(); q.select(); }
+  });
+})();
+
 // ── Live refresh ─────────────────────────────────────────────────────────────
 var IP_POLL_MS = 2000;
 
@@ -295,8 +315,8 @@ function ipFmt(v) {
 
 function ipRender(p) {
   document.getElementById('ipCount').textContent = p.count;
-  document.getElementById('ipProfiles').textContent = p.profiles.length ? p.profiles.join(', ') : '—';
-  document.getElementById('ipProviders').textContent = p.providers.length ? p.providers.join(', ') : '—';
+  document.getElementById('ipProfiles').textContent = p.profiles.length ? p.profiles.join(', ') : '0';
+  document.getElementById('ipProviders').textContent = p.providers.length ? p.providers.join(', ') : '0';
   document.getElementById('ipOldest').textContent = p.items.length ? p.items[0].elapsed_s + 's' : '—';
 
   var tbody = document.getElementById('ipRows');
@@ -600,7 +620,7 @@ function appendGrouped(scroll, rows) {
       // transcript says WHEN each turn happened, not only in what order.
       var d = new Date(m.ts);
       var tLabel = isNaN(d) ? String(m.ts)
-        : d.toISOString().replace('T', ' ').slice(5, 16) + ' UTC';
+        : d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
       wrap.appendChild(el('span', 'conv-msg-ts', tLabel));
     }
 

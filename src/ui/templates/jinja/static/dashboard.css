@@ -1419,6 +1419,31 @@ tbody tr:hover td { background: hsl(var(--secondary) / 0.4); }
 
 /* Usage panel toolbar buttons wrap instead of cramming on narrow panels */
 .usage-head, .ttl-row { flex-wrap: wrap; gap: 0.5rem; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 9 (2026-11-11): conversations ergonomics
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* "In flight" polls every 2s: a quiet pulse says the section is live */
+.live-pulse {
+  display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%;
+  background: hsl(var(--green-fg)); margin-left: 0.4rem; vertical-align: middle;
+  animation: livePulse 2s ease-in-out infinite;
+}
+@keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .live-pulse { animation: none; } }
+
+/* In-flight headers never wrap ("Prompt tokens" stays one line) */
+table.capability-table thead th { white-space: nowrap; }
+.conv-live table th.num, table.capability-table th.num, table.capability-table tbody td:nth-child(6), table.capability-table tbody td:nth-child(7) { text-align: right; }
+
+/* History rows separate cleanly without full zebra noise */
+.conv-table tbody td { border-bottom: 1px solid hsl(var(--card-border) / 0.5); }
+
+/* Filter selects stretch on mobile instead of shrinking */
+@media (max-width: 767px) {
+  .task-toolbar-row select, .task-toolbar-row input[type="text"] { width: 100%; }
+}
 .work-chip-ok { color: #3fb950; border-color: #3fb950; }
 .work-job-name { font-weight: 600; overflow-wrap: anywhere; }
 .work-rel { color: var(--text-muted, #8b949e); font-size: 0.72rem; }
