@@ -25,6 +25,12 @@
   the Conversations history searchable by what it was about instead of
   "Untitled". Titling never runs on the request path and never fails a request.
 </p>
+<p class="muted" id="titlingSummary">
+  Currently: {% if payload["titling"].enabled %}enabled{% else %}disabled{% endif %},
+  {{ payload['titling'].scope == 'all' and 're-titles everything' or 'titles untitled conversations' }}
+  every {{ payload['titling'].interval_hours }}h
+  with {{ payload['titling'].model or 'the chain head' }}.
+</p>
 
 <div class="card" style="max-width:36rem">
   <div class="settings-row">
@@ -50,7 +56,7 @@
     <label for="titlingInterval">Run automatically every</label>
     <div class="settings-inline">
       <input type="number" id="titlingInterval" min="1" max="168" value="{{ payload['titling'].interval_hours }}">
-      <span class="muted">hours</span>
+      <span class="muted">hours (1&ndash;168, clamped on save)</span>
     </div>
   </div>
   <div class="settings-row">
@@ -94,6 +100,19 @@
     var r = document.querySelector('input[name="titlingScope"]:checked');
     return r ? r.value : 'untitled';
   }
+
+  // Live clamp feedback: the server clamps 1-168, but the operator should see
+  // the correction happen instead of saving a value they did not intend.
+  var intervalInput = document.getElementById('titlingInterval');
+  intervalInput.addEventListener('change', function () {
+    var v = parseInt(intervalInput.value, 10);
+    if (isNaN(v)) return;
+    var clamped = Math.min(168, Math.max(1, v));
+    if (clamped !== v) {
+      intervalInput.value = clamped;
+      status.textContent = 'Interval clamped to ' + clamped + 'h (allowed 1-168).';
+    }
+  });
 
   btn.addEventListener('click', function () {
     var body = {
