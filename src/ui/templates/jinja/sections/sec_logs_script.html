@@ -9,7 +9,7 @@
    Same module, four column specs. Ordering/pagination live on the server
    (sort= keys are an allow-list there), so every tab behaves identically. */
 (function () {
-  var esc = LCPTable.esc, num = LCPTable.num, ts = LCPTable.ts;
+  var esc = LCPTable.esc, num = LCPTable.num, ts = LCPTable.ts, latency = LCPTable.latency;
   var tab = {{ view.tab | tojson }};
 
   function chip(kind, label) {
@@ -48,7 +48,7 @@
         }},
         {key: 'cost', label: 'Cost', num: true, sort: 'cost', cell: function (r) { return cost(r.cost); }},
         {key: 'latency_ms', label: 'Latency', num: true, sort: 'latency', cell: function (r) {
-          return num(r.latency_ms) + ' ms';
+          return latency(r.latency_ms);
         }},
         {key: 'success', label: 'Status', cell: function (r) {
           return r.success ? chip('ok', 'ok') : chip('error', r.error_type || 'error');
