@@ -239,7 +239,7 @@
     <div class="conv-panel-head">
       <h3 class="conv-panel-title" id="convPanelTitle">Conversation</h3>
       <button type="button" class="btn-sm conv-panel-close" id="convPanelClose"
-              aria-label="Clear panel">Clear</button>
+              aria-label="Clear panel" title="Clear the panel selection and transcript">Clear</button>
     </div>
     <div class="conv-panel-body">
       <div class="conv-audit" id="convAudit"><span class="muted">Loading…</span></div>
@@ -384,7 +384,7 @@ function renderAudit(box, a) {
   function turnWord(n) { return n === 1 ? 'turn' : 'turns'; }
   [
     ipFmt(a.profile), ipFmt(a.model), ipFmt(a.source),
-    ipFmt(a.messages) + ' ' + msgWord(a.messages), ipFmt(a.active_messages) + ' live',
+    ipFmt(a.messages) + ' ' + msgWord(a.messages), ipFmt(a.active_messages) + ' live in context',
     ipFmt(a.tool_calls) + ' tool calls',
     ipFmt(a.user_turns) + ' user / ' + ipFmt(a.assistant_turns) + ' assistant ' + turnWord(a.assistant_turns)
   ].forEach(function (part) {
@@ -595,6 +595,14 @@ function appendGrouped(scroll, rows) {
     // not only a colour — it survives a monochrome render. User messages sit on
     // the RIGHT (the operator's own side), assistant on the LEFT, like a chat.
     wrap.appendChild(el('span', 'conv-role conv-role-' + roleClass(role), role));
+    if (m.ts) {
+      // Per-message wall-clock time (UTC, from conv_messages.ts): an audit-grade
+      // transcript says WHEN each turn happened, not only in what order.
+      var d = new Date(m.ts);
+      var tLabel = isNaN(d) ? String(m.ts)
+        : d.toISOString().replace('T', ' ').slice(5, 16) + ' UTC';
+      wrap.appendChild(el('span', 'conv-msg-ts', tLabel));
+    }
 
     var calls = callsOf(m);
     if (m.content) {
@@ -614,7 +622,19 @@ function appendGrouped(scroll, rows) {
     scroll.appendChild(wrap);
     prev = role;
   }
-  if (prev === null) scroll.appendChild(el('p', 'muted conv-none', 'No messages.'));
+  if (prev === null) {
+    // Distinguish an empty archive from a filter that matched nothing:
+    // "Assistant" with 0 assistant turns should not read as a bug.
+    var emptyNote = (CONV.msgs.length && CONV.filter !== 'all')
+      ? el('p', 'muted conv-none',
+          'No ' + CONV.filter + ' messages in this view. Choose "All" to see the full transcript.')
+      : el('p', 'muted conv-none', 'No messages.');
+    scroll.appendChild(emptyNote);
+  }
+  // The bottom fade is a scroll affordance; with nothing to scroll it's noise.
+  // The scrolling container is the panel body (closest scrollable ancestor).
+  var scroller = scroll.closest('.conv-panel-body') || scroll;
+  scroller.classList.toggle('no-fade', scroller.scrollHeight <= scroller.clientHeight + 2);
 }
 
 // The compacted/live split is a property of the archive, not of each message:

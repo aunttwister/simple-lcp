@@ -3066,3 +3066,39 @@ pre.spark { line-height: 1.15; letter-spacing: 0.02em; }
 
 /* Profile mini cards keep their number columns on one baseline */
 .pm-cost, .pm-reqs { font-variant-numeric: tabular-nums; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON — Iteration 4 (2026-11-11): conversation panel transcript
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Per-message timestamp: small, muted, sits beside the role label */
+.conv-msg-ts {
+  font-size: 0.625rem; color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap;
+}
+.conv-role { flex: 0 0 auto; }
+.conv-msg > .conv-role:first-child { display: inline-flex; }
+/* role + timestamp share the first row */
+.conv-msg { flex-wrap: wrap; }
+.conv-msg > .conv-role { margin-right: 0.5rem; }
+
+/* Bubble measure: comfortable line length, user/assistant alike */
+.conv-pre, .conv-first-ask { max-width: 72ch; }
+
+/* Sticky transcript head: filter chips + count stay visible while scrolling */
+.conv-msgs-head {
+  position: sticky; top: -0.75rem; z-index: 2;
+  background: hsl(var(--card));
+  align-items: center;
+}
+
+/* Scroll affordance: a soft fade where older messages continue below.
+   The scrolling container is .conv-panel-body (flex child), not .conv-scroll. */
+.conv-panel-body {
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 1.25rem),
+              hsl(0 0% 0% / 0.6) calc(100% - 0.4rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 1.25rem),
+              hsl(0 0% 0% / 0.6) calc(100% - 0.4rem), transparent 100%);
+}
+/* ...but only when the transcript actually overflows */
+.conv-panel-body.no-fade { mask-image: none; -webkit-mask-image: none; }
