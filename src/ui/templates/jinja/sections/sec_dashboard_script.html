@@ -230,7 +230,16 @@ function buildCharts(view) {
     costChart = new Chart(ctx1, {
       type: 'bar',
       data: { labels: labels, datasets: costDatasets },
-      options: darkOpts
+      options: (() => {
+        // Cost chart gets $ y-ticks and a legend swatch that matches the bar
+        // fill; the latency chart must keep plain ms ticks, so this is a
+        // per-chart copy, never a mutation of the shared darkOpts.
+        var o = JSON.parse(JSON.stringify(darkOpts));
+        o.scales.y.ticks.callback = function (v) { return '$' + v; };
+        o.plugins.legend.labels.usePointStyle = true;
+        o.plugins.legend.labels.boxWidth = 8;
+        return o;
+      })()
     });
   }
   var ctx2 = document.getElementById('latencyChart');
