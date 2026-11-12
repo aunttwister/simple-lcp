@@ -32,7 +32,8 @@ _LOGIN_HTML = """<!doctype html>
   body {{ font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
          margin: 0; min-height: 100vh; display: grid; place-items: center;
          background: #0f1115; color: #e7e9ee; }}
-  main {{ width: min(92vw, 22rem); background: #171a21; border: 1px solid #262b36;
+  main {{ width: min(92vw, 22rem); box-sizing: border-box; background: #171a21;
+          border: 1px solid #262b36;
           border-radius: 10px; padding: 1.75rem; }}
   h1 {{ font-size: 1.05rem; margin: 0 0 .25rem; font-weight: 600; }}
   p.sub {{ margin: 0 0 1.25rem; color: #98a1b3; font-size: .85rem; }}

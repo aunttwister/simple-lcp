@@ -14,6 +14,16 @@
   if (!document.getElementById('ppChain')) return;
   var POOL = JSON.parse(document.getElementById('ppool-init').textContent || '{}');
   var PROFILE = document.getElementById('profilePool').getAttribute('data-profile');
+
+// Model name as a bounded chip with a family hue (models focus, iter 2).
+// The family prefix decides the left-border colour; unknown families get none.
+function modelChip(name) {
+  var m = String(name == null ? '' : name);
+  var fam = (m.match(/^(deepseek|glm|claude|gpt)/i) || [])[1] || '';
+  return '<span class="pmodel-key mono" data-family="' + fam.toLowerCase() +
+    '" title="' + esc(m) + '">' + esc(m) + '</span>';
+}
+
   var chain = (POOL.chain || []).map(function (s) {
     return {provider: s.provider, model: s.model, enabled: s.enabled !== false};
   });
@@ -66,7 +76,7 @@
       html += '<tr class="pp-in-chain">' +
         '<td class="mono">' + (i + 1) + '</td>' +
         '<td class="mono">' + esc(s.provider) + '</td>' +
-        '<td class="mono">' + esc(s.model) + '</td>' +
+        '<td class="mono">' + modelChip(s.model) + '</td>' +
         '<td>' + orderBtn(i) + '</td>' +
         '<td><button class="btn-sm" aria-label="Remove from chain" onclick="ppRemove(' + i + ')">\u2715</button></td>' +
         '</tr>';
@@ -96,7 +106,7 @@
       html += '<tr>' +
         '<td class="mono">' + (i + 1) + '</td>' +
         '<td class="mono">' + esc(r.provider) + '</td>' +
-        '<td class="mono">' + esc(r.model) + '</td>' +
+        '<td class="mono">' + modelChip(r.model) + '</td>' +
         '</tr>';
     });
     html += '</tbody></table>';

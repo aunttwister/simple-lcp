@@ -23,7 +23,7 @@
         {% if c.avatar %}<img src="/api/profiles/{{ c.avatar_name }}/avatar" alt="">{% else %}<span class="pc-initials">{{ c.initials }}</span>{% endif %}
       </span>
       <span class="pc-id">
-        <span class="pc-name">{{ c.name }}</span>
+        <span class="pc-name"><span class="profile-card-dot" data-prof="{{ c.name }}" aria-hidden="true"></span>{{ c.name }}</span>
         <span class="pc-meta">{{ c.kind_label }}{% if c.budget_label %} &middot; {{ c.budget_label }}{% endif %}</span>
       </span>
     </a>
