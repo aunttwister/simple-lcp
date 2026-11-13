@@ -1532,6 +1532,34 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 .conv-scroll { padding-top: 0.25rem; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 6 (2026-11-12): profile cards
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Endpoint chains are code: monospace, and the arrows mute so the steps own
+   the line */
+.pc-chain { font-family: var(--mono, ui-monospace, monospace); font-size: 0.625rem; }
+.pc-sep { opacity: 0.45; padding: 0 0.25rem; }
+
+/* The routing badge reads as a facet, not a count: tinted border + key glyph
+   treatment, so "static routing" can't be mistaken for "1 model" */
+.pc-badge-routing { border-color: hsl(var(--primary) / 0.45); color: hsl(var(--primary)); }
+
+/* Badge contrast: chip text steps up one visible notch on the dark card */
+.pc-badge { color: hsl(var(--foreground) / 0.8); }
+
+/* Agent identifiers are identifiers: monospace even in bold */
+.pc-agent b.mono { font-weight: 600; }
+
+/* Routed-by links match the detail page's routed-by treatment */
+.pc-routed a { text-decoration: underline; text-underline-offset: 2px; }
+.pc-routed a:hover { color: hsl(var(--primary)); }
+
+/* Cards in one grid row share a height, so the sparklines line up */
+.profiles-grid { align-items: stretch; }
+.profile-card { display: flex; flex-direction: column; }
+.profile-card .pc-sp { margin-top: auto; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
    UI MARATHON R2 — Iteration 2 (2026-11-12): logs tab readability
    ═══════════════════════════════════════════════════════════════════════════ */
 
