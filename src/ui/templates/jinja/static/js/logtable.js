@@ -264,7 +264,12 @@
       rows.forEach(function (row, i) {
         var rid = o.expand ? String(row[o.expand.key]) : String(i);
         if (o.expand) state.rowData[rid] = row;
-        out.push('<tr' + (o.expand ? ' class="log-row" data-row="' + esc(rid) + '"' : '') + '>');
+        // A row-level class lets a surface mark failed rows (etc.) without
+        // logtable knowing what "failed" means for that surface.
+        var rowCls = o.expand ? 'log-row' : '';
+        if (o.rowClass) { var rc = o.rowClass(row); if (rc) rowCls += (rowCls ? ' ' : '') + rc; }
+        out.push('<tr' + (rowCls ? ' class="' + rowCls + '"' : '') +
+          (o.expand ? ' data-row="' + esc(rid) + '"' : '') + '>');
         if (o.expand) {
           out.push('<td class="task-chev">' +
             '<button type="button" class="task-chev-btn" aria-expanded="false"' +
@@ -390,8 +395,13 @@
       var sorts = (state.meta.sorts || []).filter(function (s) { return s.key === state.meta.sort; });
       var label = sorts.length ? sorts[0].label.toLowerCase() : '';
       // The term bar used to say "newest first" unconditionally, which became a
-      // lie the moment a column sort existed.
-      termEl.textContent = o.termPrefix + (label ? ' · ' + label : '');
+      // lie the moment a column sort existed. The total rides here too — the
+      // pager shows pages, but "how many rows am I looking at" belongs with the
+      // table's own label.
+      var total = state.meta && state.meta.total != null ? state.meta.total : null;
+      termEl.textContent = o.termPrefix +
+        (total != null ? ' · ' + Number(total).toLocaleString() + ' total' : '') +
+        (label ? ' · ' + label : '');
     }
 
     function fetchRows(quiet) {

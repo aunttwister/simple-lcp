@@ -1487,6 +1487,28 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 
 /* A realm with zero traffic says so instead of counting "0 reqs" */
 .pm-reqs.pm-empty { font-style: italic; opacity: 0.7; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 2 (2026-11-12): logs tab readability
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Status chips ellipsis with a tooltip instead of clipping mid-word */
+.work-chip {
+  display: inline-block; max-width: 16ch; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+}
+
+/* The When column never wraps — a timestamp on two lines is unreadable */
+.work-table td[data-label="When"], table td[data-label="When"] { white-space: nowrap; }
+
+/* Failed requests are a different population: dim the numerics, keep the
+   status chip loud */
+tr.log-row-failed td.num { opacity: 0.55; }
+
+/* Pager rhythm: the buttons, jump box and per-page group separate cleanly */
+.task-pager { gap: 0.5rem; flex-wrap: wrap; }
+.task-pager-jump input { width: 4.5rem; }
+.task-pager-label { margin-left: 0.35rem; }
 .work-chip-ok { color: #3fb950; border-color: #3fb950; }
 .work-job-name { font-weight: 600; overflow-wrap: anywhere; }
 .work-rel { color: var(--text-muted, #8b949e); font-size: 0.72rem; }
