@@ -33,20 +33,22 @@
     <p class="pc-desc pc-desc-empty">No description yet &mdash; add one from Edit.</p>
     {% endif %}
     <div class="pc-badges">
-      <span class="pc-badge">{{ c.routing_label }} routing</span>
+      <span class="pc-badge pc-badge-routing" title="How this profile chooses among its models">{{ c.routing_label }} routing</span>
       <span class="pc-badge">{{ c.chain_steps }} model{% if c.chain_steps != 1 %}s{% endif %}</span>
       {% if c.intents %}<span class="pc-badge">{{ c.intents|length }} intent{% if c.intents|length != 1 %}s{% endif %}</span>{% endif %}
     </div>
-    {% if c.chain_label %}<div class="pc-chain" title="{{ c.chain_label }}">{{ c.chain_label }}</div>{% endif %}
+    {% if c.chain_label %}{# Steps as separate spans with muted connectors, so a
+      chain reads as a sequence instead of one run-on string #}
+    <div class="pc-chain" title="{{ c.chain_label }}">{% for step in c.chain_label.split(' → ') %}{% if not loop.first %}<span class="pc-sep">→</span>{% endif %}<span class="pc-step">{{ step }}</span>{% endfor %}</div>{% endif %}
     {% if c.agent %}
     <div class="pc-agent">
-      Agent artefacts: <b>{{ c.agent }}</b>
+      Agent artefacts: <b class="mono">{{ c.agent }}</b>
       {% if c.mapping_source == 'suggested' %}<span class="pc-suggest">read from that profile's config &mdash; confirm in Edit</span>{% endif %}
     </div>
     {% else %}
     <div class="pc-agent pc-agent-none">No agent behind it &mdash; this profile routes for other things.</div>
     {% endif %}
-    {% if c.routed_by %}<div class="pc-routed">Also routed here by {{ c.routed_by|join(', ') }}</div>{% endif %}
+    {% if c.routed_by %}<div class="pc-routed">Also routed here by {% for rb in c.routed_by %}{% if not loop.first %}, {% endif %}<a class="mono" href="/profiles/{{ rb }}">{{ rb }}</a>{% endfor %}</div>{% endif %}
     {# 30-day cost trend as a braille sparkline. Filled by sec_profiles_script
        from /api/usage/profile-series; empty until that lands, and explicitly
        labelled as "no data" rather than left blank. #}

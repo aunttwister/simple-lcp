@@ -488,6 +488,19 @@ function renderDailyChart(canvasId, daily, metric) {
             }
         }
     });
+    // An all-zero window paints an empty grid that reads as a broken chart;
+    // say plainly that there was no usage in the window.
+    if (!values.some(function (v) { return v > 0; })) {
+        var cc = ctx.getContext && ctx.getContext('2d');
+        if (cc) {
+            cc.save();
+            cc.fillStyle = 'hsl(var(--muted-foreground))';
+            cc.font = '12px ' + getComputedStyle(document.body).fontFamily;
+            cc.textAlign = 'center';
+            cc.fillText('No usage in this window', ctx.width / 2, ctx.height / 2);
+            cc.restore();
+        }
+    }
 }
 
 function renderBreakdownTable(containerId, data, labelKey, metric) {
@@ -517,12 +530,18 @@ function renderBreakdownTable(containerId, data, labelKey, metric) {
         var v = isTokens ? (d.completion_tokens + d.prompt_tokens) : d.cost;
         var pct = maxVal > 0 ? ((v / maxVal) * 100) : 0;
         var barColor = maxVal > 0 && v === maxVal ? 'progress-blue' : 'progress-green';
+        // Money reads at the same precision as the headline cards (2dp with
+        // separators); requests get a thousands separator like every other
+        // count on the page; the share bar carries its percentage for screen
+        // readers and hover instead of a bare unlabelled bar.
+        var costCell = isTokens ? '' :
+          '<td class="cost-col" title="$' + d.cost.toFixed(4) + '">$' + Number(d.cost).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</td>';
         html += '<tr>' +
-            '<td><b>' + k + '</b></td>' +
-            (isTokens ? '' : '<td class="cost-col">$' + d.cost.toFixed(4) + '</td>') +
-            '<td class="cost-col">' + d.requests + '</td>' +
+            '<td><b title="' + esc(k) + '">' + esc(k) + '</b></td>' +
+            costCell +
+            '<td class="cost-col">' + Number(d.requests).toLocaleString() + '</td>' +
             '<td class="cost-col">' + formatTokens(d.prompt_tokens + d.completion_tokens) + '</td>' +
-            '<td style="width:120px"><div class="progress-bar"><div class="progress-fill ' + barColor + '" style="width:' + Math.round(pct) + '%"></div></div></td>' +
+            '<td style="width:120px"><div class="progress-bar" title="' + Math.round(pct) + '% of this panel\'s busiest row" role="img" aria-label="' + Math.round(pct) + '% share"><div class="progress-fill ' + barColor + '" style="width:' + Math.round(pct) + '%"></div></div></td>' +
             '</tr>';
     });
     html += '</tbody></table>';
@@ -1125,8 +1144,8 @@ function buildPage(providers) {
                 '<button class="date-pill" data-range="30" onclick="applyDateRange(this,\'' + prov + '\',30)">30 days</button>' +
                 '<button class="date-pill" data-range="month" onclick="applyDateRange(this,\'' + prov + '\',\'month\')">This month</button>' +
                 '<button class="date-pill" data-range="last" onclick="applyDateRange(this,\'' + prov + '\',\'last\')">Last month</button>' +
-                '<input class="date-pill-input" type="date" id="dsFrom-' + prov + '" title="Start">' +
-                '<input class="date-pill-input" type="date" id="dsTo-' + prov + '" title="End">' +
+                '<input class="date-pill-input" type="date" id="dsFrom-' + prov + '" title="Start" aria-label="' + esc(prov) + ' window start date">' +
+                '<input class="date-pill-input" type="date" id="dsTo-' + prov + '" title="End" aria-label="' + esc(prov) + ' window end date">' +
                 '<button class="date-pill" data-range="custom" onclick="applyDateRange(this,\'' + prov + '\',\'custom\')">Apply</button>' +
                 '</div>';
 

@@ -3388,3 +3388,253 @@ pre.spark { line-height: 1.15; letter-spacing: 0.02em; }
 }
 /* ...but only when the transcript actually overflows */
 .conv-panel-body.no-fade { mask-image: none; -webkit-mask-image: none; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 1 (2026-11-12): activity overview polish
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Stat-card sub-lines share a baseline even when one wraps to two lines */
+.metric-card .metric-sub { min-height: 2.1em; }
+
+/* The filter dropdown's right edge meets the card grid's right edge */
+.lcp-filter-dropdown { margin-right: 0.25rem; }
+
+/* Realm minis respond like the profile directory cards (same affordance) */
+.profile-mini { transition: border-color 0.15s ease, transform 0.15s ease; }
+.profile-mini:hover { border-color: hsl(var(--primary) / 0.45); transform: translateY(-1px); }
+
+/* A realm with zero traffic says so instead of counting "0 reqs" */
+.pm-reqs.pm-empty { font-style: italic; opacity: 0.7; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 5 (2026-11-12): conversations list + panel
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Profile chips never wrap internally — "homelab-expert-12" on two lines
+   broke the row rhythm; clamp to one line with the full name on hover */
+.conv-prof-chip {
+  display: inline-block; max-width: 12rem; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; vertical-align: bottom;
+}
+
+/* The transcript keeps its own gutter so the page scrollbar never reads as
+   belonging to the panel */
+.conv-panel-body { scrollbar-gutter: stable; }
+
+/* Panel head: long conversation IDs ellipsis instead of pushing the Clear
+   button out of the row */
+.conv-panel-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; }
+
+/* Long titles clamp to two lines; the full title rides on the cell's title
+   attribute (set in the template), so nothing is lost on hover */
+.conv-name-cell { min-width: 0; }
+.conv-name-cell .conv-title {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+
+/* Audit-panel filter chips and tool chips get the same one-line discipline */
+.conv-filters { gap: 0.4rem; }
+.conv-tools [class*=chip], .conv-tools .mono {
+  display: inline-block; max-width: 14rem; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; vertical-align: bottom;
+}
+
+/* The audit card breathes: slightly more padding inside the summary line and
+   the expanded grid, so dense metadata stops touching its own border */
+.conv-audit > summary.conv-audit-line { padding: 0.45rem 0.65rem; }
+.conv-audit-grid { padding: 0.5rem 0.65rem; }
+
+/* The transcript scroller pads its top edge so the first message never reads
+   as clipped by the container */
+.conv-scroll { padding-top: 0.25rem; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 6 (2026-11-12): profile cards
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Endpoint chains are code: monospace, and the arrows mute so the steps own
+   the line */
+.pc-chain { font-family: var(--mono, ui-monospace, monospace); font-size: 0.625rem; }
+.pc-sep { opacity: 0.45; padding: 0 0.25rem; }
+
+/* The routing badge reads as a facet, not a count: tinted border + key glyph
+   treatment, so "static routing" can't be mistaken for "1 model". Blue accent:
+   --primary is near-white in this theme (round-1 toggle lesson). */
+.pc-badge-routing { border-color: hsl(217 91% 60% / 0.45); color: hsl(217 91% 60%); }
+
+/* Badge contrast: chip text steps up one visible notch on the dark card */
+.pc-badge { color: hsl(var(--foreground) / 0.8); }
+
+/* Agent identifiers are identifiers: monospace even in bold */
+.pc-agent b.mono { font-weight: 600; }
+
+/* Routed-by links match the detail page's routed-by treatment */
+.pc-routed a { text-decoration: underline; text-underline-offset: 2px; }
+.pc-routed a:hover { color: hsl(var(--primary)); }
+
+/* Cards in one grid row share a height, so the sparklines line up */
+.profiles-grid { align-items: stretch; }
+.profile-card { display: flex; flex-direction: column; }
+.profile-card .pc-sp { margin-top: auto; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 7 (2026-11-12): models page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Inactive tabs lose their underline entirely — with both underlined, the
+   active state was ambiguous */
+.tab-btn:not(.active) { border-bottom-color: transparent; }
+
+/* The routing-note status rides as a chip, muted green like the other
+   live statuses */
+.seed-chip {
+  display: inline-block; padding: 0.05rem 0.5rem; margin-left: 0.35rem;
+  border: 1px solid hsl(var(--green-fg) / 0.35); border-radius: 999px;
+  color: hsl(var(--green-fg)); font-size: 0.6875rem; white-space: nowrap;
+}
+
+/* The Configured toggle answers "am I on?" visually too. NB: --primary in this
+   theme is near-white (the round-1 toggle lesson) — use the blue accent. */
+#configuredOnlyBtn.active {
+  border-color: hsl(217 91% 60% / 0.5); color: hsl(217 91% 60%);
+  background: hsl(217 91% 60% / 0.08);
+}
+
+/* Filter placeholder contrast on the dark input */
+.models-toolbar input::placeholder, input::placeholder { color: hsl(var(--muted-foreground) / 0.9); }
+
+/* Credits widget: the window label keeps its distance from the bar */
+.hp-usage .bar-label, .header-credits .bar-label { margin-left: 0.35rem; }
+
+/* Sidebar active accent follows the rounded highlight */
+.sidebar .nav-item.active { border-top-left-radius: var(--radius); border-bottom-left-radius: var(--radius); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 8 (2026-11-12): settings card
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Native selects get the OS chevron on a dark fill that matches the card;
+   swap for a theme chevron so the control admits it is a control */
+.settings-row select {
+  appearance: none; -webkit-appearance: none;
+  background-color: hsl(var(--secondary));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2398a1b3' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 0.6rem center;
+  padding-right: 1.8rem;
+}
+
+/* The "Currently: …" status holds its own line above the card */
+#titlingSummary { margin-bottom: 1rem; }
+
+/* Rows wrap instead of squeezing when the card gets narrow */
+.card .settings-row { flex-wrap: wrap; row-gap: 0.4rem; }
+
+/* The interval number input stops reading as an afterthought */
+.settings-row input[type="number"] { width: 4.5rem; text-align: right; }
+
+/* Field hints are subordinate: smaller and dimmer than the label */
+.settings-row .muted { font-size: 0.75rem; color: hsl(var(--muted-foreground) / 0.85); }
+
+/* Uniform vertical rhythm between the card's rows */
+.card .settings-row { margin-bottom: 0.85rem; }
+.card .settings-row:last-child { margin-bottom: 0; }
+
+/* The intro paragraph stops running 900px wide */
+.settings-intro, .subtitle { max-width: 72ch; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 9 (2026-11-12): alerts page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Rule names are identifiers: one line, ellipsised, full value on hover */
+.alerts-table td.alert-rule {
+  max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Column headers step out of the borderline-contrast zone */
+.alerts-table th { color: hsl(var(--muted-foreground) / 1); }
+
+/* Detail rows indent so they read as children of the alert above */
+.alert-detail-row td { padding-left: 1.4rem !important; }
+
+/* The count line sits with the Refresh control, not floating */
+#alertCount { white-space: nowrap; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 10 (2026-11-12): mobile cross-cutting
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Conversations table becomes stacked cards on phones: every cell already
+   carries data-label, so the header line rides free */
+@media (max-width: 640px) {
+  .conv-table thead { display: none; }
+  .conv-table, .conv-table tbody, .conv-table tr, .conv-table td {
+    display: block; width: 100%; box-sizing: border-box;
+  }
+  .conv-table tr { border-bottom: 1px solid hsl(var(--card-border) / 0.5); padding: 0.35rem 0; }
+  .conv-table td { border: none; padding: 0.18rem 0.6rem; }
+  .conv-table td::before {
+    content: attr(data-label);
+    display: block; font-size: 0.625rem; text-transform: uppercase;
+    letter-spacing: 0.05em; color: hsl(var(--muted-foreground)); margin-bottom: 0.1rem;
+  }
+  .conv-table td:first-child::before { display: none; }
+}
+
+/* Profile cards and the models workspace collapse to one column */
+@media (max-width: 768px) {
+  .profile-grid { grid-template-columns: 1fr !important; }
+  .models-layout { grid-template-columns: 1fr !important; }
+  /* Date pills wrap instead of squeezing the custom range off the edge */
+  .date-filters { flex-wrap: wrap; row-gap: 0.4rem; }
+  /* Tab rows become real touch targets */
+  .tab-btn { padding-top: 0.65rem; padding-bottom: 0.65rem; }
+  /* The panel close button grows to a comfortable thumb target */
+  .conv-panel-close { min-width: 2.5rem; min-height: 2.5rem; }
+  /* A 4-step routing chain must not dictate the card's width on a phone —
+     it forced a 1061px card inside a 366px grid. Specificity bumped so this
+     wins over the later-in-file base nowrap rule. */
+  .profile-card .pc-chain { white-space: normal; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 2 (2026-11-12): logs tab readability
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Status chips ellipsis with a tooltip instead of clipping mid-word */
+.work-chip {
+  display: inline-block; max-width: 16ch; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+}
+
+/* The When column never wraps — a timestamp on two lines is unreadable */
+.work-table td[data-label="When"], table td[data-label="When"] { white-space: nowrap; }
+
+/* Failed requests are a different population: dim the numerics, keep the
+   status chip loud */
+tr.log-row-failed td.num { opacity: 0.55; }
+
+/* Pager rhythm: the buttons, jump box and per-page group separate cleanly */
+.task-pager { gap: 0.5rem; flex-wrap: wrap; }
+.task-pager-jump input { width: 4.5rem; }
+.task-pager-label { margin-left: 0.35rem; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 3 (2026-11-12): evidence change history
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Change history: timestamps one line, detail ellipsised with full JSON on
+   hover, action chips coloured per family, rows scannable */
+.ev-when { white-space: nowrap; }
+.ev-detail {
+  max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ev-act { font-size: 0.6875rem; }
+.ev-act-routing { border-color: hsl(var(--cyan-fg) / 0.4); color: hsl(var(--cyan-fg)); }
+.ev-act-chain { border-color: hsl(var(--violet-fg, #a78bfa) / 0.4); color: var(--violet-fg, #a78bfa); }
+.ev-act-settings, .ev-act-config { border-color: hsl(var(--amber-fg) / 0.4); color: hsl(var(--amber-fg)); }
+#auditRows tr:hover td { background: hsl(var(--secondary) / 0.4); }
+#auditRows tr:nth-child(even) td { background: hsl(var(--secondary) / 0.22); }
+#auditRows td { border-bottom: 1px solid hsl(var(--card-border) / 0.5); }
+.work-chip-ok { color: #3fb950; border-color: #3fb950; }

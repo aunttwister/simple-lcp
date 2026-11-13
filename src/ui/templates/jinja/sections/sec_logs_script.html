@@ -13,7 +13,10 @@
   var tab = {{ view.tab | tojson }};
 
   function chip(kind, label) {
-    return '<span class="work-chip work-chip-' + kind + '">' + esc(label) + '</span>';
+    // Long error types ("all_providers_failed") clipped hard at the card edge
+    // with no way to read them; the full text rides on a title attribute and
+    // the CSS ellipses instead of clipping mid-word.
+    return '<span class="work-chip work-chip-' + kind + '" title="' + esc(label) + '">' + esc(label) + '</span>';
   }
   function cost(v) { return '$' + Number(v || 0).toFixed(4); }
 
@@ -32,6 +35,9 @@
       // the log (filter.profiles), so the filter offers only real values.
       filters: [{param: 'profile', label: 'All profiles', chipLabel: 'Profile',
                  optionsKey: 'profiles'}],
+      // Failed requests read as a different population: dimmed numerics, and
+      // the row carries the class so a future surface style can hook it.
+      rowClass: function (r) { return r.success ? '' : 'log-row-failed'; },
       columns: [
         {key: 'timestamp', label: 'When', cell: function (r) {
           return '<span class="mono muted">' + esc(ts(r.timestamp)) + '</span>';
@@ -40,9 +46,15 @@
           return '<span class="work-actor">' + esc(r.profile) + '</span>';
         }},
         {key: 'model', label: 'Model', cell: function (r) {
-          return '<span class="mono">' + esc(r.model) + '</span>';
+          var unknown = !r.model || r.model === 'unknown';
+          return '<span class="mono' + (unknown ? ' muted' : '') + '"' + (unknown ? ' title="No model was resolved for this request"' : '') + '>' + esc(r.model || 'unknown') + '</span>';
         }},
-        {key: 'provider', label: 'Provider', cell: function (r) { return esc(r.provider); }},
+        {key: 'provider', label: 'Provider', cell: function (r) {
+          var unknown = !r.provider || r.provider === 'unknown';
+          return unknown
+            ? '<span class="muted" title="No provider answered this request">' + esc(r.provider || 'unknown') + '</span>'
+            : esc(r.provider);
+        }},
         {key: 'tokens', label: 'Tokens', num: true, sort: 'tokens', cell: function (r) {
           return num((r.prompt_tokens || 0) + (r.completion_tokens || 0));
         }},

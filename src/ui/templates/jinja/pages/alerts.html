@@ -23,10 +23,12 @@
    which stays reserved for critical severity. */
 .badge-firing { background: hsl(38 90% 20% / 0.55); color: #fde047; border: 1px solid rgb(253 224 71 / 0.35); }
 .badge-resolved { background: #14532d; color: #86efac; }
-/* Shape prefixes: severity survives a monochrome / colour-blind render */
-.badge-info::before { content: "\2139 "; }
-.badge-warning::before { content: "\25B2 "; }
-.badge-critical::before { content: "\25CF "; }
+/* Shape prefixes: severity survives a monochrome / colour-blind render.
+   Pure CSS shapes — the \2139 info glyph renders as "⅂" in some fonts. */
+.badge-sev::before { content: ""; display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.32em; vertical-align: middle; }
+.badge-info::before { border: 1px solid currentColor; border-radius: 50%; }
+.badge-warning::before { background: currentColor; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.badge-critical::before { background: currentColor; border-radius: 50%; }
 .alert-detail { display: none; background: hsl(var(--card)); padding: 0.75rem 1rem; margin-top: 0.25rem; border-left: 3px solid hsl(var(--primary)); border-radius: 0 var(--radius) var(--radius) 0; font-size: 0.75rem; }
 .alert-detail.open { display: block; }
 .alert-detail pre { background: hsl(var(--background)); padding: 0.5rem 0.75rem; border-radius: var(--radius); overflow-x: auto; font-size: 0.7rem; white-space: pre-wrap; word-break: break-word; margin-top: 0.25rem; }
@@ -112,7 +114,8 @@
   </div>
 
   <span style="flex:1"></span>
-  <button class="btn-sm" onclick="loadAlerts()">Refresh</button>
+  <button class="btn-sm" id="refreshBtn" onclick="loadAlerts()">Refresh</button>
+  <span class="muted" id="alertCount" style="font-size:0.75rem;margin-left:0.5rem;"></span>
 </div>
 
 <div class="table-wrap" style="overflow-x:auto">
@@ -160,12 +163,28 @@ function setRule(v, el) {
 function loadAlerts() {
   api('GET', '/api/alerts?limit=200').then(function(d) {
     allAlerts = d.alerts || [];
+    var rb = document.getElementById('refreshBtn');
+    if (rb) rb.title = 'Last refreshed ' + new Date().toISOString().slice(11,19) + ' UTC';
     var active = allAlerts.filter(function(a) { return a.status === 'firing'; }).length;
     var badge = document.getElementById('activeBadge');
     badge.textContent = active;
+    badge.title = active + ' alert' + (active === 1 ? '' : 's') + ' currently firing';
     badge.classList.toggle('show', active > 0);
+    // A visible count line: the screen-reader announcement existed, the eye
+    // had nothing.
+    var count = document.getElementById('alertCount');
+    if (count) {
+      count.textContent = filteredCount(allAlerts) + ' of ' + allAlerts.length + ' alerts shown';
+    }
     renderAlerts();
   });
+}
+function filteredCount(all) {
+  var f = all;
+  if (currentSeverity !== 'all') f = f.filter(function(a) { return a.severity === currentSeverity; });
+  if (currentStatus !== 'all') f = f.filter(function(a) { return a.status === currentStatus; });
+  if (currentRule !== 'all') f = f.filter(function(a) { return a.rule === currentRule; });
+  return f.length;
 }
 
 function renderAlerts() {
@@ -183,16 +202,20 @@ function renderAlerts() {
     return;
   }
   if (window.LCPUI) LCPUI.announce(filtered.length + ' alerts shown');
+  var count = document.getElementById('alertCount');
+  if (count) count.textContent = filtered.length + ' of ' + allAlerts.length + ' alerts shown';
 
   body.innerHTML = filtered.map(function(a) {
     var sevClass = 'badge-' + a.severity;
     var statusClass = a.status === 'firing' ? 'badge-firing' : 'badge-resolved';
-    var ack = a.acknowledged ? '✓ ' + (a.acknowledged_at ? a.acknowledged_at.slice(0,16).replace('T',' ') : '') : '—';
+    // "unacked" says the state; a bare dash read as missing data next to the
+    // Ack button in the neighbouring column.
+    var ack = a.acknowledged ? '✓ ' + (a.acknowledged_at ? a.acknowledged_at.slice(0,16).replace('T',' ') : '') : '<span class="muted">unacked</span>';
     var ackDisabled = a.acknowledged ? 'disabled' : '';
     return '<tr onclick="toggleDetail(\'' + a.dedup_key + '\')">' +
       '<td class="mono">' + (a.timestamp || '').slice(0,16).replace('T',' ') + '</td>' +
       '<td><span class="badge-sev ' + sevClass + '">' + a.severity + '</span></td>' +
-      '<td>' + a.rule + '</td>' +
+      '<td class="alert-rule" title="' + escapeHtml(a.rule) + '">' + escapeHtml(a.rule) + '</td>' +
       '<td>' + escapeHtml(a.title) + '</td>' +
       '<td><span class="badge-sev ' + statusClass + '">' + a.status + '</span></td>' +
       '<td>' + ack + '</td>' +

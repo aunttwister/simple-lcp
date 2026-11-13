@@ -433,11 +433,15 @@ def dashboard_context(config, engine, headers, profile_filter=None, period="14")
     def _fmt_num(n):
         if n is None:
             return "0"
+        # A B tier was missing, so billions rendered as "6217.8M"; counts under
+        # 10K keep full precision with a comma instead of fake "1.5K".
+        if n >= 1_000_000_000:
+            return f"{n/1_000_000_000:.1f}B"
         if n >= 1_000_000:
             return f"{n/1_000_000:.1f}M"
-        if n >= 1_000:
+        if n >= 10_000:
             return f"{n/1_000:.1f}K"
-        return str(int(n))
+        return f"{int(n):,}"
 
     def _fmt_cost2(c):
         return f"${float(c):,.2f}"

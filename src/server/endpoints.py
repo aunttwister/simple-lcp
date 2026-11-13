@@ -3371,7 +3371,11 @@ class UsageEndpoints:
                         })
                     d += timedelta(days=1)
 
-                # Per-model aggregates (with cache tokens)
+                # Per-model aggregates (with cache tokens).
+                # CUR bug: model_q and profile_q ignored the days window — the
+                # tables under "Daily Spending (N days)" aggregated ALL TIME
+                # while the chart showed the window. Scope them the same.
+                window = [RequestModel.timestamp >= (datetime.utcnow() - timedelta(days=days)).isoformat()] if not (start_str and end_str) else []
                 model_q = (
                     session.query(
                         RequestModel.model,
@@ -3383,7 +3387,7 @@ class UsageEndpoints:
                         func.coalesce(func.sum(RequestModel.cache_miss_tokens), 0).label("cache_miss_tokens"),
                     )
                 )
-                for f in base_filter:
+                for f in base_filter + window:
                     model_q = model_q.filter(f)
                 model_rows = model_q.group_by(RequestModel.model).order_by(func.sum(RequestModel.cost).desc()).all()
 
@@ -3412,7 +3416,8 @@ class UsageEndpoints:
                     for r in model_rows
                 }
 
-                # Per-profile aggregates
+                # Per-profile aggregates (same window as the daily chart — see
+                # the CUR bug note above)
                 profile_q = (
                     session.query(
                         RequestModel.profile,
@@ -3422,7 +3427,7 @@ class UsageEndpoints:
                         func.coalesce(func.sum(RequestModel.completion_tokens), 0).label("completion_tokens"),
                     )
                 )
-                for f in base_filter:
+                for f in base_filter + window:
                     profile_q = profile_q.filter(f)
                 profile_rows = profile_q.group_by(RequestModel.profile).order_by(func.sum(RequestModel.cost).desc()).all()
                 by_profile = {
@@ -3435,7 +3440,7 @@ class UsageEndpoints:
                     for r in profile_rows
                 }
 
-                # Totals (respect date range)
+                # Totals (respect date range) — same window as model/profile
                 total_q = (
                     session.query(
                         func.coalesce(func.sum(RequestModel.cost), 0).label("cost"),
@@ -3444,7 +3449,7 @@ class UsageEndpoints:
                         func.coalesce(func.sum(RequestModel.latency_ms), 0).label("latency_ms"),
                     )
                 )
-                for f in base_filter:
+                for f in base_filter + window:
                     total_q = total_q.filter(f)
                 total_row = total_q.first()
                 total_cost = float(total_row.cost) if total_row else 0
