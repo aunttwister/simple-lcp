@@ -2,7 +2,9 @@
     evidence tab of the activity page). Shows the change-history trail and the
     signed-pack export controls. No hover-only affordances. -#}
 {% if tab == 'evidence' %}
-<h2>Evidence</h2>
+{# Breadcrumb and the tab row both already say "Evidence"; a third visual
+   heading repeated the word. The sr-only h2 keeps the document outline. #}
+<h2 class="sr-only">Evidence</h2>
 <p class="subtitle">
   The exportable record: a signed, hash-chained pack of every agent action,
   routing decision, failover and refusal — verifiable offline with
@@ -97,18 +99,39 @@
           if (!items.length) {
             rows.innerHTML = '<tr><td colspan="4" style="padding:.6rem;">No recorded changes yet.</td></tr>';
           } else {
+            // Colour per action family so routing vs chain vs settings scan apart
+            function actionChip(a) {
+              var fam = String(a || '').split('.')[0];
+              return '<span class="work-chip work-chip-info ev-act ev-act-' + esc(fam) +
+                '" title="' + esc(a) + '">' + esc(a) + '</span>';
+            }
+            // Raw ISO-T timestamps wrap mid-token in the narrow column; show a
+            // compact form and keep the full value on hover.
+            function when(iso) {
+              var d = new Date(iso);
+              if (isNaN(d)) return esc(String(iso || ''));
+              var p = function (n) { return (n < 10 ? '0' : '') + n; };
+              var s = p(d.getUTCDate()) + '-' + p(d.getUTCMonth() + 1) + ' ' +
+                p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds());
+              return '<span class="mono muted" title="' + esc(iso) + ' UTC">' + s + ' UTC</span>';
+            }
             items.forEach(function (it) {
-              var tr = document.createElement('tr');
               var detail = it.detail;
-              if (detail && typeof detail === 'object') detail = JSON.stringify(detail);
-              tr.innerHTML = '<td style="padding:.4rem;">' + esc(it.timestamp) + '</td>' +
-                '<td style="padding:.4rem;"><code>' + esc(it.action) + '</code></td>' +
-                '<td style="padding:.4rem;">' + esc(it.actor || it.user_id || '') + '</td>' +
-                '<td style="padding:.4rem;opacity:.85;">' + esc(detail) + '</td>';
+              var actor = it.actor || it.user_id || '';
+              if (detail && typeof detail === 'object') {
+                if (!actor && detail.actor) actor = detail.actor; // the audit row carries its actor inside detail
+                detail = JSON.stringify(detail);
+              }
+              var tr = document.createElement('tr');
+              tr.innerHTML = '<td class="ev-when" style="padding:.4rem;">' + when(it.timestamp) + '</td>' +
+                '<td style="padding:.4rem;">' + actionChip(it.action) + '</td>' +
+                '<td style="padding:.4rem;">' + (actor ? '<span class="work-actor">' + esc(actor) + '</span>' : '<span class="muted">—</span>') + '</td>' +
+                '<td class="ev-detail" style="padding:.4rem;opacity:.85;" title="' + esc(detail || '') + '">' + esc(detail || '—') + '</td>';
               rows.appendChild(tr);
             });
           }
-          document.getElementById('auditPageLabel').textContent = 'page ' + (page + 1);
+          document.getElementById('auditPageLabel').textContent =
+            'page ' + (page + 1) + (total != null ? ' of ' + Math.max(1, Math.ceil(total / SIZE)) : '');
           document.getElementById('auditCount').textContent =
             total != null ? (total + ' events') : (items.length + ' on this page');
           prev.disabled = page === 0;

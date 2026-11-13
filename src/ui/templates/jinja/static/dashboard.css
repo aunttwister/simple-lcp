@@ -1509,6 +1509,24 @@ tr.log-row-failed td.num { opacity: 0.55; }
 .task-pager { gap: 0.5rem; flex-wrap: wrap; }
 .task-pager-jump input { width: 4.5rem; }
 .task-pager-label { margin-left: 0.35rem; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 3 (2026-11-12): evidence change history
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Change history: timestamps one line, detail ellipsised with full JSON on
+   hover, action chips coloured per family, rows scannable */
+.ev-when { white-space: nowrap; }
+.ev-detail {
+  max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ev-act { font-size: 0.6875rem; }
+.ev-act-routing { border-color: hsl(var(--cyan-fg) / 0.4); color: hsl(var(--cyan-fg)); }
+.ev-act-chain { border-color: hsl(var(--violet-fg, #a78bfa) / 0.4); color: var(--violet-fg, #a78bfa); }
+.ev-act-settings, .ev-act-config { border-color: hsl(var(--amber-fg) / 0.4); color: hsl(var(--amber-fg)); }
+#auditRows tr:hover td { background: hsl(var(--secondary) / 0.4); }
+#auditRows tr:nth-child(even) td { background: hsl(var(--secondary) / 0.22); }
+#auditRows td { border-bottom: 1px solid hsl(var(--card-border) / 0.5); }
 .work-chip-ok { color: #3fb950; border-color: #3fb950; }
 .work-job-name { font-weight: 600; overflow-wrap: anywhere; }
 .work-rel { color: var(--text-muted, #8b949e); font-size: 0.72rem; }
