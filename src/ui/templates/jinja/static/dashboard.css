@@ -1470,6 +1470,23 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
   .main-content * { color: #111 !important; }
   .card { border-color: #ccc !important; background: #fff !important; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 1 (2026-11-12): activity overview polish
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Stat-card sub-lines share a baseline even when one wraps to two lines */
+.metric-card .metric-sub { min-height: 2.1em; }
+
+/* The filter dropdown's right edge meets the card grid's right edge */
+.lcp-filter-dropdown { margin-right: 0.25rem; }
+
+/* Realm minis respond like the profile directory cards (same affordance) */
+.profile-mini { transition: border-color 0.15s ease, transform 0.15s ease; }
+.profile-mini:hover { border-color: hsl(var(--primary) / 0.45); transform: translateY(-1px); }
+
+/* A realm with zero traffic says so instead of counting "0 reqs" */
+.pm-reqs.pm-empty { font-style: italic; opacity: 0.7; }
 .work-chip-ok { color: #3fb950; border-color: #3fb950; }
 .work-job-name { font-weight: 600; overflow-wrap: anywhere; }
 .work-rel { color: var(--text-muted, #8b949e); font-size: 0.72rem; }

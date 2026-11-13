@@ -28,17 +28,17 @@
   <div class="metric-card">
     <div class="metric-label">Total Cost</div>
     <div class="metric-value">{{ total_cost_fmt }}</div>
-    <div class="metric-sub">{{ active_days }} active days</div>
+    <div class="metric-sub" title="Days with at least one logged request in this range">{{ active_days }} active days</div>
   </div>
   <div class="metric-card">
     <div class="metric-label">Requests</div>
     <div class="metric-value">{{ summary_total_requests_fmt }}</div>
-    <div class="metric-sub">{{ fallback_count_fmt }} served by a fallback link ({{ fb_pct_fmt }})</div>
+    <div class="metric-sub">{{ fallback_count_fmt }} served by a fallback link ({{ fb_pct_fmt }} of successful)</div>
   </div>
   <div class="metric-card">
     <div class="metric-label">Cache Ratio</div>
     <div class="metric-value green">{{ cache_hit_rate_fmt }}</div>
-    <div class="metric-sub">saved {{ cache_savings_fmt }}</div>
+    <div class="metric-sub">saved {{ cache_savings_fmt }} vs uncached</div>
   </div>
   <div class="metric-card">
     <div class="metric-label">Output Tokens</div>
@@ -53,7 +53,11 @@
   <a href="/activity?profile={{ pc.profile }}" class="profile-mini" style="text-decoration:none">
     <div class="pm-name">{{ pc.profile.upper() }}</div>
     <div class="pm-cost">${{ "%.2f"|format(pc.total_cost) }}</div>
+    {% if pc.count %}
     <div class="pm-reqs">{{ "{:,}".format(pc.count) }} reqs</div>
+    {% else %}
+    <div class="pm-reqs pm-empty">no traffic yet</div>
+    {% endif %}
     <div class="pm-share-track" title="{{ pc.cost_share }}% of the busiest profile's spend"><div class="pm-share-fill" style="width:{{ pc.cost_share }}%"></div></div>
   </a>
   {% endfor %}
