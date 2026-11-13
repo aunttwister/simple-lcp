@@ -348,11 +348,13 @@ def dashboard_context(config, engine, headers, profile_filter=None):
 
     # ── Helper: format large numbers ──
     def _fmt_num(n):
+        if n >= 1_000_000_000:
+            return f"{n/1_000_000_000:.1f}B"
         if n >= 1_000_000:
             return f"{n/1_000_000:.1f}M"
-        if n >= 1_000:
+        if n >= 10_000:
             return f"{n/1_000:.1f}K"
-        return str(int(n))
+        return f"{int(n):,}"
 
     def _fmt_cost(c):
         # Headline money: 2dp with thousands separators ("$1,121.69"), not six
@@ -505,7 +507,13 @@ def dashboard_context(config, engine, headers, profile_filter=None):
 
     # Pre-formatted display strings (preserve old dashboard output exactly)
     total_cost_fmt = _fmt_cost(summary_total_cost)
-    cache_savings_fmt = f"${total_cache_savings:.4f}"
+
+    def _fmt_savings(c):
+        # $0.0002 read as a rounding bug next to a $1,121.69 headline; scale
+        # the decimals so the number carries the precision the amount has.
+        return f"${c:,.2f}" if c >= 0.01 else f"${c:.4f}"
+
+    cache_savings_fmt = _fmt_savings(total_cache_savings)
     cache_hit_rate_fmt = f"{cache_hit_rate:.1f}%"
     fb_pct_fmt = f"{fb_pct:.1f}%"
     summary_total_requests_fmt = f"{summary_total_requests:,}"

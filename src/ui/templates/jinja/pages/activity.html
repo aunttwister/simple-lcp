@@ -22,9 +22,8 @@
 
 {% block content %}
 <h1>Activity{% if profile_filter %} — {{ profile_filter | upper }}{% endif %}</h1>
-<p class="subtitle">
-  What the gateway did: cost and tokens, and every log realm.
-</p>
+{# The Overview section below already carries its own subtitle; a second line
+   here said the same thing twice within 40px of scroll. #}
 
 <div class="page-tabs">
   <a class="tab-btn{% if tab == 'overview' %} active{% endif %}" href="/activity">Overview</a>
