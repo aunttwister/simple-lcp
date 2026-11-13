@@ -188,7 +188,11 @@ function renderModelList() {
 function toggleConfiguredOnly() {
   STATE.configuredOnly = !STATE.configuredOnly;
   const btn = document.getElementById('configuredOnlyBtn');
-  if (btn) btn.classList.toggle('active', STATE.configuredOnly);
+  if (btn) {
+    btn.classList.toggle('active', STATE.configuredOnly);
+    // The toggle must answer "is it on?" to AT and to the eye alike.
+    btn.setAttribute('aria-pressed', STATE.configuredOnly ? 'true' : 'false');
+  }
   renderModelList();
 }
 
@@ -836,9 +840,11 @@ document.getElementById('regMappingRows').addEventListener('change', function (e
   try {
     const r = await fetch('/api/routing/status');
     const d = await r.json();
-    note.textContent = d.enabled
-      ? '· dynamic routing on (' + d.policy + (d.min_score ? ', min ' + d.min_score : '') + ')'
-      : '· dynamic routing off';
+    // Rendered as a status chip after the sentence, so "(eager)" reads as a
+    // routing-mode badge instead of a truncated clause with no period.
+    note.innerHTML = d.enabled
+      ? '<span class="seed-chip" title="Dynamic routing mode and minimum score">dynamic routing on (' + d.policy + (d.min_score ? ', min ' + d.min_score : '') + ')</span>'
+      : '<span class="seed-chip" title="Dynamic routing is currently off">dynamic routing off</span>';
   } catch (e) {
     note.textContent = '';
   }
