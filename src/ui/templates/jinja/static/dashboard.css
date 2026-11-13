@@ -1626,6 +1626,24 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 .settings-intro, .subtitle { max-width: 72ch; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 9 (2026-11-12): alerts page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Rule names are identifiers: one line, ellipsised, full value on hover */
+.alerts-table td.alert-rule {
+  max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Column headers step out of the borderline-contrast zone */
+.alerts-table th { color: hsl(var(--muted-foreground) / 1); }
+
+/* Detail rows indent so they read as children of the alert above */
+.alert-detail-row td { padding-left: 1.4rem !important; }
+
+/* The count line sits with the Refresh control, not floating */
+#alertCount { white-space: nowrap; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
    UI MARATHON R2 — Iteration 2 (2026-11-12): logs tab readability
    ═══════════════════════════════════════════════════════════════════════════ */
 
