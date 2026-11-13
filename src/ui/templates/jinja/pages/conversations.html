@@ -150,8 +150,8 @@
           data-name="{{ c.name or c.id }}"
           tabindex="0" role="button"
           aria-label="Open conversation {{ c.name or c.id }}">
-        <td class="conv-name-cell" data-label="Conversation">
-          {% if c.name %}{{ c.name }}{% else %}<span class="muted conv-untitled">Untitled</span>
+        <td class="conv-name-cell" data-label="Conversation"{% if c.name %} title="{{ c.name }}"{% endif %}>
+          {% if c.name %}<span class="conv-title">{{ c.name }}</span>{% else %}<span class="muted conv-untitled">Untitled</span>
           <span class="mono muted">· {{ c.id|truncate(14, True) }}</span>{% endif %}
           {% if c.summary %}<span class="conv-summary">{{ c.summary }}</span>{% endif %}
           {# `source` says how the transcript got here; the actor says WHO drove it.
