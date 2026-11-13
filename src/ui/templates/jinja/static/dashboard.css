@@ -1644,6 +1644,43 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 #alertCount { white-space: nowrap; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 10 (2026-11-12): mobile cross-cutting
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Conversations table becomes stacked cards on phones: every cell already
+   carries data-label, so the header line rides free */
+@media (max-width: 640px) {
+  .conv-table thead { display: none; }
+  .conv-table, .conv-table tbody, .conv-table tr, .conv-table td {
+    display: block; width: 100%; box-sizing: border-box;
+  }
+  .conv-table tr { border-bottom: 1px solid hsl(var(--card-border) / 0.5); padding: 0.35rem 0; }
+  .conv-table td { border: none; padding: 0.18rem 0.6rem; }
+  .conv-table td::before {
+    content: attr(data-label);
+    display: block; font-size: 0.625rem; text-transform: uppercase;
+    letter-spacing: 0.05em; color: hsl(var(--muted-foreground)); margin-bottom: 0.1rem;
+  }
+  .conv-table td:first-child::before { display: none; }
+}
+
+/* Profile cards and the models workspace collapse to one column */
+@media (max-width: 768px) {
+  .profile-grid { grid-template-columns: 1fr !important; }
+  .models-layout { grid-template-columns: 1fr !important; }
+  /* Date pills wrap instead of squeezing the custom range off the edge */
+  .date-filters { flex-wrap: wrap; row-gap: 0.4rem; }
+  /* Tab rows become real touch targets */
+  .tab-btn { padding-top: 0.65rem; padding-bottom: 0.65rem; }
+  /* The panel close button grows to a comfortable thumb target */
+  .conv-panel-close { min-width: 2.5rem; min-height: 2.5rem; }
+  /* A 4-step routing chain must not dictate the card's width on a phone —
+     it forced a 1061px card inside a 366px grid. Specificity bumped so this
+     wins over the later-in-file base nowrap rule. */
+  .profile-card .pc-chain { white-space: normal; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    UI MARATHON R2 — Iteration 2 (2026-11-12): logs tab readability
    ═══════════════════════════════════════════════════════════════════════════ */
 
