@@ -1541,8 +1541,9 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 .pc-sep { opacity: 0.45; padding: 0 0.25rem; }
 
 /* The routing badge reads as a facet, not a count: tinted border + key glyph
-   treatment, so "static routing" can't be mistaken for "1 model" */
-.pc-badge-routing { border-color: hsl(var(--primary) / 0.45); color: hsl(var(--primary)); }
+   treatment, so "static routing" can't be mistaken for "1 model". Blue accent:
+   --primary is near-white in this theme (round-1 toggle lesson). */
+.pc-badge-routing { border-color: hsl(217 91% 60% / 0.45); color: hsl(217 91% 60%); }
 
 /* Badge contrast: chip text steps up one visible notch on the dark card */
 .pc-badge { color: hsl(var(--foreground) / 0.8); }
@@ -1558,6 +1559,38 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 .profiles-grid { align-items: stretch; }
 .profile-card { display: flex; flex-direction: column; }
 .profile-card .pc-sp { margin-top: auto; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI MARATHON R2 — Iteration 7 (2026-11-12): models page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Inactive tabs lose their underline entirely — with both underlined, the
+   active state was ambiguous */
+.tab-btn:not(.active) { border-bottom-color: transparent; }
+
+/* The routing-note status rides as a chip, muted green like the other
+   live statuses */
+.seed-chip {
+  display: inline-block; padding: 0.05rem 0.5rem; margin-left: 0.35rem;
+  border: 1px solid hsl(var(--green-fg) / 0.35); border-radius: 999px;
+  color: hsl(var(--green-fg)); font-size: 0.6875rem; white-space: nowrap;
+}
+
+/* The Configured toggle answers "am I on?" visually too. NB: --primary in this
+   theme is near-white (the round-1 toggle lesson) — use the blue accent. */
+#configuredOnlyBtn.active {
+  border-color: hsl(217 91% 60% / 0.5); color: hsl(217 91% 60%);
+  background: hsl(217 91% 60% / 0.08);
+}
+
+/* Filter placeholder contrast on the dark input */
+.models-toolbar input::placeholder, input::placeholder { color: hsl(var(--muted-foreground) / 0.9); }
+
+/* Credits widget: the window label keeps its distance from the bar */
+.hp-usage .bar-label, .header-credits .bar-label { margin-left: 0.35rem; }
+
+/* Sidebar active accent follows the rounded highlight */
+.sidebar .nav-item.active { border-top-left-radius: var(--radius); border-bottom-left-radius: var(--radius); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    UI MARATHON R2 — Iteration 2 (2026-11-12): logs tab readability
