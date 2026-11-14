@@ -3348,6 +3348,74 @@ class SettingsEndpoints:
         self._send_json({"ok": True, "profile": profile})
 
 
+# ── Model-intel poll API (CUR model-intel redesign, P1) ─────────────────────
+
+class ModelIntelEndpoints:
+    """Freshness polls for the model registry: audit, run-now, per-endpoint toggle.
+
+    Provenance contract: a poll writes ONLY ``mi_polls`` audit rows and
+    ``mi_deployments`` status/first_seen/last_seen/source. ``mi_models`` (the
+    canonical labels) is never touched — user-edited display values cannot be
+    overwritten by a poll. New deployments are staged ``status='new'``, which
+    ``model_identity.resolve()`` never reads, so poll output cannot affect
+    routing until a human confirms the identity.
+    """
+
+    config: Any
+    engine: Any
+
+    def _serve_model_intel_polls_api(self):
+        """GET /api/model-intel/polls — poll audit trail + per-endpoint toggle state."""
+        from ..api.model_intel_poll import _now
+        from ..api.model_identity import connect as mi_connect
+        con = mi_connect(ro=True)
+        try:
+            endpoints = [dict(r) for r in con.execute(
+                "SELECT endpoint_id, slug, display_name, base_url, status, poll_enabled"
+                " FROM mi_endpoints ORDER BY endpoint_id")]
+            polls = [dict(r) for r in con.execute(
+                "SELECT p.poll_id, p.endpoint_id, e.slug, p.polled_at, p.ok,"
+                " p.http_status, p.model_count, p.error, p.duration_ms"
+                " FROM mi_polls p JOIN mi_endpoints e ON e.endpoint_id = p.endpoint_id"
+                " ORDER BY p.poll_id DESC LIMIT 50")]
+            staged = [dict(r) for r in con.execute(
+                "SELECT deployment_id, endpoint_id, served_id, status, source, first_seen"
+                " FROM mi_deployments WHERE status IN ('new','stale_candidate')"
+                " ORDER BY deployment_id DESC LIMIT 100")]
+        finally:
+            con.close()
+        self._send_json({"polled_now": _now(), "endpoints": endpoints,
+                         "recent_polls": polls, "staged": staged})
+
+    def _serve_model_intel_poll_run_api(self):
+        """POST /api/model-intel/poll — run a poll pass over opted-in endpoints."""
+        from ..api.model_intel_poll import poll_all
+        try:
+            summary = poll_all()
+        except Exception as exc:  # noqa: BLE001 — surface, don't crash the handler
+            self._send_json({"error": f"{type(exc).__name__}: {exc}"}, 500)
+            return
+        self._audit("model_intel.poll_run")
+        self._send_json({"ok": True, "summary": summary})
+
+    def _serve_model_intel_endpoint_toggle_api(self):
+        """POST /api/model-intel/endpoints/toggle {slug, enabled} — the user's opt-in."""
+        from ..api.model_intel_poll import set_poll_enabled
+        body = self._read_body()
+        slug = (body.get("slug") or "").strip()
+        if not slug:
+            self._send_json({"error": "slug required"}, 400)
+            return
+        enabled = bool(body.get("enabled", False))
+        try:
+            state = set_poll_enabled(slug=slug, enabled=enabled)
+        except KeyError as exc:
+            self._send_json({"error": str(exc)}, 404)
+            return
+        self._audit("model_intel.poll_toggle", slug=slug, enabled=enabled)
+        self._send_json({"ok": True, **state})
+
+
 # ── Usage Stats API ──────────────────────────────────────────────────────────
 
 class UsageEndpoints:

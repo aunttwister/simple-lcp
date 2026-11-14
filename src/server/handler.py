@@ -53,6 +53,7 @@ from .endpoints import (
     AlertEndpoints,
     BudgetEndpoints,
     PluginEndpoints,
+    ModelIntelEndpoints,
     UsageEndpoints,
     DashboardEndpoints,
     SettingsEndpoints,
@@ -178,6 +179,7 @@ class LCPHandler(
     AlertEndpoints,
     BudgetEndpoints,
     PluginEndpoints,
+    ModelIntelEndpoints,
     UsageEndpoints,
     DashboardEndpoints,
     SettingsEndpoints,
@@ -1289,6 +1291,16 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_conversations_title_api())
     t.get("api.routing.status", exact("/api/routing/status"),
           lambda h, p: h._serve_routing_status_api())
+    # Model-intel freshness polls (CUR model-intel redesign P1): audit is a
+    # read, run-now and the per-endpoint opt-in toggle are writes. Polling is
+    # OFF per endpoint until the user toggles it on.
+    t.get("api.model_intel.polls", exact("/api/model-intel/polls"),
+          lambda h, p: h._serve_model_intel_polls_api())
+    t.post("api.model_intel.poll", exact("/api/model-intel/poll"),
+           lambda h, p: h._serve_model_intel_poll_run_api())
+    t.post("api.model_intel.endpoint.toggle",
+           exact("/api/model-intel/endpoints/toggle"),
+           lambda h, p: h._serve_model_intel_endpoint_toggle_api())
     # ── Work layer ──
     # The cron and sources APIs are gone (2026-10-25): their only caller was the
     # Cron and Config tabs, both decommissioned. The host-side collector reads and
