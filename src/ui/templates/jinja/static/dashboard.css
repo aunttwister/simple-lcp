@@ -3584,18 +3584,26 @@ pre.spark { line-height: 1.15; letter-spacing: 0.02em; }
 
 /* Profile cards and the models workspace collapse to one column */
 @media (max-width: 768px) {
-  .profile-grid { grid-template-columns: 1fr !important; }
-  .models-layout { grid-template-columns: 1fr !important; }
+  /* minmax(0,1fr), NOT 1fr: 1fr = minmax(auto,1fr) and the auto minimum is the
+     widest card's min-content — one nowrap line anywhere in any card (agent
+     line, routed-by list, gateway URL) held the whole track at 410px inside a
+     366px grid, clipping every card's right edge. Measured 2026-11-14. */
+  .profile-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .models-layout { grid-template-columns: minmax(0, 1fr) !important; }
+  .profile-card { min-width: 0; }
   /* Date pills wrap instead of squeezing the custom range off the edge */
   .date-filters { flex-wrap: wrap; row-gap: 0.4rem; }
   /* Tab rows become real touch targets */
   .tab-btn { padding-top: 0.65rem; padding-bottom: 0.65rem; }
   /* The panel close button grows to a comfortable thumb target */
   .conv-panel-close { min-width: 2.5rem; min-height: 2.5rem; }
-  /* A 4-step routing chain must not dictate the card's width on a phone —
-     it forced a 1061px card inside a 366px grid. Specificity bumped so this
-     wins over the later-in-file base nowrap rule. */
-  .profile-card .pc-chain { white-space: normal; }
+  /* The nowrap lines inside a card must be allowed to shrink too, or they
+     overflow the now-shrinkable card by themselves. pc-chain/pc-agent/pc-routed
+     wrap; pc-url keeps one line but ellipses (full value stays in its title).
+     Specificity bumped so this wins over the later-in-file base nowrap rules. */
+  .profile-card .pc-chain { white-space: normal; overflow-wrap: anywhere; }
+  .profile-card .pc-agent, .profile-card .pc-routed { white-space: normal; overflow-wrap: anywhere; }
+  .profile-card .pc-url { overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
