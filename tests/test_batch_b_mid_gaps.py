@@ -105,18 +105,26 @@ class TestLanceDBErrorBranches:
         be._db = MagicMock()
         t = MagicMock()
         t.name = "prof1"
-        be._db.table_names.return_value = [t]
+        be._db.list_tables.return_value = [t]
         assert be._table_names() == ["prof1"]
 
     def test_table_names_exception(self, be):
         be._db = MagicMock()
-        be._db.table_names.side_effect = RuntimeError("boom")
+        be._db.list_tables.side_effect = RuntimeError("boom")
         assert be._table_names() == []
 
     def test_table_names_none(self, be):
         be._db = MagicMock()
-        be._db.table_names.return_value = None
+        be._db.list_tables.return_value = None
         assert be._table_names() == []
+
+    def test_table_names_response_wrapper(self, be):
+        # lancedb >= 0.38 wraps list_tables() in a ListTablesResponse object.
+        be._db = MagicMock()
+        resp = MagicMock(spec=["tables"])
+        resp.tables = ["prof1", "prof2"]
+        be._db.list_tables.return_value = resp
+        assert be._table_names() == ["prof1", "prof2"]
 
     def test_retain_table_add_failure(self, be):
         from src.api.memory.base import MemoryError as MemErr

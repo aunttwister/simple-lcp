@@ -112,7 +112,10 @@ class LanceDBMemoryBackend(MemoryBackend):
 
     def _table_names(self) -> list[str]:
         try:
-            names = self._db.table_names()
+            names = self._db.list_tables()
+            # lancedb >= 0.38 wraps the result in a ListTablesResponse;
+            # older versions returned a plain list of names or table objects.
+            names = getattr(names, "tables", names)
             if isinstance(names, list) and names and not isinstance(names[0], str):
                 # Older API returned table objects; normalize to names.
                 names = [getattr(t, "name", str(t)) for t in names]
