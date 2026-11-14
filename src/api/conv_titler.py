@@ -250,6 +250,41 @@ def _parse_title_reply(text: str) -> tuple[Optional[str], Optional[str]]:
     )
 
 
+def _provider_has_key(provider: Optional[str]) -> bool:
+    """True when the provider can carry an upstream call.
+
+    Mirrors the request pipeline's own rule: keyed providers (deepseek,
+    opencode, commandcode) need a stored credential; local/user endpoints run
+    keyless. Preference, not a guarantee — the upstream call can still fail.
+
+    The old first-match step pick selected an unkeyed provider and every
+    title call failed with ``No API key found``, invisible at debug level.
+    """
+    if not provider:
+        return False
+    try:
+        from .request_pipeline import _provider_needs_key
+        if not _provider_needs_key(provider):
+            return True  # keyless provider (local / user-added endpoint)
+    except Exception:  # noqa: BLE001 — probe failure must not break resolution
+        pass
+    try:
+        from .credential_store import get_credential_store
+        store = get_credential_store()
+        if store is None:
+            # Inside the serving process the credential store is a runtime
+            # component; outside it (scheduler thread, CLI) build the legacy
+            # singleton against the cost DB. Returning True here would pick an
+            # unkeyed provider and every title call would fail with
+            # ``No API key found``.
+            from .models import get_engine
+            from .credential_store import CredentialStore
+            store = CredentialStore(get_engine("data/costs.db"), data_dir="data")
+        return bool(store.get(provider))
+    except Exception:  # noqa: BLE001
+        return True
+
+
 def _resolve_step(config) -> Optional[dict]:
     """The chain step the titler calls: the configured model's step, or the
     default profile's chain head.
@@ -258,28 +293,44 @@ def _resolve_step(config) -> Optional[dict]:
     scanning the profiles' chains for it, because the chain step carries the
     provider + base_url that model is reachable at. No match (or no default
     profile) means no titler — returned as None rather than guessed.
+
+    When several chain steps serve the same model, ALL matches are returned in
+    chain order: the caller falls through on failure, so an out-of-credits or
+    unkeyed first step no longer kills titling when a later step can serve.
     """
     section = config.conversation_titling or {}
     wanted_model = (section.get("model") or "").strip() or None
     profiles = config.profiles or {}
     if wanted_model:
+        matches = []
         for prof in profiles.values():
             for step in (prof.get("chain") or []):
                 if step.get("model") == wanted_model:
-                    return dict(step)
-        logger.info("conv_titler_model_not_in_any_chain", model=wanted_model)
-        return None
+                    matches.append(dict(step))
+        if not matches:
+            logger.info("conv_titler_model_not_in_any_chain", model=wanted_model)
+            return None
+        matches.sort(key=lambda s: 0 if _provider_has_key(s.get("provider")) else 1)
+        return matches[0] if len(matches) == 1 else {"__alternatives": matches}
     default_profile = (config.server or {}).get("default_profile") or ""
     prof = profiles.get(default_profile) or {}
     chain = prof.get("chain") or []
-    return dict(chain[0]) if chain else None
+    if not chain:
+        return None
+    keyed = [dict(s) for s in chain if _provider_has_key(s.get("provider"))]
+    ordered = keyed + [dict(s) for s in chain if s not in keyed]
+    return ordered[0] if len(ordered) == 1 else {"__alternatives": ordered}
 
 
-def _title_one(cid: str, *, force: bool = False) -> None:
+def _title_one(cid: str, *, force: bool = False) -> bool:
     """Ask the chain head for a title and store it. Fail-open end to end.
 
     ``force=True`` backs the ``scope=all`` re-title: it bypasses the
     already-titled skip so a fresh pass can regenerate every conversation.
+
+    Returns True when the conversation actually gained a name or summary —
+    the pass counter and the "was the pass healthy" check both need the real
+    outcome, not just "we tried".
     """
     try:
         from . import conv_store
@@ -288,44 +339,67 @@ def _title_one(cid: str, *, force: bool = False) -> None:
 
         config = get_config()
         if not _enabled(config):
-            return
+            return False
 
         # Re-check under the same condition the dequeue used: the audit read is
         # the last chance to drop an id whose conversation got titled meanwhile.
         # force=True (scope=all re-title) deliberately skips this.
         if not force and not _should_title(cid):
-            return
+            return False
         transcript = _build_transcript(cid)
         if not transcript:
-            return
+            return False
 
-        step = _resolve_step(config)
-        if not step or not step.get("model"):
-            logger.info("conv_titler_no_step")
-            return
-        step.setdefault("base_url",
-                        (config.providers.get(step.get("provider"), {})
-                         .get("api_base") or ""))
-        body = {
-            "model": step["model"],
-            "messages": [{"role": "user", "content": _TITLE_PROMPT % transcript}],
-            "max_tokens": 200,
-            "temperature": 0.2,
-        }
-        resp, status = forward_request(step, body, config)
-        if status != 200:
-            logger.info("conv_titler_upstream_status", status=status)
-            return
-        text = _reply_text(resp)
+        steps = _resolve_step(config)
+        if isinstance(steps, dict) and "__alternatives" in steps:
+            steps = steps["__alternatives"]
+        elif steps:
+            steps = [steps]
+        if not steps:
+            logger.warning("conv_titler_no_step")
+            return False
+        text = None
+        used_step = None
+        for step in steps:
+            if not step or not step.get("model"):
+                continue
+            step.setdefault("base_url",
+                            (config.providers.get(step.get("provider"), {})
+                             .get("api_base") or ""))
+            body = {
+                "model": step["model"],
+                "messages": [{"role": "user", "content": _TITLE_PROMPT % transcript}],
+                "max_tokens": 200,
+                "temperature": 0.2,
+            }
+            try:
+                resp, status = forward_request(step, body, config)
+            except Exception as exc:  # noqa: BLE001 — try the next chain step
+                logger.warning("conv_titler_step_failed", provider=step.get("provider"),
+                               model=step.get("model"), error=str(exc)[:160])
+                continue
+            if status != 200:
+                logger.warning("conv_titler_upstream_status", status=status,
+                               provider=step.get("provider"), model=step.get("model"))
+                continue
+            text = _reply_text(resp)
+            if text and (_parse_title_reply(text) != (None, None)):
+                used_step = step
+                break
+        if not used_step:
+            return False
         name, summary = _parse_title_reply(text)
-        if not name and not summary:
-            return
         conv_store.upsert_conversation(cid, name=name, summary=summary,
                                        last_message_ts=_now_iso())
         logger.info("conv_titler_titled", conversation_id=cid,
-                    named=bool(name), summarised=bool(summary))
-    except Exception:  # noqa: BLE001 — titling is bookkeeping, never a failure
-        logger.debug("conv_titler_failed", conversation_id=cid)
+                    named=bool(name), summarised=bool(summary),
+                    provider=used_step.get("provider"))
+        return True
+    except Exception as exc:  # noqa: BLE001 — titling is bookkeeping, never a failure
+        # A silent debug here hid a dead titler for days (no key for the
+        # resolved provider); the failure must be visible to be fixable.
+        logger.warning("conv_titler_failed", conversation_id=cid, error=str(exc)[:200])
+        return False
 
 
 def _reply_text(resp: dict) -> str:
@@ -348,23 +422,30 @@ def _reply_text(resp: dict) -> str:
 def _candidate_ids(scope_value: str, limit: int = 500) -> list[str]:
     """Conversation ids to title in one pass.
 
-    scope='untitled' -> only rows missing a name OR a summary.
-    scope='all'      -> every conversation (fresh re-title). Bounded by `limit`
-    so a single scheduled pass cannot run away.
+    scope='untitled' -> only rows missing a name (a summary rides along with
+    the title call). scope='all' -> every conversation (fresh re-title).
+
+    CUR-329 fix: this used ``conv_store.list_conversations({"limit": ...})``,
+    but the shared table layer keys its page size off ``per`` and ignores
+    ``limit`` — so every pass silently scanned only the newest 20 rows and
+    the untitled backlog beyond page one was structurally unreachable. The
+    selection is now a direct query: newest-first, all rows, bounded by
+    ``limit`` so a single scheduled pass cannot run away.
     """
     from . import conv_store
-    rows = conv_store.list_conversations({"limit": limit})
-    items = rows.get("conversations") or []
-    out = []
-    for c in items:
-        cid = c.get("id")
-        if not cid:
-            continue
-        if scope_value == "untitled":
-            if c.get("name") and c.get("summary"):
-                continue
-        out.append(cid)
-    return out
+    con = conv_store._connect()
+    try:
+        if scope_value == "all":
+            where, args = "", []
+        else:
+            where = "WHERE name IS NULL OR name = ''"
+            args = []
+        rows = con.execute(
+            "SELECT conversation_id FROM conversations " + where
+            + " ORDER BY last_seen DESC LIMIT ?", args + [limit]).fetchall()
+        return [r["conversation_id"] for r in rows if r["conversation_id"]]
+    finally:
+        con.close()
 
 
 def run_titling_pass(scope_value: Optional[str] = None, limit: int = 500) -> dict:
@@ -373,6 +454,10 @@ def run_titling_pass(scope_value: Optional[str] = None, limit: int = 500) -> dic
     scope_value None -> config.scope(). Uses the fail-open _title_one per id
     (out-of-band; never raises; a failure just leaves that conversation
     untitled). ``scope='all'`` forces a re-title via _title_one(force=True).
+
+    ``titled`` counts conversations that actually gained a name or summary —
+    it used to count attempts, which made every pass look successful while
+    the upstream call was failing.
     """
     global _LAST_RUN_AT
     try:
@@ -383,11 +468,12 @@ def run_titling_pass(scope_value: Optional[str] = None, limit: int = 500) -> dic
         titled = 0
         for cid in ids:
             try:
-                _title_one(cid, force=(eff_scope == "all"))
-                titled += 1
+                if _title_one(cid, force=(eff_scope == "all")):
+                    titled += 1
             except Exception:  # noqa: BLE001 — per-id, out-of-band
                 continue
         _LAST_RUN_AT = _now_iso()
+        _persist_last_run(_LAST_RUN_AT)
         return {"titled": titled, "scanned": len(ids),
                 "scope": eff_scope, "at": _LAST_RUN_AT}
     except Exception as exc:  # noqa: BLE001 — never fail the caller (a request)
@@ -396,7 +482,14 @@ def run_titling_pass(scope_value: Optional[str] = None, limit: int = 500) -> dic
 
 def _scheduler_loop() -> None:
     """Every interval_hours, run a titling pass. Polls the stop flag so a
-    shutdown or interval change is prompt even on long intervals."""
+    shutdown or interval change is prompt even on long intervals.
+
+    Catch-up: the first wait after startup is capped at 5 minutes when the
+    persisted last-run is older than the interval (or missing). The old code
+    always waited a full interval, so every deploy left the titler idle for
+    up to 24 h while the untitled backlog grew.
+    """
+    first_wait = True
     while not _sched_stop.is_set():
         try:
             from .config import get_config
@@ -404,9 +497,22 @@ def _scheduler_loop() -> None:
             interval = max(1, interval_hours(cfg))
         except Exception:
             interval = 24
+        seconds = interval * 3600
+        if first_wait:
+            first_wait = False
+            stored = _stored_last_run()
+            overdue = True
+            if stored:
+                try:
+                    age = datetime.now(timezone.utc) - datetime.fromisoformat(stored)
+                    overdue = age.total_seconds() >= seconds
+                except Exception:  # noqa: BLE001 — unparseable → treat as overdue
+                    overdue = True
+            if overdue:
+                seconds = min(seconds, 300)
         waited = 0
-        step = min(30, max(1, interval * 3600))
-        while waited < interval * 3600 and not _sched_stop.is_set():
+        step = min(30, max(1, seconds))
+        while waited < seconds and not _sched_stop.is_set():
             _sched_stop.wait(step)
             waited += step
         if _sched_stop.is_set():
@@ -433,7 +539,40 @@ def ensure_scheduler() -> None:
 
 def last_run_at() -> Optional[str]:
     """ISO string of the last completed pass (for the /settings status)."""
-    return _LAST_RUN_AT
+    return _LAST_RUN_AT or _stored_last_run()
+
+
+def _stored_last_run() -> Optional[str]:
+    """Persisted last-run timestamp, read from the config store.
+
+    ``_LAST_RUN_AT`` was runtime-only, so every container restart reported an
+    empty last-run and the scheduler waited a full interval before its first
+    pass — days of untitled backlog after each deploy. The timestamp is now
+    persisted with the titling config.
+    """
+    try:
+        from .config import get_config
+        section = _config_section(get_config())
+        v = section.get("last_run")
+        return str(v) if v else None
+    except Exception:  # noqa: BLE001 — status only
+        return None
+
+
+def _persist_last_run(at: str) -> None:
+    """Write the last-run timestamp into the persisted titling config.
+
+    Best-effort: losing the timestamp costs only a catch-up pass, never a
+    title. Writes through the same raw-config path the settings POST uses so
+    the value survives restarts.
+    """
+    try:
+        from .config import get_config
+        cfg = get_config()
+        cfg.raw["conversation_titling"]["last_run"] = at
+        cfg.save()
+    except Exception:  # noqa: BLE001
+        logger.debug("conv_titler_last_run_persist_failed")
 
 
 def reset_for_tests() -> None:
