@@ -50,7 +50,7 @@ def db():
                        ("lmarena", "benchmark_arena"), ("operator", "operator")):
         con.execute("INSERT INTO mi_sources (slug, kind) VALUES (?,?)", (slug, kind))
     con.execute("INSERT INTO model_capabilities VALUES (1, 'claude-opus-5',"
-                " 'code_generation', 88.0, 'livebench', 'coding', 0.77,"
+                " 'code_generation', 0.88, 'livebench', 'coding', 0.77,"
                 " '2026-10-30', '2026-08-13')")
     con.commit()
     yield con
@@ -139,7 +139,19 @@ def test_score_is_percentile_and_raw_score_is_elo(db):
         "select score, raw_score from model_capabilities"
         " where source='lmarena' and model='gpt-5.5'").fetchone()
     assert row["raw_score"] == 1510.0
-    assert row["score"] == 100.0  # rank 1 of 1 in math
+    assert row["score"] == 1.0  # rank 1 of 1 in math -> top percentile, as a 0-1 fraction
+
+
+def test_every_score_is_a_0_1_fraction(db):
+    """The column's contract: every writer stores 0-1, because the models page
+    renders `score * 100`. A 0-100 percentile here showed 94.70 as 9470.00%."""
+    li.ingest(db)
+    rows = db.execute(
+        "select model, task_type, source, score from model_capabilities").fetchall()
+    assert rows, "fixture should have produced rows"
+    bad = [(r["model"], r["source"], r["score"]) for r in rows
+           if not (0.0 <= r["score"] <= 1.0)]
+    assert bad == [], f"scores outside 0-1 would render as >100%: {bad}"
 
 
 def test_livebench_rows_are_never_touched(db):
@@ -148,7 +160,7 @@ def test_livebench_rows_are_never_touched(db):
     row = db.execute(
         "select score, source, updated_at from model_capabilities where source='livebench'"
     ).fetchone()
-    assert row["score"] == 88.0 and row["updated_at"] == "2026-10-30"
+    assert row["score"] == 0.88 and row["updated_at"] == "2026-10-30"
 
 
 def test_reruns_refresh_not_duplicate(db):
