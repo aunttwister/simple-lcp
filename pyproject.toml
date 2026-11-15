@@ -15,6 +15,11 @@ dependencies = [
     "jinja2>=3.1",
     "cryptography>=42.0",
     "httpx>=0.27",
+    # Required by src/api/lmarena_ingest.py, which reads the LMArena leaderboard
+    # parquet straight off HTTPS. It was implicit before (never declared) so the
+    # "poll for latest data" path could not run in the image at all:
+    # `ModuleNotFoundError: No module named 'duckdb'`.
+    "duckdb>=1.1",
 ]
 
 [project.urls]
