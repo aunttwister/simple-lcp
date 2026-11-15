@@ -53,9 +53,16 @@ STAGED = "new"
 RETIRED = "retired"
 LMARENA_SOURCE = "lmarena"
 
-#: A release token: `5`, `5.5`, `v4.1`, and the vendor-lettered `m3.1` / `k3.1`.
-_VERSION_TOKEN = re.compile(r"^[a-z]?(\d+(?:\.\d+)*)$")
+#: A release token: `5`, `5.5`, `v4.1`, and the vendor-lettered `m3.1` / `k3.1`
+#: / `qwen3.8`. Only ONE release token is taken per name; anything numeric after
+#: it is a continuation only when it looks like a version component (see below).
+_VERSION_TOKEN = re.compile(r"^[a-z]*(\d+(?:\.\d+)*)$")
 _NUMERIC = re.compile(r"^\d+(?:\.\d+)*$")
+#: A 4+-digit run is a DATE or a build stamp, not a release part: `Grok 4 (0709)`,
+#: `Qwen3.8-Max-0902`, `DeepSeek-V4.1-Flash-20261017`. Merging one into the
+#: release would make a dated snapshot read as a LATER release and register it —
+#: so it stays a variant token, which by definition cannot match the plain name.
+_DATEISH = re.compile(r"^\d{4,}$")
 _SEP = re.compile(r"[^a-z0-9.]+")
 
 
@@ -80,6 +87,12 @@ def identity(served_id: str) -> tuple[tuple[str, ...], tuple[int, ...], tuple[st
     `claude-opus-5-5` -> (('claude','opus'), (5,5), ()) — a trailing bare number
     continues the release rather than starting the variant, which is what makes
     `-5-5` read as 5.5 and not as "release 5, variant 5".
+
+    A vendor-lettered token splits at its digits when the letters are a word
+    (`qwen3.8` -> family 'qwen', release 3.8) but stays a pure release when the
+    letter is a version marker (`m3.1`, `k3.1`, `v4.1`). Without that split every
+    vendor-lettered name would have an EMPTY family, and `mistral3.9-max` would
+    read as a successor of `qwen3.8-max`.
     """
     toks = [t for t in _SEP.split(last_segment(served_id).lower()) if t]
     family: list[str] = []
@@ -88,10 +101,13 @@ def identity(served_id: str) -> tuple[tuple[str, ...], tuple[int, ...], tuple[st
     seen_release = False
     for t in toks:
         m = _VERSION_TOKEN.match(t)
-        if not seen_release and m:
-            release = tuple(int(x) for x in m.group(1).split("."))
+        if m and not seen_release:
+            letters, digits = t[:len(t) - len(m.group(1))], m.group(1)
+            if len(letters) >= 2:                   # 'qwen3.8' -> family 'qwen'
+                family.append(letters)
+            release = tuple(int(x) for x in digits.split("."))
             seen_release = True
-        elif seen_release and _NUMERIC.match(t):
+        elif seen_release and _NUMERIC.match(t) and not _DATEISH.match(t):
             release = release + tuple(int(x) for x in t.split("."))
         elif not seen_release:
             family.append(t)
