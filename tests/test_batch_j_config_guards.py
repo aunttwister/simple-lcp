@@ -157,14 +157,18 @@ def _run_guard(mod_name, argv, mocks: dict):
 
 class TestCliGuards:
     def test_seed_capabilities_registry_only(self, tmp_path):
+        import sqlite3 as _sqlite3
+        from tests._model_names_fixtures import mi_schema
         db = str(tmp_path / "seed.db")
+        # The registry lives in mi_models / mi_model_names (migration 034); a
+        # migrated prod DB already has that schema, so give the fresh test DB the
+        # same tables before the seeder runs.
+        mi_schema(_sqlite3.connect(db)).close()
         _run_guard("src.api.seed_capabilities",
                    ["seed_capabilities", "--db", db, "--registry-only"], {})
-        from src.api.models import get_engine, ModelRegistryEntry, get_session
-        engine = get_engine(db)
-        with get_session(engine) as s:
-            assert s.query(ModelRegistryEntry).count() > 0
-        engine.dispose()
+        from src.api import model_names
+        # Seeding populated the registry → the registry API sees entries.
+        assert len(model_names.registry_entries(db)) > 0
 
     def test_seed_capabilities_only(self):
         a = MagicMock(return_value=1)

@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import os
+import sqlite3
 import tempfile
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -17,9 +18,9 @@ from src.api.models import (
     Base,
     Budget,
     ModelCapability,
-    ModelRegistryEntry,
     get_session,
 )
+from tests import _model_names_fixtures as mn
 
 
 class TestHandler(LCPHandler):
@@ -59,6 +60,31 @@ def _json_body(handler):
         except (json.JSONDecodeError, UnicodeDecodeError):
             continue
     return {}
+
+
+def _mi_db(engine):
+    """Open *engine*'s DB file with the mi_* model-name schema created.
+
+    ``Base.metadata`` no longer defines the model-name tables (migration 035
+    dropped ``model_registry``; ``mi_sources``/``mi_model_names``/``mi_models``
+    belong to the model-identity layer), so the registry endpoints — which read
+    the DB with raw sqlite3 through ``api.model_names`` — need them created
+    explicitly. Returns the open connection so a test can seed it.
+    """
+    return mn.mi_schema(sqlite3.connect(engine.url.database))
+
+
+def _model_row(engine, slug):
+    """The ``mi_models`` row for *slug* as a dict, or None."""
+    con = sqlite3.connect(engine.url.database)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT benchmark_key, active_release, benchmark_release, quantization"
+            " FROM mi_models WHERE slug = ?", (slug,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
 
 
 @pytest.fixture
@@ -267,7 +293,15 @@ class TestPageAndCapabilityApis:
             h.do_GET()
         assert _status(h) == 200                      # 2208-2213 (handler 250 too)
 
-    def test_capability_api_db_path_crash(self, temp_db):
+    def test_capability_api_db_path_crash(self, temp_db, tmp_path, monkeypatch):
+        # The endpoint swallows a crashing ``engine.url`` and falls back to the
+        # relative path "data/costs.db"; run in a temp cwd whose data/costs.db
+        # carries the mi_* schema so the real load_model_registry() succeeds
+        # (the release-resolution path reads mi_models now, not model_registry).
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "data").mkdir()
+        mn.mi_schema(sqlite3.connect(str(tmp_path / "data" / "costs.db"))).close()
+
         class BoomEngine:
             def __getattr__(self, name):
                 if name == "url":
@@ -278,24 +312,40 @@ class TestPageAndCapabilityApis:
         h._serve_capability_api()                            # 2246-2247
         assert "tasks" in _json_body(h)
 
-    def test_registry_api_with_broken_mappings(self, temp_db):
-        now = datetime.now(timezone.utc).isoformat()
-        with get_session(temp_db) as s:
-            s.add(ModelRegistryEntry(logical_name="aaa", benchmark_key="aaa",
-                                     provider_mappings_json="{not json",
-                                     updated_at=now))
-            s.add(ModelRegistryEntry(logical_name="bbb", benchmark_key="bbb",
-                                     provider_mappings_json='{"p": "m"}',
-                                     updated_at=now))
-            s.commit()
+    def test_registry_api_empty_and_odd_provider_names(self, temp_db):
+        """Rewrite of ``test_registry_api_with_broken_mappings``.
+
+        The retired table kept provider spellings in a JSON blob, so the old test
+        seeded a canonical entry with ``"{not json"`` and asserted the GET still
+        returned a row (the blob degraded to ``{}``). There is no blob to malform
+        now — a provider mapping is a typed ``mi_model_names`` row — so the two
+        properties that mattered are asserted directly:
+
+        * a canonical model with no provider names comes back with empty
+          ``providers``/``provider_mappings`` (exactly what the malformed blob
+          degraded to), and
+        * an odd provider-side spelling is stored and echoed verbatim, never
+          parsed.
+        """
+        con = _mi_db(temp_db)
+        mn.add_model(con, "aaa", benchmark_key="aaa")     # no provider names
+        bbb = mn.add_model(con, "bbb", benchmark_key="bbb")
+        mn.add_endpoint(con, "p")
+        odd = 'm/gguf{"v":2} (beta)'                      # was the JSON value "m"
+        mn.add_name(con, bbb, "p", odd)
+        con.close()
+
         h = TestHandler(path="/api/models/registry", engine=temp_db)
         h._serve_registry_api()                    # 2294-2319 (handler 348 too)
         body = _json_body(h)
+        assert _status(h) == 200
         assert body["count"] == 2
         aaa = [e for e in body["registry"] if e["logical_name"] == "aaa"][0]
+        assert aaa["providers"] == []
         assert aaa["provider_mappings"] == {}              # 2305-2306
         bbb = [e for e in body["registry"] if e["logical_name"] == "bbb"][0]
         assert bbb["providers"] == ["p"]
+        assert bbb["provider_mappings"] == {"p": odd}      # verbatim, not parsed
 
 
 # ── Capability import / seed / manual APIs ───────────────────────────────────
@@ -331,38 +381,58 @@ class TestRegistryUpsert:
         h._serve_registry_upsert_api()
         assert _status(h) == 400                              # 2491-2492
 
-    def test_broken_other_mappings_tolerated(self, temp_db):
-        now = datetime.now(timezone.utc).isoformat()
-        with get_session(temp_db) as s:
-            s.add(ModelRegistryEntry(logical_name="other", benchmark_key="obk",
-                                     provider_mappings_json="{broken",
-                                     updated_at=now))
-            s.commit()
+    def test_upsert_tolerates_odd_neighbour_mapping(self, temp_db):
+        """Rewrite of ``test_broken_other_mappings_tolerated``.
+
+        The old test seeded a *neighbour* model with a malformed mappings blob
+        (``"{broken"``) and asserted that upserting a different model still
+        returned 200/created. With typed rows there is no blob to corrupt, so the
+        neighbour instead carries an odd provider-side spelling. The property is
+        unchanged — one weird mapping cannot break writing another model — and the
+        odd spelling is proven to round-trip verbatim.
+        """
+        con = _mi_db(temp_db)
+        other = mn.add_model(con, "other", benchmark_key="obk")
+        mn.add_endpoint(con, "weird.provider")
+        odd = "model{broken"
+        mn.add_name(con, other, "weird.provider", odd)
+        assert mn.provider_mappings(con, "other") == {"weird.provider": odd}
+        con.close()
         h = self._h(temp_db, {"logical_name": "mine", "benchmark_key": "mbk",
                               "provider_mappings": {"p1": "model-a"}})
         h._serve_registry_upsert_api()                        # 2526-2527
         assert _status(h) == 200
         assert _json_body(h)["action"] == "created"
+        con = sqlite3.connect(temp_db.url.database)
+        try:
+            assert mn.provider_mappings(con, "other") == {"weird.provider": odd}
+        finally:
+            con.close()
 
     def test_update_all_optional_fields(self, temp_db):
-        now = datetime.now(timezone.utc).isoformat()
-        with get_session(temp_db) as s:
-            s.add(ModelRegistryEntry(logical_name="mine", benchmark_key="old",
-                                     provider_mappings_json="{}",
-                                     updated_at=now))
-            s.commit()
+        con = _mi_db(temp_db)
+        mn.add_model(con, "mine", benchmark_key="old")   # was: provider_mappings_json="{}"
+        con.close()
         h = self._h(temp_db, {"logical_name": "mine", "benchmark_key": "new",
                               "provider_mappings": {"p": "m"},
                               "active_release": "2026-08", "benchmark_release": "2026-07",
                               "quantization": "q4_k_m"})
         h._serve_registry_upsert_api()              # 2543-2546 update fields
+        assert _status(h) == 200
         assert _json_body(h)["action"] == "updated"
-        with get_session(temp_db) as s:
-            e = s.query(ModelRegistryEntry).filter_by(logical_name="mine").first()
-            assert e.benchmark_release == "2026-07"
-            assert e.quantization == "q4_k_m"
+        row = _model_row(temp_db, "mine")
+        assert row is not None
+        assert row["benchmark_release"] == "2026-07"
+        assert row["quantization"] == "q4_k_m"
+        assert row["active_release"] == "2026-08"
+        con = sqlite3.connect(temp_db.url.database)
+        try:
+            assert mn.provider_mappings(con, "mine") == {"p": "m"}
+        finally:
+            con.close()
 
     def test_router_matrix_invalidate_crash_swallowed(self, temp_db):
+        _mi_db(temp_db).close()
         h = self._h(temp_db, {"logical_name": "fresh", "benchmark_key": "fbk",
                               "provider_mappings": {}})
         with patch("src.api.router.invalidate_router_matrix",
@@ -371,15 +441,22 @@ class TestRegistryUpsert:
         assert _json_body(h)["action"] == "created"
 
     def test_upsert_db_crash_500(self, temp_db):
+        _mi_db(temp_db).close()
         h = self._h(temp_db, {"logical_name": "x", "benchmark_key": "b",
                               "provider_mappings": {}})
-        with patch("src.api.models.get_session", side_effect=RuntimeError("db")):
+        # The upsert path writes through api.model_names now, not get_session;
+        # fail the actual write so the endpoint's DB-crash branch runs.
+        with patch("src.api.model_names.upsert_entry",
+                   side_effect=RuntimeError("db")):
             h._serve_registry_upsert_api()                    # 2570-2571
         assert _status(h) == 500
 
     def test_delete_db_crash_500(self, temp_db):
         h = TestHandler(path="/api/models/registry/x", method="DELETE", engine=temp_db)
-        with patch("src.api.models.get_session", side_effect=RuntimeError("db")):
+        # Delete goes through api.model_names.delete_entry (raw sqlite3), so a
+        # crash there is what the endpoint must surface as 500.
+        with patch("src.api.model_names.delete_entry",
+                   side_effect=RuntimeError("db")):
             h._serve_registry_delete_api("x")                 # 2590-2591
         assert _status(h) == 500
 
