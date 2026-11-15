@@ -1,0 +1,35 @@
+taxonomy,model_slug,arena_name,lab,value,unit,percentile,rank,sessions,board,published
+agentic_multi_step,qwen3.8-max,Qwen3.8-Max,alibaba,0.04491406828957156,net_improvement,70.7,18,29429.0,agent_task_outcome_explicit,2026-11-11
+agentic_multi_step,glm-5.3-flash,GLM-5.3-Flash,zai,0.013404427824021847,net_improvement,50.0,30,37692.0,agent_task_outcome_explicit,2026-11-11
+agentic_multi_step,qwen3.8-max,Qwen3.8-Max,alibaba,0.0010943208281234706,net_improvement,46.6,32,80992.0,agent,2026-11-11
+agentic_multi_step,qwen3.8-flash-next,Qwen3.8-Flash-Next,alibaba,0.002524291630047526,net_improvement,46.6,32,32161.0,agent_task_outcome_explicit,2026-11-11
+agentic_multi_step,qwen3.8-27b-heretic,Qwen3.8-27B,alibaba,-0.026910392762400148,net_improvement,36.2,38,23181.0,agent_task_outcome_explicit,2026-11-11
+agentic_multi_step,glm-5.3-flash,GLM-5.3-Flash,zai,-0.029484673121176024,net_improvement,34.5,39,95632.0,agent,2026-11-11
+agentic_multi_step,qwen3.8-flash-next,Qwen3.8-Flash-Next,alibaba,-0.0460563194011352,net_improvement,29.3,42,110352.0,agent,2026-11-11
+agentic_multi_step,qwen3.8-27b-heretic,Qwen3.8-27B,alibaba,-0.04760557848274818,net_improvement,27.6,43,63957.0,agent,2026-11-11
+agentic_multi_step,minimax-m3,MiniMax-M3,minimax,-0.10461747948063777,net_improvement,12.1,52,44401.0,agent,2026-11-11
+agentic_multi_step,minimax-m3,MiniMax-M3,minimax,-0.1801655139011944,net_improvement,8.6,54,16991.0,agent_task_outcome_explicit,2026-11-11
+casual_chat,qwen3.8-max,Qwen3.8-Max,alibaba,-0.004813600716844224,net_improvement,56.9,26,16214.0,agent_praise_complaint,2026-11-11
+casual_chat,glm-5.3-flash,GLM-5.3-Flash,zai,-0.046604943149281874,net_improvement,36.2,38,22387.0,agent_praise_complaint,2026-11-11
+casual_chat,qwen3.8-flash-next,Qwen3.8-Flash-Next,alibaba,-0.06152776566717555,net_improvement,34.5,39,17743.0,agent_praise_complaint,2026-11-11
+casual_chat,qwen3.8-27b-heretic,Qwen3.8-27B,alibaba,-0.06764464990640318,net_improvement,29.3,42,13338.0,agent_praise_complaint,2026-11-11
+casual_chat,minimax-m3,MiniMax-M3,minimax,-0.16289578146698558,net_improvement,12.1,52,8883.0,agent_praise_complaint,2026-11-11
+debugging,grok-4.5,Grok 4.5,xai,0.05136066786226423,net_improvement,62.7,20,,agent_bash_recovery_steps,2026-10-08
+debugging,qwen3.8-max,Qwen3.8 Max,alibaba,0.027983391648861877,net_improvement,52.9,25,,agent_bash_recovery_steps,2026-10-08
+debugging,minimax-m3,Minimax M3,minimax,0.005799036305831118,net_improvement,39.2,32,,agent_bash_recovery_steps,2026-10-08
+debugging,minimax-m3,MiniMax-M3,minimax,-0.030876345731050858,net_improvement,36.2,38,1232.0,agent_bash_reliability,2026-11-11
+debugging,qwen3.8-max,Qwen3.8-Max,alibaba,-0.03509305248698752,net_improvement,32.8,40,11457.0,agent_bash_reliability,2026-11-11
+debugging,qwen3.8-flash-next,Qwen3.8 Flash Next,alibaba,-0.025728882638138995,net_improvement,21.6,41,,agent_bash_recovery_steps,2026-10-08
+debugging,glm-5.3-flash,GLM-5.3-Flash,zai,-0.11859303907753604,net_improvement,10.3,53,13240.0,agent_bash_reliability,2026-11-11
+debugging,qwen3.8-27b-heretic,Qwen3.8-27B,alibaba,-0.12083531199765363,net_improvement,8.6,54,5444.0,agent_bash_reliability,2026-11-11
+debugging,qwen3.8-flash-next,Qwen3.8-Flash-Next,alibaba,-0.22283267442070265,net_improvement,1.7,58,12697.0,agent_bash_reliability,2026-11-11
+planning,qwen3.8-max,Qwen3.8-Max,alibaba,-0.007752682922551712,net_improvement,50.0,30,46746.0,agent_steerability,2026-11-11
+planning,qwen3.8-flash-next,Qwen3.8-Flash-Next,alibaba,-0.025615480303721072,net_improvement,36.2,38,61020.0,agent_steerability,2026-11-11
+planning,glm-5.3-flash,GLM-5.3-Flash,zai,-0.050090373649497755,net_improvement,29.3,42,58246.0,agent_steerability,2026-11-11
+planning,qwen3.8-27b-heretic,Qwen3.8-27B,alibaba,-0.059992335121127116,net_improvement,27.6,43,36771.0,agent_steerability,2026-11-11
+planning,minimax-m3,MiniMax-M3,minimax,-0.10360938878971182,net_improvement,20.7,47,11664.0,agent_steerability,2026-11-11
+research_deep,glm-5.3-flash,GLM-5.3-Flash,zai,0.009906379468233695,net_improvement,98.3,2,92804.0,agent_tool_hallucination,2026-11-11
+research_deep,qwen3.8-27b-heretic,Qwen3.8-27B,alibaba,0.0007399306163904384,net_improvement,41.4,35,61838.0,agent_tool_hallucination,2026-11-11
+research_deep,minimax-m3,MiniMax-M3,minimax,-0.008669800639452774,net_improvement,27.6,43,37805.0,agent_tool_hallucination,2026-11-11
+research_deep,qwen3.8-max,Qwen3.8-Max,alibaba,-0.009876814680126245,net_improvement,24.1,45,77388.0,agent_tool_hallucination,2026-11-11
+research_deep,qwen3.8-flash-next,Qwen3.8-Flash-Next,alibaba,-0.011218145753908004,net_improvement,20.7,47,108712.0,agent_tool_hallucination,2026-11-11
