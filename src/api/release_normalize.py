@@ -152,13 +152,18 @@ def catalog_successors(con: sqlite3.Connection) -> dict[str, Any]:
     line are reported under ``skipped`` rather than registered.
     """
     _row(con)
+    # Anchors: any line a provider we poll puts on its catalog, whatever the
+    # status of THAT row. A model with no confirmed deployment still names a line
+    # we carry — CommandCode serving `claude-opus-5-5` beside a stale
+    # `claude-opus-5` is exactly the case this exists for.
     current = [dict(r) for r in con.execute(
-        "SELECT d.endpoint_id, d.served_id, m.model_id, m.slug, m.family"
+        "SELECT d.endpoint_id, d.served_id, d.status AS deployment_status,"
+        " m.model_id, m.slug, m.family"
         " FROM mi_deployments d"
         " JOIN mi_models m ON m.model_id = d.model_id"
         " JOIN mi_endpoints e ON e.endpoint_id = d.endpoint_id"
-        " WHERE d.status = ? AND m.status = ? AND e.status = ?",
-        (ACTIVE, ACTIVE, ACTIVE))]
+        " WHERE m.status = ? AND e.status = ?",
+        (ACTIVE, ACTIVE))]
     staged = [dict(r) for r in con.execute(
         "SELECT d.deployment_id, d.endpoint_id, d.served_id, e.slug AS endpoint_slug"
         " FROM mi_deployments d"
@@ -188,6 +193,7 @@ def catalog_successors(con: sqlite3.Connection) -> dict[str, Any]:
                 "family": c["family"], "release": ".".join(str(x) for x in ver),
                 "version": ver, "variant": var,
                 "supersedes_slug": c["slug"], "supersedes_model_id": c["model_id"],
+                "anchor_confirmed": c["deployment_status"] == ACTIVE,
                 "supersedes_version": cver})
 
     best: dict[tuple, dict] = {}
@@ -272,9 +278,12 @@ def describe(p: dict[str, Any]) -> str:
     lines.append(f"register {len(reg)} newer release(s):")
     for r in sorted(reg, key=lambda r: r["slug"]):
         al = ", ".join(repr(a) for a in r["aliases"]) or "NO ARENA NAME MATCHED"
+        note = "" if r.get("anchor_confirmed", True) else \
+            "  [the line had NO confirmed deployment — this registers the release\n" \
+            "       the provider actually serves for it]"
         lines.append(f"  {r['supersedes_slug']} -> {r['slug']}  (release {r['release']}, "
                      f"{r['endpoint_slug']} served id {r['served_id']!r})")
-        lines.append(f"      arena names: {al}")
+        lines.append(f"      arena names: {al}{note}")
     lines.append(f"retire {len(p['retire'])} superseded release(s): "
                  + ", ".join(f"{r['slug']} (-> {r['replaced_by']})" for r in p["retire"]))
     if p["skipped"]:
