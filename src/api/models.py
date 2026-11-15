@@ -212,41 +212,6 @@ class ModelCapability(Base):
     updated_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
 
 
-class ModelRegistryEntry(Base):
-    """Explicit model registry: canonical logical model ↔ benchmark key ↔ providers.
-
-    Providers use different model-ID conventions (Command Code prefixes
-    ``deepseek/...``, OpenCode uses bare names). This table pins those
-    relationships explicitly so the router never has to guess from string
-    patterns.
-
-    Each logical model has exactly one row. ``benchmark_key`` is the STABLE,
-    release-independent key used inside ``model_capabilities`` (e.g.
-    ``deepseek-v4-flash``). ``active_release`` names the CURRENT model version
-    (``2026-08-13`` for DeepSeek V4 Pro 0813) whose scores feed the router,
-    while ``benchmark_release`` names the LiveBench leaderboard snapshot those
-    scores were taken from (``2026-06-25``) — the benchmark date is separate
-    from the model version.
-
-    ``provider_mappings_json`` pins the exact provider-side model ID for each
-    provider, e.g. ``{"opencode": "deepseek-v4-pro", "commandcode":
-    "deepseek/deepseek-v4-pro", "deepseek": "deepseek-v4-pro"}`` — so the same
-    logical model exposed by multiple providers resolves to ONE identity and
-    ONE scoring regardless of provider naming. The provider keys themselves
-    are also the canonical "providers" list shown in the UI.
-    """
-    __tablename__ = "model_registry"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    logical_name = Column(String, unique=True, nullable=False, index=True)
-    benchmark_key = Column(String, nullable=False)  # stable key in model_capabilities
-    provider_mappings_json = Column(Text, nullable=False, default="{}")  # {provider: provider-side model ID}
-    active_release = Column(String, nullable=True)  # CURRENT model version (e.g. 2026-08-13); None = newest
-    benchmark_release = Column(String, nullable=True)  # leaderboard snapshot date (e.g. 2026-06-25)
-    quantization = Column(String, nullable=True)  # e.g. "Q4_K_M"; None = unquantized
-    updated_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
-
-
 class SetupState(Base):
     """First-run setup wizard progress.
 

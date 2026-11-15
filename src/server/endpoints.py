@@ -1250,26 +1250,12 @@ def _strip_provider_from_registry(engine: Any, provider: str) -> tuple[int, int]
     the row would throw away the scoring history and force a re-seed later.
     """
     import json as _json
-    from ..api.models import ModelRegistryEntry, get_session
+    from ..api import model_names
 
-    rows_changed = 0
-    unserved = 0
+    del _json
+    rows_changed = unserved = 0
     try:
-        with get_session(engine) as session:
-            for entry in session.query(ModelRegistryEntry).all():
-                try:
-                    mappings = _json.loads(entry.provider_mappings_json or "{}")
-                except (TypeError, ValueError):
-                    continue
-                if not isinstance(mappings, dict) or provider not in mappings:
-                    continue
-                mappings.pop(provider, None)
-                entry.provider_mappings_json = _json.dumps(mappings, sort_keys=True)
-                rows_changed += 1
-                if not mappings:
-                    unserved += 1
-            if rows_changed:
-                session.commit()
+        rows_changed, unserved = model_names.remove_provider(engine, provider)
     except Exception as exc:  # noqa: BLE001 — never fail a delete on registry cleanup
         logger.warning("registry_strip_failed", provider=provider, error=str(exc))
     return rows_changed, unserved
@@ -1284,27 +1270,19 @@ def _rekey_provider_in_registry(engine: Any, old: str, new: str) -> int:
     provider had been renamed to `local-sparks`.
     """
     import json as _json
-    from ..api.models import ModelRegistryEntry, ProviderHealth, get_session
+    from ..api import model_names
+    from ..api.models import ProviderHealth, get_session
 
     changed = 0
+    health_moved = 0
     try:
+        changed = model_names.rename_provider(engine, old, new)
         with get_session(engine) as session:
-            for entry in session.query(ModelRegistryEntry).all():
-                try:
-                    mappings = _json.loads(entry.provider_mappings_json or "{}")
-                except (TypeError, ValueError):
-                    continue
-                if not isinstance(mappings, dict) or old not in mappings:
-                    continue
-                mappings[new] = mappings.pop(old)
-                entry.provider_mappings_json = _json.dumps(mappings, sort_keys=True)
-                changed += 1
-            health_moved = 0
             for row in session.query(ProviderHealth).filter(
                     ProviderHealth.provider == old).all():
                 row.provider = new
                 health_moved += 1
-            if changed or health_moved:
+            if health_moved:
                 session.commit()
             logger.info("provider_rename_cascade", old=old, new=new,
                         registry_rows=changed, health_rows=health_moved)
@@ -4181,29 +4159,9 @@ class DashboardEndpoints:
 
     def _serve_registry_api(self):
         """GET /api/models/registry — return the model registry as JSON."""
-        import json
-        from ..api.models import ModelRegistryEntry, get_session as _gs
+        from ..api import model_names
         try:
-            with _gs(self.engine) as session:
-                rows = session.query(ModelRegistryEntry).order_by(
-                    ModelRegistryEntry.logical_name
-                ).all()
-            entries = []
-            for r in rows:
-                try:
-                    provider_mappings = json.loads(r.provider_mappings_json or "{}")
-                except json.JSONDecodeError:
-                    provider_mappings = {}
-                entries.append({
-                    "logical_name": r.logical_name,
-                    "benchmark_key": r.benchmark_key,
-                    "providers": list(provider_mappings.keys()),
-                    "provider_mappings": provider_mappings,
-                    "active_release": r.active_release,
-                    "benchmark_release": r.benchmark_release,
-                    "quantization": r.quantization,
-                    "updated_at": r.updated_at,
-                })
+            entries = model_names.registry_entries(self.engine)
             self._send_json({"registry": entries, "count": len(entries)})
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
@@ -4303,7 +4261,7 @@ class DashboardEndpoints:
         """
         import json
         from datetime import datetime, timezone
-        from ..api.models import ModelRegistryEntry, get_session as _gs
+        from ..api import model_names
         from ..api.router import invalidate_registry_cache, normalize_model_id, detect_quantization
 
         try:
@@ -4341,57 +4299,19 @@ class DashboardEndpoints:
 
         now = datetime.now(timezone.utc).isoformat()
         try:
-            with _gs(self.engine) as session:
-                # Uniqueness guards: a benchmark key may belong to only one
-                # logical model, and a (provider, provider-side model ID) pair
-                # may be mapped by only one logical model. Updating the SAME
-                # logical model (below) is always allowed.
-                others = session.query(ModelRegistryEntry).filter(
-                    ModelRegistryEntry.logical_name != logical
-                ).all()
-                for other in others:
-                    if benchmark and other.benchmark_key and other.benchmark_key == benchmark:
-                        self._send_json({
-                            "error": f"benchmark key '{benchmark}' is already registered to '{other.logical_name}'"
-                        }, 400)
-                        return
-                    try:
-                        other_mappings = json.loads(other.provider_mappings_json or "{}")
-                    except json.JSONDecodeError:
-                        other_mappings = {}
-                    for prov, mid in provider_mappings.items():
-                        other_mid = other_mappings.get(prov)
-                        if other_mid and normalize_model_id(other_mid) == normalize_model_id(mid):
-                            self._send_json({
-                                "error": f"provider '{prov}' already maps '{other_mid}' to '{other.logical_name}'"
-                            }, 400)
-                            return
-                entry = session.query(ModelRegistryEntry).filter_by(
-                    logical_name=logical
-                ).first()
-                if entry:
-                    entry.benchmark_key = benchmark
-                    entry.provider_mappings_json = json.dumps(provider_mappings)
-                    if active_release is not None:
-                        entry.active_release = active_release
-                    if benchmark_release is not None:
-                        entry.benchmark_release = benchmark_release
-                    if quantization is not None:
-                        entry.quantization = quantization
-                    entry.updated_at = now
-                    action = "updated"
-                else:
-                    session.add(ModelRegistryEntry(
-                        logical_name=logical,
-                        benchmark_key=benchmark,
-                        provider_mappings_json=json.dumps(provider_mappings),
-                        active_release=active_release,
-                        benchmark_release=benchmark_release,
-                        quantization=quantization,
-                        updated_at=now,
-                    ))
-                    action = "created"
-                session.commit()
+            # Uniqueness guards: a benchmark key may belong to only one logical model,
+            # and a (provider, provider-side model id) pair may be mapped by only one.
+            # Updating the SAME logical model is always allowed.
+            reasons = model_names.conflicts(
+                self.engine, logical_name=logical, benchmark_key=benchmark,
+                provider_mappings=provider_mappings)
+            if reasons:
+                self._send_json({"error": reasons[0]}, 400)
+                return
+            action = model_names.upsert_entry(
+                self.engine, logical_name=logical, benchmark_key=benchmark,
+                provider_mappings=provider_mappings, active_release=active_release,
+                benchmark_release=benchmark_release, quantization=quantization)
             invalidate_registry_cache()
             # Registry identity/aliases changed → also drop the router's cached
             # capability matrix so lookups use the new mapping.
@@ -4406,20 +4326,14 @@ class DashboardEndpoints:
             self._send_json({"error": str(e)}, 500)
 
     def _serve_registry_delete_api(self, logical: str):
-        """DELETE /api/models/registry/{logical} — remove a registry entry."""
-        from ..api.models import ModelRegistryEntry, get_session as _gs
+        """DELETE /api/models/registry/{logical} — retire a registry entry."""
+        from ..api import model_names
         from ..api.router import invalidate_registry_cache
 
         try:
-            with _gs(self.engine) as session:
-                entry = session.query(ModelRegistryEntry).filter_by(
-                    logical_name=logical
-                ).first()
-                if not entry:
-                    self._send_json({"error": "entry not found"}, 404)
-                    return
-                session.delete(entry)
-                session.commit()
+            if not model_names.delete_entry(self.engine, logical):
+                self._send_json({"error": "entry not found"}, 404)
+                return
             invalidate_registry_cache()
             self._audit("registry.delete", logical_name=logical)
             self._send_json({"ok": True, "deleted": logical})

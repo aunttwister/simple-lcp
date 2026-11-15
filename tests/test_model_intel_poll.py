@@ -54,9 +54,15 @@ CREATE TABLE mi_deployments (
 CREATE TABLE mi_models (
     model_id INTEGER PRIMARY KEY, slug TEXT, display_name TEXT, family TEXT,
     status TEXT, supersedes_model_id INTEGER, benchmark_key TEXT, created_at TEXT);
-CREATE TABLE mi_aliases (
-    id INTEGER PRIMARY KEY, endpoint_id INTEGER, alias TEXT, model_id INTEGER,
-    deployment_id INTEGER, source TEXT, valid_from TEXT, valid_to TEXT, notes TEXT);
+CREATE TABLE mi_sources (
+    source_id INTEGER PRIMARY KEY, slug TEXT UNIQUE NOT NULL, kind TEXT NOT NULL,
+    endpoint_id INTEGER, convention TEXT, status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT);
+CREATE TABLE mi_model_names (
+    id INTEGER PRIMARY KEY, model_id INTEGER NOT NULL, source_id INTEGER NOT NULL,
+    name TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0, confidence TEXT,
+    evidence TEXT, valid_from TEXT, valid_to TEXT, first_seen TEXT, last_seen TEXT,
+    verified_at TEXT, note TEXT, UNIQUE(source_id, name));
 CREATE TABLE mi_polls (
     poll_id INTEGER PRIMARY KEY, endpoint_id INTEGER NOT NULL, polled_at TEXT NOT NULL,
     ok INTEGER NOT NULL, http_status INTEGER, model_count INTEGER,
@@ -86,6 +92,10 @@ def db():
         "INSERT INTO mi_models (model_id, slug, display_name, family, status, created_at)"
         " VALUES (1, 'known-model', 'USER EDITED NAME', 'fam', 'active',"
         " '2026-10-30T00:00:00')")
+    for slug, kind in (("canonical", "canonical"), ("benchmark", "benchmark_arena"),
+                       ("lmarena", "benchmark_arena"), ("operator", "operator"),
+                       ("prov-a", "provider_endpoint")):
+        con.execute("INSERT INTO mi_sources (slug, kind) VALUES (?,?)", (slug, kind))
     con.commit()
     yield con
     con.close()
@@ -177,8 +187,9 @@ def test_resolve_only_honours_active_so_new_staging_cannot_route(db):
 def test_a_served_id_that_matches_a_known_alias_is_staged_linked(db):
     """The canonicalisation win: a staged model that has an identity also has
     capabilities, because capability rows join on that identity."""
-    db.execute("INSERT INTO mi_aliases VALUES (1, NULL, 'served/known-model', 1, NULL,"
-               " 'operator', '2026-10-30', NULL, NULL)")
+    db.execute(
+        "INSERT INTO mi_model_names (model_id, source_id, name) VALUES (1,"
+        " (SELECT source_id FROM mi_sources WHERE slug='operator'), 'served/known-model')")
     db.commit()
     out = _poll(db, ["served/known-model"])
     row = db.execute(

@@ -241,23 +241,27 @@ def _extract_model_registry(conn: sqlite3.Connection) -> tuple[bytes, int]:
               "task_type", "score", "source", "benchmark_category",
               "release_label"]
     rows_out: list[list] = []
-    if _table_exists(conn, "model_registry"):
+    if _table_exists(conn, "mi_models"):
         cap = ("model_capabilities" if _table_exists(conn, "model_capabilities")
                else None)
+        # provider_mappings is assembled from mi_model_names (the normalisation
+        # table) as a JSON object, keeping this export's column shape identical.
+        pm = ("(SELECT json_group_object(s.slug, n.name) FROM mi_model_names n"
+              " JOIN mi_sources s ON s.source_id = n.source_id"
+              " WHERE n.model_id = m.model_id AND s.kind = 'provider_endpoint')")
         if cap:
             rows = conn.execute(
-                "SELECT r.logical_name, r.provider_mappings_json, "
-                "r.active_release, c.task_type, c.score, c.source, "
-                "c.benchmark_category, c.release_label "
-                "FROM model_registry r LEFT JOIN model_capabilities c "
-                "ON c.model = r.benchmark_key ORDER BY r.logical_name, c.id"
+                f"SELECT m.slug, COALESCE({pm}, '{{}}'), m.active_release, c.task_type,"
+                " c.score, c.source, c.benchmark_category, c.release_label"
+                " FROM mi_models m LEFT JOIN model_capabilities c"
+                " ON c.model = COALESCE(m.benchmark_key, m.slug)"
+                " ORDER BY m.slug, c.id"
             ).fetchall()
         else:
             rows = [(r[0], r[1], r[2], None, None, None, None, None)
                     for r in conn.execute(
-                        "SELECT logical_name, provider_mappings_json, "
-                        "active_release FROM model_registry ORDER BY "
-                        "logical_name")]
+                        f"SELECT m.slug, COALESCE({pm}, '{{}}'), m.active_release"
+                        " FROM mi_models m ORDER BY m.slug")]
         rows_out = [list(r) for r in rows]
     return _csv_bytes(header, rows_out), len(rows_out)
 
