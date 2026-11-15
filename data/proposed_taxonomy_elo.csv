@@ -1,0 +1,161 @@
+taxonomy,model_slug,display_name,lab,elo,percentile,basis,note
+agentic_multi_step,claude-opus-5,Claude Opus 5,anthropic,1459.8,100.0,derived,from livebench 0.652 (2026-06-25)
+agentic_multi_step,qwen3.8-max,Qwen3.8-Max,qwen,1459.3,92.9,derived,from livebench 0.646 (2026-06-25)
+agentic_multi_step,smaug-agentic,Smaug Agentic,abacus,1459.3,85.7,derived,from livebench 0.646 (2026-06-25)
+agentic_multi_step,claude-fable-5,Claude Fable 5,anthropic,1457.0,78.6,derived,from livebench 0.622 (2026-06-25)
+agentic_multi_step,kimi-k3,Kimi K3,moonshot,1457.0,71.4,derived,from livebench 0.622 (2026-06-25)
+agentic_multi_step,claude-sonnet-5,Claude Sonnet 5,anthropic,1454.4,64.3,derived,from livebench 0.594 (2026-06-25)
+agentic_multi_step,grok-4.5,Grok 4.5,xai,1451.7,57.1,derived,from livebench 0.565 (2026-06-25)
+agentic_multi_step,gpt-5.6-sol,GPT-5.6 Sol,openai,1451.4,50.0,derived,from livebench 0.562 (2026-06-25)
+agentic_multi_step,deepseek-v4-pro,DeepSeek-V4-Pro,deepseek,1450.2,42.9,derived,from livebench 0.549 (2026-08-13)
+agentic_multi_step,gpt-5.6-terra,GPT-5.6 Terra,openai,1450.2,35.7,derived,from livebench 0.549 (2026-06-25)
+agentic_multi_step,gpt-5.5,GPT-5.5,openai,1449.4,28.6,derived,from livebench 0.540 (2026-06-25)
+agentic_multi_step,gpt-5.6-luna,GPT-5.6 Luna,openai,1444.2,21.4,derived,from livebench 0.484 (2026-06-25)
+agentic_multi_step,gemini-3.6-flash,Gemini 3.6 Flash,google,1439.5,14.3,derived,from livebench 0.434 (2026-06-25)
+agentic_multi_step,minimax-m3,MiniMax M3,minimax,1437.0,7.1,derived,from livebench 0.407 (2026-06-25)
+agentic_multi_step,qwen3.6-27b,Qwen3.6-27B,qwen,1435.7,0.0,derived,from livebench 0.393 (2026-06-25)
+agentic_multi_step,deepseek-flash,DeepSeek-V4.1-Flash,deepseek,,,operator-input,no source for this axis
+agentic_multi_step,glm-5.3-flash,GLM-5.3-Flash,glm,,,operator-input,no source for this axis
+agentic_multi_step,ox-alpha-free,ox-alpha-free,,,,operator-input,no source for this axis
+agentic_multi_step,qwen3.8-27b-heretic,Qwen3.8-27B Heretic,qwen,,,operator-input,no source for this axis
+agentic_multi_step,qwen3.8-flash-next,Qwen3.8-Flash-Next,qwen,,,operator-input,no source for this axis
+casual_chat,claude-fable-5,Claude Fable 5,anthropic,1504.6,100.0,arena-measured,arena multi_turn 2026-11-11
+casual_chat,claude-opus-5,Claude Opus 5,anthropic,1498.8,93.8,arena-measured,arena multi_turn 2026-11-11
+casual_chat,qwen3.8-max,Qwen3.8-Max,qwen,1491.9,87.5,arena-measured,arena multi_turn 2026-11-11
+casual_chat,kimi-k3,Kimi K3,moonshot,1488.7,81.2,arena-measured,arena multi_turn 2026-11-11
+casual_chat,gemini-3.6-flash,Gemini 3.6 Flash,google,1483.2,75.0,arena-measured,arena multi_turn 2026-11-11
+casual_chat,smaug-agentic,Smaug Agentic,abacus,1477.7,68.8,derived,from livebench 0.844 (2026-06-25)
+casual_chat,gpt-5.5,GPT-5.5,openai,1477.0,62.5,arena-measured,arena multi_turn 2026-11-11
+casual_chat,glm-5.3-flash,GLM-5.3-Flash,glm,1471.4,56.2,arena-measured,arena multi_turn 2026-11-11
+casual_chat,qwen3.8-flash-next,Qwen3.8-Flash-Next,qwen,1463.9,50.0,derived,from lcp_benchmark 0.696 (2026-09-05)
+casual_chat,gpt-5.6-sol,GPT-5.6 Sol,openai,1462.1,43.8,arena-measured,arena multi_turn 2026-11-11
+casual_chat,qwen3.6-27b,Qwen3.6-27B,qwen,1458.1,37.5,derived,from livebench 0.633 (2026-06-25)
+casual_chat,gpt-5.6-terra,GPT-5.6 Terra,openai,1455.0,31.2,arena-measured,arena multi_turn 2026-11-11
+casual_chat,grok-4.5,Grok 4.5,xai,1454.9,25.0,arena-measured,arena multi_turn 2026-11-11
+casual_chat,claude-sonnet-5,Claude Sonnet 5,anthropic,1453.7,18.8,arena-measured,arena multi_turn 2026-11-11
+casual_chat,deepseek-v4-pro,DeepSeek-V4-Pro,deepseek,1451.7,12.5,arena-measured,arena multi_turn 2026-11-11
+casual_chat,minimax-m3,MiniMax M3,minimax,1438.6,6.2,arena-measured,arena multi_turn 2026-11-11
+casual_chat,gpt-5.6-luna,GPT-5.6 Luna,openai,1434.5,0.0,arena-measured,arena multi_turn 2026-11-11
+casual_chat,deepseek-flash,DeepSeek-V4.1-Flash,deepseek,,,operator-input,no source for this axis
+casual_chat,ox-alpha-free,ox-alpha-free,,,,operator-input,no source for this axis
+casual_chat,qwen3.8-27b-heretic,Qwen3.8-27B Heretic,qwen,,,operator-input,no source for this axis
+code_generation,claude-opus-5,Claude Opus 5,anthropic,1532.0,100.0,arena-measured,arena coding 2026-11-11
+code_generation,claude-fable-5,Claude Fable 5,anthropic,1518.8,93.8,arena-measured,arena coding 2026-11-11
+code_generation,glm-5.3-flash,GLM-5.3-Flash,glm,1509.4,87.5,arena-measured,arena coding 2026-11-11
+code_generation,kimi-k3,Kimi K3,moonshot,1506.3,81.2,arena-measured,arena coding 2026-11-11
+code_generation,qwen3.8-max,Qwen3.8-Max,qwen,1501.7,75.0,arena-measured,arena coding 2026-11-11
+code_generation,gpt-5.6-sol,GPT-5.6 Sol,openai,1495.5,68.8,arena-measured,arena coding 2026-11-11
+code_generation,gpt-5.5,GPT-5.5,openai,1493.6,62.5,arena-measured,arena coding 2026-11-11
+code_generation,gemini-3.6-flash,Gemini 3.6 Flash,google,1491.5,56.2,arena-measured,arena coding 2026-11-11
+code_generation,gpt-5.6-terra,GPT-5.6 Terra,openai,1485.4,50.0,arena-measured,arena coding 2026-11-11
+code_generation,claude-sonnet-5,Claude Sonnet 5,anthropic,1483.4,43.8,arena-measured,arena coding 2026-11-11
+code_generation,qwen3.8-flash-next,Qwen3.8-Flash-Next,qwen,1480.9,37.5,derived,from lcp_benchmark 0.878 (2026-09-05)
+code_generation,smaug-agentic,Smaug Agentic,abacus,1476.0,31.2,derived,from livebench 0.825 (2026-06-25)
+code_generation,grok-4.5,Grok 4.5,xai,1474.4,25.0,arena-measured,arena coding 2026-11-11
+code_generation,minimax-m3,MiniMax M3,minimax,1468.1,18.8,arena-measured,arena coding 2026-11-11
+code_generation,deepseek-v4-pro,DeepSeek-V4-Pro,deepseek,1467.4,12.5,arena-measured,arena coding 2026-11-11
+code_generation,gpt-5.6-luna,GPT-5.6 Luna,openai,1467.0,6.2,arena-measured,arena coding 2026-11-11
+code_generation,qwen3.6-27b,Qwen3.6-27B,qwen,1466.0,0.0,derived,from livebench 0.718 (2026-06-25)
+code_generation,deepseek-flash,DeepSeek-V4.1-Flash,deepseek,,,operator-input,no source for this axis
+code_generation,ox-alpha-free,ox-alpha-free,,,,operator-input,no source for this axis
+code_generation,qwen3.8-27b-heretic,Qwen3.8-27B Heretic,qwen,,,operator-input,no source for this axis
+debugging,claude-opus-5,Claude Opus 5,anthropic,1532.0,100.0,arena-measured,arena coding 2026-11-11
+debugging,claude-fable-5,Claude Fable 5,anthropic,1518.8,92.9,arena-measured,arena coding 2026-11-11
+debugging,glm-5.3-flash,GLM-5.3-Flash,glm,1509.4,85.7,arena-measured,arena coding 2026-11-11
+debugging,kimi-k3,Kimi K3,moonshot,1506.3,78.6,arena-measured,arena coding 2026-11-11
+debugging,qwen3.8-max,Qwen3.8-Max,qwen,1501.7,71.4,arena-measured,arena coding 2026-11-11
+debugging,gpt-5.6-sol,GPT-5.6 Sol,openai,1495.5,64.3,arena-measured,arena coding 2026-11-11
+debugging,gpt-5.5,GPT-5.5,openai,1493.6,57.1,arena-measured,arena coding 2026-11-11
+debugging,gemini-3.6-flash,Gemini 3.6 Flash,google,1491.5,50.0,arena-measured,arena coding 2026-11-11
+debugging,gpt-5.6-terra,GPT-5.6 Terra,openai,1485.4,42.9,arena-measured,arena coding 2026-11-11
+debugging,claude-sonnet-5,Claude Sonnet 5,anthropic,1483.4,35.7,arena-measured,arena coding 2026-11-11
+debugging,qwen3.8-flash-next,Qwen3.8-Flash-Next,qwen,1480.9,28.6,derived,from lcp_benchmark 0.878 (2026-09-05)
+debugging,grok-4.5,Grok 4.5,xai,1474.4,21.4,arena-measured,arena coding 2026-11-11
+debugging,minimax-m3,MiniMax M3,minimax,1468.1,14.3,arena-measured,arena coding 2026-11-11
+debugging,deepseek-v4-pro,DeepSeek-V4-Pro,deepseek,1467.4,7.1,arena-measured,arena coding 2026-11-11
+debugging,gpt-5.6-luna,GPT-5.6 Luna,openai,1467.0,0.0,arena-measured,arena coding 2026-11-11
+debugging,deepseek-flash,DeepSeek-V4.1-Flash,deepseek,,,operator-input,no source for this axis
+debugging,ox-alpha-free,ox-alpha-free,,,,operator-input,no source for this axis
+debugging,qwen3.6-27b,Qwen3.6-27B,qwen,,,operator-input,no source for this axis
+debugging,qwen3.8-27b-heretic,Qwen3.8-27B Heretic,qwen,,,operator-input,no source for this axis
+debugging,smaug-agentic,Smaug Agentic,abacus,,,operator-input,no source for this axis
+planning,claude-opus-5,Claude Opus 5,anthropic,1517.8,100.0,arena-measured,arena instruction_following 2026-11-11
+planning,claude-fable-5,Claude Fable 5,anthropic,1502.7,93.8,arena-measured,arena instruction_following 2026-11-11
+planning,kimi-k3,Kimi K3,moonshot,1483.9,87.5,arena-measured,arena instruction_following 2026-11-11
+planning,qwen3.8-max,Qwen3.8-Max,qwen,1483.4,81.2,arena-measured,arena instruction_following 2026-11-11
+planning,gpt-5.6-sol,GPT-5.6 Sol,openai,1482.6,75.0,arena-measured,arena instruction_following 2026-11-11
+planning,qwen3.8-flash-next,Qwen3.8-Flash-Next,qwen,1481.1,68.8,derived,from lcp_benchmark 0.880 (2026-09-09)
+planning,glm-5.3-flash,GLM-5.3-Flash,glm,1479.8,62.5,arena-measured,arena instruction_following 2026-11-11
+planning,gpt-5.5,GPT-5.5,openai,1478.1,56.2,arena-measured,arena instruction_following 2026-11-11
+planning,gemini-3.6-flash,Gemini 3.6 Flash,google,1467.2,50.0,arena-measured,arena instruction_following 2026-11-11
+planning,smaug-agentic,Smaug Agentic,abacus,1465.2,43.8,derived,from livebench 0.710 (2026-06-25)
+planning,gpt-5.6-terra,GPT-5.6 Terra,openai,1455.4,37.5,arena-measured,arena instruction_following 2026-11-11
+planning,claude-sonnet-5,Claude Sonnet 5,anthropic,1452.9,31.2,arena-measured,arena instruction_following 2026-11-11
+planning,qwen3.6-27b,Qwen3.6-27B,qwen,1448.7,25.0,derived,from livebench 0.532 (2026-06-25)
+planning,deepseek-v4-pro,DeepSeek-V4-Pro,deepseek,1447.5,18.8,arena-measured,arena instruction_following 2026-11-11
+planning,grok-4.5,Grok 4.5,xai,1445.9,12.5,arena-measured,arena instruction_following 2026-11-11
+planning,gpt-5.6-luna,GPT-5.6 Luna,openai,1437.2,6.2,arena-measured,arena instruction_following 2026-11-11
+planning,minimax-m3,MiniMax M3,minimax,1427.6,0.0,arena-measured,arena instruction_following 2026-11-11
+planning,deepseek-flash,DeepSeek-V4.1-Flash,deepseek,,,operator-input,no source for this axis
+planning,ox-alpha-free,ox-alpha-free,,,,operator-input,no source for this axis
+planning,qwen3.8-27b-heretic,Qwen3.8-27B Heretic,qwen,,,operator-input,no source for this axis
+reasoning_chain,claude-opus-5,Claude Opus 5,anthropic,1530.7,100.0,arena-measured,arena math 2026-11-11
+reasoning_chain,claude-fable-5,Claude Fable 5,anthropic,1516.4,93.8,arena-measured,arena math 2026-11-11
+reasoning_chain,qwen3.8-max,Qwen3.8-Max,qwen,1509.1,87.5,arena-measured,arena math 2026-11-11
+reasoning_chain,gemini-3.6-flash,Gemini 3.6 Flash,google,1504.5,81.2,arena-measured,arena math 2026-11-11
+reasoning_chain,glm-5.3-flash,GLM-5.3-Flash,glm,1503.2,75.0,arena-measured,arena math 2026-11-11
+reasoning_chain,kimi-k3,Kimi K3,moonshot,1495.8,68.8,arena-measured,arena math 2026-11-11
+reasoning_chain,qwen3.8-flash-next,Qwen3.8-Flash-Next,qwen,1486.5,62.5,derived,from lcp_benchmark 0.938 (2026-09-05)
+reasoning_chain,smaug-agentic,Smaug Agentic,abacus,1477.3,56.2,derived,from livebench 0.839 (2026-06-25)
+reasoning_chain,gpt-5.5,GPT-5.5,openai,1476.7,50.0,arena-measured,arena math 2026-11-11
+reasoning_chain,qwen3.6-27b,Qwen3.6-27B,qwen,1473.5,43.8,derived,from livebench 0.799 (2026-06-25)
+reasoning_chain,gpt-5.6-sol,GPT-5.6 Sol,openai,1471.7,37.5,arena-measured,arena math 2026-11-11
+reasoning_chain,claude-sonnet-5,Claude Sonnet 5,anthropic,1466.5,31.2,arena-measured,arena math 2026-11-11
+reasoning_chain,gpt-5.6-terra,GPT-5.6 Terra,openai,1462.3,25.0,arena-measured,arena math 2026-11-11
+reasoning_chain,gpt-5.6-luna,GPT-5.6 Luna,openai,1457.2,18.8,arena-measured,arena math 2026-11-11
+reasoning_chain,grok-4.5,Grok 4.5,xai,1457.2,12.5,arena-measured,arena math 2026-11-11
+reasoning_chain,deepseek-v4-pro,DeepSeek-V4-Pro,deepseek,1432.8,6.2,arena-measured,arena math 2026-11-11
+reasoning_chain,minimax-m3,MiniMax M3,minimax,1423.1,0.0,arena-measured,arena math 2026-11-11
+reasoning_chain,deepseek-flash,DeepSeek-V4.1-Flash,deepseek,,,operator-input,no source for this axis
+reasoning_chain,ox-alpha-free,ox-alpha-free,,,,operator-input,no source for this axis
+reasoning_chain,qwen3.8-27b-heretic,Qwen3.8-27B Heretic,qwen,,,operator-input,no source for this axis
+research_deep,gpt-5.5,GPT-5.5,openai,1475.1,100.0,derived,from livebench 0.816 (2026-06-25)
+research_deep,claude-fable-5,Claude Fable 5,anthropic,1474.1,93.3,derived,from livebench 0.805 (2026-06-25)
+research_deep,smaug-agentic,Smaug Agentic,abacus,1473.5,86.7,derived,from livebench 0.799 (2026-06-25)
+research_deep,gpt-5.6-sol,GPT-5.6 Sol,openai,1473.4,80.0,derived,from livebench 0.798 (2026-06-25)
+research_deep,gpt-5.6-terra,GPT-5.6 Terra,openai,1473.0,73.3,derived,from livebench 0.793 (2026-06-25)
+research_deep,deepseek-v4-pro,DeepSeek-V4-Pro,deepseek,1472.9,66.7,derived,from livebench 0.792 (2026-08-13)
+research_deep,kimi-k3,Kimi K3,moonshot,1472.4,60.0,derived,from livebench 0.787 (2026-06-25)
+research_deep,qwen3.8-max,Qwen3.8-Max,qwen,1472.1,53.3,derived,from livebench 0.784 (2026-06-25)
+research_deep,gpt-5.6-luna,GPT-5.6 Luna,openai,1471.8,46.7,derived,from livebench 0.780 (2026-06-25)
+research_deep,minimax-m3,MiniMax M3,minimax,1470.1,40.0,derived,from livebench 0.762 (2026-06-25)
+research_deep,claude-opus-5,Claude Opus 5,anthropic,1468.6,33.3,derived,from livebench 0.746 (2026-06-25)
+research_deep,grok-4.5,Grok 4.5,xai,1467.1,26.7,derived,from livebench 0.730 (2026-06-25)
+research_deep,claude-sonnet-5,Claude Sonnet 5,anthropic,1465.9,20.0,derived,from livebench 0.717 (2026-06-25)
+research_deep,qwen3.6-27b,Qwen3.6-27B,qwen,1464.7,13.3,derived,from livebench 0.704 (2026-06-25)
+research_deep,qwen3.8-flash-next,Qwen3.8-Flash-Next,qwen,1464.1,6.7,derived,from lcp_benchmark 0.698 (2026-09-05)
+research_deep,gemini-3.6-flash,Gemini 3.6 Flash,google,1457.8,0.0,derived,from livebench 0.630 (2026-06-25)
+research_deep,deepseek-flash,DeepSeek-V4.1-Flash,deepseek,,,operator-input,no source for this axis
+research_deep,glm-5.3-flash,GLM-5.3-Flash,glm,,,operator-input,no source for this axis
+research_deep,ox-alpha-free,ox-alpha-free,,,,operator-input,no source for this axis
+research_deep,qwen3.8-27b-heretic,Qwen3.8-27B Heretic,qwen,,,operator-input,no source for this axis
+unit_tests,claude-opus-5,Claude Opus 5,anthropic,1532.0,100.0,arena-measured,arena coding 2026-11-11
+unit_tests,claude-fable-5,Claude Fable 5,anthropic,1518.8,92.9,arena-measured,arena coding 2026-11-11
+unit_tests,glm-5.3-flash,GLM-5.3-Flash,glm,1509.4,85.7,arena-measured,arena coding 2026-11-11
+unit_tests,kimi-k3,Kimi K3,moonshot,1506.3,78.6,arena-measured,arena coding 2026-11-11
+unit_tests,qwen3.8-max,Qwen3.8-Max,qwen,1501.7,71.4,arena-measured,arena coding 2026-11-11
+unit_tests,gpt-5.6-sol,GPT-5.6 Sol,openai,1495.5,64.3,arena-measured,arena coding 2026-11-11
+unit_tests,gpt-5.5,GPT-5.5,openai,1493.6,57.1,arena-measured,arena coding 2026-11-11
+unit_tests,gemini-3.6-flash,Gemini 3.6 Flash,google,1491.5,50.0,arena-measured,arena coding 2026-11-11
+unit_tests,gpt-5.6-terra,GPT-5.6 Terra,openai,1485.4,42.9,arena-measured,arena coding 2026-11-11
+unit_tests,claude-sonnet-5,Claude Sonnet 5,anthropic,1483.4,35.7,arena-measured,arena coding 2026-11-11
+unit_tests,qwen3.8-flash-next,Qwen3.8-Flash-Next,qwen,1480.9,28.6,derived,from lcp_benchmark 0.878 (2026-09-05)
+unit_tests,grok-4.5,Grok 4.5,xai,1474.4,21.4,arena-measured,arena coding 2026-11-11
+unit_tests,minimax-m3,MiniMax M3,minimax,1468.1,14.3,arena-measured,arena coding 2026-11-11
+unit_tests,deepseek-v4-pro,DeepSeek-V4-Pro,deepseek,1467.4,7.1,arena-measured,arena coding 2026-11-11
+unit_tests,gpt-5.6-luna,GPT-5.6 Luna,openai,1467.0,0.0,arena-measured,arena coding 2026-11-11
+unit_tests,deepseek-flash,DeepSeek-V4.1-Flash,deepseek,,,operator-input,no source for this axis
+unit_tests,ox-alpha-free,ox-alpha-free,,,,operator-input,no source for this axis
+unit_tests,qwen3.6-27b,Qwen3.6-27B,qwen,,,operator-input,no source for this axis
+unit_tests,qwen3.8-27b-heretic,Qwen3.8-27B Heretic,qwen,,,operator-input,no source for this axis
+unit_tests,smaug-agentic,Smaug Agentic,abacus,,,operator-input,no source for this axis
