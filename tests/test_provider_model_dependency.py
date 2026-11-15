@@ -4,7 +4,7 @@ Measured on 2026-10-23 in prod LCP:
   * `provider_health` held `local-zgx` rows (degraded / 6 failures) for a provider that
     is NOT in the config — it had been renamed to `local-sparks` and rename never moved
     the health rows, so the ghost survived every restart.
-  * `model_registry` mapped `qwen3.8-flash-next` to `zgx` and `llamacpp`, neither of
+  * the model registry mapped `qwen3.8-flash-next` to `zgx` and `llamacpp`, neither of
     which exists in the config, and nine other mappings pointed at model IDs the named
     provider does not declare.
   * DELETE /api/providers removed chain steps blindly. If that emptied a profile's
@@ -18,27 +18,62 @@ These tests pin the corrected contract:
   * an emptied chain makes the profile INVALID (kept, flagged, 503 at request time);
   * delete refuses with 409 unless forced, and cascades the registry;
   * rename moves health rows and registry mappings with the name.
+
+The registry itself was re-homed (alembic 034/035): the old `model_registry` JSON blob
+`provider_mappings_json` (`{provider: provider_side_name}`) and `mi_aliases` are gone.
+A provider spelling is now a `mi_model_names` row owned by a `mi_sources` row whose
+`kind = 'provider_endpoint'` — one row per (model × naming authority). `zgx` and
+`llamacpp` are therefore source rows, not keys in a blob: a provider that is NOT a live
+endpoint is still recorded (as a name row under its own source) and still rewritten when
+the provider is renamed or deleted.
 """
-import json
+import sqlite3
+import sys
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from src.api.config import Config, SEED_CONFIG
-from src.api.models import Base, ModelRegistryEntry, ProviderHealth, get_engine, get_session
+from src.api.models import Base, ProviderHealth, get_engine, get_session
 from src.server.endpoints import (
     ProviderEndpoints,
     _rekey_provider_in_registry,
     _strip_provider_from_registry,
 )
 
+REPO = Path(__file__).resolve().parent.parent
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
+from tests._model_names_fixtures import (  # noqa: E402
+    add_name,
+    add_model,
+    add_source,
+    mi_schema,
+    provider_mappings,
+)
+
 
 @pytest.fixture()
 def temp_db(tmp_path):
-    engine = get_engine(str(tmp_path / "t.db"))
-    Base.metadata.create_all(engine)
+    """A DB carrying BOTH the ORM tables (provider_health lives here) and the
+    model-name normalisation tables that the accessors read."""
+    path = str(tmp_path / "t.db")
+    engine = get_engine(path)
+    Base.metadata.create_all(engine)          # provider_health, requests, ...
+    con = sqlite3.connect(path)
+    mi_schema(con)                            # mi_sources / mi_model_names / ...
+    con.close()
     yield engine
     engine.dispose()
+
+
+def _conn(engine):
+    """An open connection onto the same file the engine persists to."""
+    con = sqlite3.connect(engine.url.database)
+    con.row_factory = sqlite3.Row
+    return con
 
 
 class _Store:
@@ -79,35 +114,39 @@ class TestLoaderQuarantine:
 
 class TestRegistryCascade:
     def _seed(self, engine):
-        with get_session(engine) as s:
-            s.add(ModelRegistryEntry(logical_name="qwen3.8-flash-next",
-                                     benchmark_key="qwen3.8-flash-next",
-                                     provider_mappings_json=json.dumps(
-                                         {"zgx": "qwen3.8-flash-next",
-                                          "llamacpp": "qwen3.8-flash-next"})))
-            s.add(ModelRegistryEntry(logical_name="deepseek-flash",
-                                     benchmark_key="deepseek-flash",
-                                     provider_mappings_json=json.dumps(
-                                         {"deepseek": "deepseek-flash",
-                                          "opencode": "deepseek-v4.1-flash"})))
-            s.commit()
+        """`qwen3.8-flash-next` named by two non-endpoint providers (`zgx`,
+        `llamacpp`) and `deepseek-flash` named by `deepseek` + `opencode`.
+
+        In the old table this was one `model_registry` row per model with a
+        `provider_mappings_json` blob. Now it is a provider_endpoint source per
+        provider plus one `mi_model_names` row per (model, provider).
+        """
+        con = _conn(engine)
+        for slug in ("zgx", "llamacpp", "deepseek", "opencode"):
+            add_source(con, slug)                     # kind='provider_endpoint'
+        qwen = add_model(con, "qwen3.8-flash-next", benchmark_key="qwen3.8-flash-next")
+        add_name(con, qwen, "zgx", "qwen3.8-flash-next")
+        add_name(con, qwen, "llamacpp", "qwen3.8-flash-next")
+        ds = add_model(con, "deepseek-flash", benchmark_key="deepseek-flash")
+        add_name(con, ds, "deepseek", "deepseek-flash")
+        add_name(con, ds, "opencode", "deepseek-v4.1-flash")
+        con.commit()
+        con.close()
 
     def test_strip_counts_rows_and_unserved_models(self, temp_db):
         self._seed(temp_db)
         # qwen keeps zgx, so removing llamacpp alone leaves it served
         assert _strip_provider_from_registry(temp_db, "llamacpp") == (1, 0)
-        with get_session(temp_db) as s:
-            qwen = s.query(ModelRegistryEntry).filter_by(
-                logical_name="qwen3.8-flash-next").one()
-            assert json.loads(qwen.provider_mappings_json) == {"zgx": "qwen3.8-flash-next"}
-            ds = s.query(ModelRegistryEntry).filter_by(logical_name="deepseek-flash").one()
-            assert "opencode" in json.loads(ds.provider_mappings_json)
-        # removing the last provider of qwen leaves it unserved, but the row survives
+        con = _conn(temp_db)
+        assert provider_mappings(con, "qwen3.8-flash-next") == {
+            "zgx": "qwen3.8-flash-next"}
+        assert "opencode" in provider_mappings(con, "deepseek-flash")
+        con.close()
+        # removing the last provider of qwen leaves it unserved, but the model survives
         assert _strip_provider_from_registry(temp_db, "zgx") == (1, 1)
-        with get_session(temp_db) as s:
-            qwen = s.query(ModelRegistryEntry).filter_by(
-                logical_name="qwen3.8-flash-next").one()
-            assert json.loads(qwen.provider_mappings_json) == {}
+        con = _conn(temp_db)
+        assert provider_mappings(con, "qwen3.8-flash-next") == {}
+        con.close()
 
     def test_strip_unknown_provider_is_a_no_op(self, temp_db):
         self._seed(temp_db)
@@ -122,11 +161,11 @@ class TestRegistryCascade:
             s.commit()
         changed = _rekey_provider_in_registry(temp_db, "zgx", "local-sparks")
         assert changed == 1
+        con = _conn(temp_db)
+        mappings = provider_mappings(con, "qwen3.8-flash-next")
+        assert "local-sparks" in mappings and "zgx" not in mappings
+        con.close()
         with get_session(temp_db) as s:
-            qwen = s.query(ModelRegistryEntry).filter_by(
-                logical_name="qwen3.8-flash-next").one()
-            mappings = json.loads(qwen.provider_mappings_json)
-            assert "local-sparks" in mappings and "zgx" not in mappings
             ghost = s.query(ProviderHealth).filter_by(provider="zgx").all()
             moved = s.query(ProviderHealth).filter_by(provider="local-sparks").all()
             assert ghost == [] and len(moved) == 1
@@ -201,11 +240,14 @@ class TestProviderDelete:
         assert [s["provider"] for s in cfg.raw["profiles"]["l2"]["chain"]] == ["opencode"]
 
     def test_delete_strips_registry_mappings(self, temp_db):
-        with get_session(temp_db) as s:
-            s.add(ModelRegistryEntry(logical_name="x", benchmark_key="x",
-                                     provider_mappings_json=json.dumps(
-                                         {"deepseek": "x", "opencode": "x"})))
-            s.commit()
+        con = _conn(temp_db)
+        add_source(con, "deepseek")
+        add_source(con, "opencode")
+        x = add_model(con, "x", benchmark_key="x")
+        add_name(con, x, "deepseek", "x")
+        add_name(con, x, "opencode", "x")
+        con.commit()
+        con.close()
         cfg = _cfg({"l2": {"chain": [{"provider": "deepseek", "model": "m"},
                                      {"provider": "opencode", "model": "m"}]}})
         h = _Handler(cfg, temp_db)
@@ -215,6 +257,6 @@ class TestProviderDelete:
         assert status == 200
         assert body["registry_mappings_updated"] == 1
         assert body["models_unserved"] == 0
-        with get_session(temp_db) as s:
-            entry = s.query(ModelRegistryEntry).filter_by(logical_name="x").one()
-            assert json.loads(entry.provider_mappings_json) == {"opencode": "x"}
+        con = _conn(temp_db)
+        assert provider_mappings(con, "x") == {"opencode": "x"}
+        con.close()

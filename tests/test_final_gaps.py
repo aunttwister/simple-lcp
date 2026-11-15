@@ -194,9 +194,23 @@ class TestCapabilitySeedEndpoint:
 # ── Endpoint: registry upsert quantization + update ─────────────────────────
 
 class TestRegistryUpsertEdges:
+    @staticmethod
+    def _ensure_mi_schema(engine):
+        """Create the ``mi_*`` tables the registry endpoint reads and writes.
+
+        ``Base.metadata.create_all`` only builds the SQLAlchemy tables; the
+        registry now lives in ``mi_models`` / ``mi_model_names`` (migration 034),
+        which SQLAlchemy does not map. Mirror that schema on the temp DB so the
+        endpoint has somewhere to write, exactly as a migrated prod DB would.
+        """
+        import sqlite3 as _sqlite3
+        from tests._model_names_fixtures import mi_schema
+        mi_schema(_sqlite3.connect(engine.url.database)).close()
+
     def test_upsert_detects_quantization(self, temp_db):
         from tests.test_server import TestHandler
-        from src.api.models import ModelRegistryEntry, get_session
+        from src.api import model_names
+        self._ensure_mi_schema(temp_db)
         body = json.dumps({
             "logical_name": "qwen3.6-27b-q4_k_m",
             "benchmark_key": "qwen3.6-27b-q4_k_m",
@@ -205,12 +219,12 @@ class TestRegistryUpsertEdges:
         h = TestHandler(path="/api/models/registry", method="POST", engine=temp_db, body=body)
         h.do_POST()
         assert h.send_response.call_args[0][0] == 200
-        with get_session(temp_db) as s:
-            entry = s.query(ModelRegistryEntry).filter_by(logical_name="qwen3.6-27b-q4_k_m").first()
-            assert entry.quantization == "Q4_K_M"
+        entries = {e["logical_name"]: e for e in model_names.registry_entries(temp_db)}
+        assert entries["qwen3.6-27b-q4_k_m"]["quantization"] == "Q4_K_M"
 
     def test_upsert_updates_existing(self, temp_db):
         from tests.test_server import TestHandler, _json_body
+        self._ensure_mi_schema(temp_db)
         body = json.dumps({
             "logical_name": "deepseek-v4-pro",
             "benchmark_key": "deepseek-v4-pro",

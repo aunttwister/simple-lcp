@@ -1,11 +1,12 @@
 """Tests for router.py"""
 import os
+import sqlite3
 import sys
 import tempfile
 
 import pytest
 import src.api.router as router_mod
-from tests import _intent_oracle
+from tests import _intent_oracle, _model_names_fixtures
 from src.api.router import (
     CapabilityRouter, classify_task, get_dynamic_router,
     logical_model_name, benchmark_model_name,
@@ -41,6 +42,12 @@ def registry_db():
     engine = get_engine(path)
     Base.metadata.create_all(engine)
     engine.dispose()
+    # The model-name tables (mi_models / mi_sources / mi_model_names / …) are owned
+    # by alembic 034, not by the SQLAlchemy metadata, so create them explicitly
+    # before seeding the registry into them.
+    con = sqlite3.connect(path)
+    _model_names_fixtures.mi_schema(con)
+    con.close()
     from src.api.seed_capabilities import seed_model_registry
     seed_model_registry(path)
     yield path
@@ -1330,18 +1337,19 @@ def test_logical_model_name_normalizes_llamacpp_path(registry_db):
 
 def test_load_model_registry_includes_quantization(registry_db):
     from src.api.seed_capabilities import load_model_registry
-    # Insert a quantized entry and re-read.
-    from src.api.models import ModelRegistryEntry, get_engine, get_session
-    import json
-    engine = get_engine(registry_db)
-    with get_session(engine) as session:
-        session.add(ModelRegistryEntry(
-            logical_name="qwen3.6-27b-q4_k_m",
-            benchmark_key="qwen3.6-27b-q4_k_m",
-            provider_mappings_json=json.dumps({"llamacpp": "/models/qwen3.6-27b-q4_k_m.gguf"}),
-            quantization="Q4_K_M",
-        ))
-        session.commit()
+    # Insert a quantized model and its provider-side spelling into the new
+    # mi_models / mi_model_names tables, then re-read.
+    con = sqlite3.connect(registry_db)
+    con.row_factory = sqlite3.Row
+    model_id = _model_names_fixtures.add_model(
+        con, "qwen3.6-27b-q4_k_m",
+        benchmark_key="qwen3.6-27b-q4_k_m",
+        quantization="Q4_K_M",
+    )
+    _model_names_fixtures.add_endpoint(con, "llamacpp")
+    _model_names_fixtures.add_name(
+        con, model_id, "llamacpp", "/models/qwen3.6-27b-q4_k_m.gguf", verified=True)
+    con.close()
     registry = load_model_registry(registry_db)
     entry = registry["qwen3.6-27b-q4_k_m"]
     assert entry["quantization"] == "Q4_K_M"
