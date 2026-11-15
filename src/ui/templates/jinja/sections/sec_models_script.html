@@ -881,13 +881,17 @@ function renderBoard(data) {
       // the operator enumerated rank / model / lab / Elo / percentile / date.
       const boards = (r.boards || [r.board]).filter(Boolean).join(', ') || '—';
       const title = `${esc(r.source === 'custom' ? 'your rating' : (r.basis || 'board'))} — ${esc(boards)}`;
+      // Position in THIS board as the row number; the board's own rank (arena's
+      // rank out of its whole field) rides in the percentile's title, so the two
+      // rankings are never confused for one another.
+      const rankNote = r.rank ? `arena rank ${r.rank}${r.n ? ' of ' + r.n : ''}` : '';
       html.push('<tr>' +
-        `<td class="num">${r.rank ? r.rank : (i + 1)}</td>` +
+        `<td class="num">${i + 1}</td>` +
         `<td class="mono">${esc(r.model_slug)}` +
         (r.effort ? `<span class="lb-effort">${esc(r.effort)}</span>` : '') + '</td>' +
         `<td>${esc(r.lab || '—')}</td>` +
         `<td class="num" title="${title}">${fmtValue(r.value, r.unit)}</td>` +
-        `<td class="num">${r.percentile === null || r.percentile === undefined ? '—' : Number(r.percentile).toFixed(1)}</td>` +
+        `<td class="num"${rankNote ? ` title="${rankNote}"` : ''}>${r.percentile === null || r.percentile === undefined ? '—' : Number(r.percentile).toFixed(1)}</td>` +
         `<td>${esc(fmtWhen(r.published))}</td>` +
         '</tr>');
     });
