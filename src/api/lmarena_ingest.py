@@ -133,9 +133,12 @@ def ingest(con: sqlite3.Connection, *, dry_run: bool = False) -> dict:
         if dry_run:
             continue
         n = max(1, per_category.get(category, 1))
-        # score = percentile within the category (higher is better, 0-100),
-        # raw_score = the arena Elo itself.
-        percentile = round(100.0 * (n - float(rank) + 1.0) / n, 2)
+        # score = percentile within the category, expressed as a 0-1 fraction to match
+        # every other writer of this column (livebench/lcp_benchmark store an accuracy
+        # in 0-1). Writing the percentile as 0-100 here made the models page render
+        # 94.70 as 9470.00%: the UI does `score * 100`.
+        # raw_score = the arena Elo itself, which is where the real measurement lives.
+        percentile = round((n - float(rank) + 1.0) / n, 4)
         cur.execute(
             "DELETE FROM model_capabilities WHERE model=? AND task_type=? AND source='lmarena'",
             (canonical, task))
