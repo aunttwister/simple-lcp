@@ -86,8 +86,13 @@ def resolve_canonical(con: sqlite3.Connection, raw: str) -> Optional[str]:
         UNION SELECT m.slug, n.name FROM mi_model_names n JOIN mi_models m ON m.model_id = n.model_id
         UNION SELECT m.slug, d.served_id FROM mi_deployments d JOIN mi_models m ON m.model_id = d.model_id
     """):
-        if _loose(r["k"] or "") == n:
-            return r["slug"]
+        # Positional access on purpose: this is public API that ad-hoc scripts
+        # call with a bare sqlite3.connect(...), which yields tuples, not
+        # sqlite3.Row. ``Row`` supports integer indexing too, so (0, 1) is
+        # correct for both and a caller cannot hit
+        # "TypeError: tuple indices must be integers or slices, not str".
+        if _loose(r[1] or "") == n:
+            return r[0]
     return None
 
 
@@ -103,9 +108,11 @@ def suggest(con: sqlite3.Connection, raw: str) -> Optional[dict]:
     if len(toks) < 2:
         return None
     for r in con.execute("SELECT slug FROM mi_models"):
-        kt = _loose(r["slug"]).split()
+        # Positional for the same reason as resolve_canonical: tuples from a
+        # bare connection, sqlite3.Row from a normalised one.
+        kt = _loose(r[0]).split()
         if len(kt) >= 2 and kt[:2] == toks[:2]:
-            return {"slug": r["slug"], "method": "prefix2",
+            return {"slug": r[0], "method": "prefix2",
                     "warning": "unverified prefix guess — confirm the generation"}
     return None
 

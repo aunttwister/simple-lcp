@@ -30,6 +30,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Optional
 
+from .model_identity import _rowify
 from .model_identity_queue import (
     KIND_CAPABILITY_NAME,
     SOURCE_LMARENA,
@@ -91,6 +92,15 @@ def ingest(con: sqlite3.Connection, *, dry_run: bool = False) -> dict:
 
     Returns {categories, rows, matched, queued, release_label}.
     """
+    # The identity helpers read rows BY COLUMN NAME, so a bare
+    # sqlite3.connect(...) handed in here raises
+    # "TypeError: tuple indices must be integers or slices, not str" the moment
+    # resolve_canonical runs — which is how this poll failed in practice
+    # (2026-11-15), leaving the "poll for latest data" path dead even once
+    # duckdb was installed. _rowify is idempotent and leaves a caller that wants
+    # tuples unaffected, so normalising here protects every entry point: the CLI
+    # below, an HTTP route, and tests.
+    con = _rowify(con)
     rows = _fetch_rows()
     # Latest snapshot per (category, model_name): the leaderboard refreshes in
     # place, so a superseded row must never win. Deduped here (not in the
