@@ -69,6 +69,8 @@ CATALOG = [
     (None, 16, "minimax/MiniMax-M3.1-Flash", "new"),     # variant differs -> no
     (17, 17, "deepseek/deepseek-v4.1-flash", "active"),  # ours
     (None, 18, "deepseek/deepseek-v4.1-flash-fast", "new"),   # variant differs -> no
+    (None, 20, "deepseek/deepseek-v4.1-flash-20261017", "new"),  # a DATE, not a release
+    (None, 21, "xai/grok-4.5-0709", "new"),              # a dated snapshot of a model we have
     (18, 19, "retired-line-1", "active"),                # a model with no successor
 ]
 MODELS = [
@@ -182,6 +184,50 @@ def test_only_the_highest_release_of_a_line_is_registered(db):
 
 def test_an_older_release_is_not_a_successor(db):
     assert "claude-opus-4-8" not in {r["slug"] for r in rn.catalog_successors(db)["register"]}
+
+
+@pytest.mark.parametrize("served_id,expect", [
+    ("qwen3.8-max-0902", (("qwen",), (3, 8), ("max", "0902"))),
+    ("Qwen/Qwen3.8-Max", (("qwen",), (3, 8), ("max",))),
+    ("deepseek-v4.1-flash-20261017", (("deepseek",), (4, 1), ("flash", "20261017"))),
+    ("xai/grok-4.5-0709", (("grok",), (4, 5), ("0709",))),
+])
+def test_a_dated_run_is_part_of_the_variant_not_the_release(served_id, expect):
+    """A build stamp must not read as a later release — it would register a snapshot."""
+    assert rn.identity(served_id) == expect
+
+
+def test_a_dated_snapshot_is_never_registered_as_a_successor(db):
+    """`grok-4.5-0709` is grok-4.5, not grok-4.6."""
+    reg = {r["slug"] for r in rn.catalog_successors(db)["register"]}
+    assert "grok-4.5-0709" not in reg
+    assert "deepseek-v4.1-flash-20261017" not in reg
+    # ...while the real successor on that line is still found
+    assert "grok-4.7" in reg
+
+
+@pytest.mark.parametrize("served_id,family", [
+    ("qwen3.8-max", ("qwen",)),
+    ("mistral3.9-max", ("mistral",)),
+    ("claude-opus-5", ("claude", "opus")),
+    ("m3.1-flash", ()),          # a one-letter version marker stays a release
+    ("k3.1-pro", ()),
+])
+def test_a_vendor_word_is_family_a_version_marker_is_not(served_id, family):
+    assert rn.identity(served_id)[0] == family
+
+
+def test_two_vendors_with_the_same_release_shape_are_not_one_line(db):
+    """`mistral3.9-max` must not be read as a successor of `qwen3.8-max`."""
+    db.execute("INSERT INTO mi_models (model_id, slug, display_name, family, status,"
+               " created_at) VALUES (31,'qwen3.8-max','Qwen 3.8 Max','qwen','active',"
+               "'2026-10-30T00:00:00Z')")
+    db.execute("INSERT INTO mi_deployments (deployment_id, endpoint_id, model_id, served_id,"
+               " status, source) VALUES (30,6,31,'Qwen/Qwen3.8-Max','active','registry')")
+    db.execute("INSERT INTO mi_deployments (deployment_id, endpoint_id, model_id, served_id,"
+               " status, source) VALUES (31,6,NULL,'mistral3.9-max','new','poll')")
+    reg = {r["slug"] for r in rn.catalog_successors(db)["register"]}
+    assert "mistral3.9-max" not in reg
 
 
 def test_a_staged_row_at_a_retired_endpoint_is_ignored(db):
