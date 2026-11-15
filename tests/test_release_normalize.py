@@ -58,7 +58,7 @@ CATALOG = [
     (None, 5, "gpt-6-luna", "new"),                      # successor, lower of two
     (None, 6, "gpt-6.1-luna", "new"),                    # successor, highest
     (None, 7, "gpt-6.1-sol", "new"),                     # a DIFFERENT variant
-    (13, 8, "Google/gemini-3.6-flash", "active"),        # ours, vendor prefix
+    (13, 8, "Google/gemini-3.6-flash", "new"),           # ours, but NEVER confirmed
     (None, 9, "Google/gemini-3.8-flash", "new"),         # successor
     (14, 10, "xai/grok-4.5", "active"),                  # ours
     (None, 11, "xai/grok-4.6", "new"),                   # successor, lower
@@ -301,6 +301,35 @@ def test_a_model_with_no_newer_release_is_left_alone(db):
     assert "deepseek-flash" not in touched and "retired-line-1" not in touched
 
 
+def test_a_line_with_no_confirmed_deployment_still_anchors_its_newest_release(db):
+    """The operator's case: we carry `gemini-3.6-flash` but never confirmed it,
+    and CommandCode serves `gemini-3.8-flash`. Hiding the line would leave the
+    board without the model; its newest SERVED release is what gets registered."""
+    reg = {r["slug"]: r for r in rn.catalog_successors(db)["register"]}
+    assert "gemini-3.8-flash" in reg
+    assert reg["gemini-3.8-flash"]["anchor_confirmed"] is False
+    assert "gemini-3.7-flash" not in reg             # the lower release is skipped
+
+
+def test_a_confirmed_line_is_marked_as_such(db):
+    reg = {r["slug"]: r for r in rn.catalog_successors(db)["register"]}
+    assert reg["claude-opus-5-5"]["anchor_confirmed"] is True
+
+
+def test_describe_flags_a_line_that_was_never_confirmed(db):
+    text = rn.describe(_plan(db))
+    assert "NO confirmed deployment" in text
+
+
+def test_a_model_row_with_no_deployment_never_creates_a_registration(db):
+    """The anchor is a provider's catalog row, not a name in mi_models."""
+    db.execute("INSERT INTO mi_models (model_id, slug, display_name, family, status,"
+               " created_at) VALUES (40,'orphan-model','Orphan','orphan','active',"
+               "'2026-10-30T00:00:00Z')")
+    reg = {r["slug"] for r in rn.catalog_successors(db)["register"]}
+    assert not any("orphan" in s for s in reg)
+
+
 def test_a_second_run_has_nothing_left_to_do(db):
     """`apply` claims the staged row, so it stops being a candidate at all."""
     rn.apply(db, _plan(db))
@@ -426,6 +455,6 @@ def test_undo_restores_the_alias_table_and_the_deployments(db):
         db.execute(stmt)
     db.commit()
     assert db.execute("SELECT COUNT(*) FROM mi_deployments WHERE status='active'"
-                      ).fetchone()[0] == len(MODELS)
+                      ).fetchone()[0] == len([c for c in CATALOG if c[3] == "active"])
     assert db.execute("SELECT COUNT(*) FROM mi_deployments WHERE status='new'"
                       ).fetchone()[0] == len([c for c in CATALOG if c[3] == "new"])
