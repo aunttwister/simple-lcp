@@ -2657,10 +2657,12 @@ tr.log-row-failed td.num { opacity: 0.55; }
    row (the lane cannot fit a phone). The left edge is a drag handle: pull it
    to resize like a file explorer's splitter, double-click to reset. The
    dragged width rides --conv-width; --detail-width stays the shared default. */
-/* This tree has no overview panel yet, so the conversations block owns the
-   token — define it here ONCE. When the CUR-330 detail panel lands here it
-   owns --detail-width and this line moves to that block. */
-:root { --detail-width: 420px; }
+/* NOTE (merge 2026-11-15): staging used to define the shared token here
+   (420px) because this tree had no overview panel yet. CUR-330 has now landed,
+   so — exactly as the note that used to sit here said it would — the token
+   moved to the CUR-330 detail-panel block below (380px, :root) and this local
+   definition is REMOVED. Two `:root` definitions is not a harmless override:
+   test_cur329_convo_titling asserts the token is defined exactly once. */
    like the overview's detail panel above, not a card beside the table. On
    desktop (>=1100px) it is always visible and the body margin reserves its
    width. Below 1100px it is a slide-over sheet with a backdrop, opened by
