@@ -86,14 +86,15 @@ def fetch_text_boards() -> dict[str, list[dict]]:
     try:
         con.execute("SET enable_http_metadata_cache=false")
         cur = con.execute(
-            "SELECT model_name, organization, rating, rank, vote_count, category"
-            " FROM read_parquet(?)",
+            "SELECT model_name, organization, rating, rank, vote_count, category,"
+            " leaderboard_publish_date FROM read_parquet(?)",
             [PARQUET.format(config="text")])
         out: dict[str, list[dict]] = {}
-        for model_name, org, rating, rank, votes, cat in cur.fetchall():
+        for model_name, org, rating, rank, votes, cat, published in cur.fetchall():
             out.setdefault(cat, []).append(
                 {"model_name": model_name, "organization": org, "rating": rating,
-                 "rank": rank, "vote_count": votes, "category": cat})
+                 "rank": rank, "vote_count": votes, "category": cat,
+                 "published": published})
         return out
     finally:
         con.close()
@@ -108,12 +109,12 @@ def fetch_agent_board(config: str) -> list[dict]:
     try:
         con.execute("SET enable_http_metadata_cache=false")
         cur = con.execute(
-            "SELECT model_name, organization, score, rank, session_count"
-            " FROM read_parquet(?)",
+            "SELECT model_name, organization, score, rank, session_count,"
+            " leaderboard_publish_date FROM read_parquet(?)",
             [PARQUET.format(config=config)])
         return [{"model_name": n, "organization": o, "score": s, "rank": r,
-                 "session_count": c, "category": config}
-                for n, o, s, r, c in cur.fetchall()]
+                 "session_count": c, "category": config, "published": p}
+                for n, o, s, r, c, p in cur.fetchall()]
     finally:
         con.close()
 
@@ -193,13 +194,13 @@ def build_rows(con, boards: dict[str, list[dict]], *, visible=None) -> dict:
             for r in members:
                 _add(board, TEXT_BOARDS[board], r.get("model_name") or "",
                      r.get("rating"), r.get("rank"), n, r.get("organization"),
-                     "elo", "arena-elo")
+                     "elo", "arena-elo", r.get("published"))
         elif board in AGENT_BOARDS:
             n = len(members)
             for r in members:
                 _add(board, AGENT_BOARDS[board], r.get("model_name") or "",
                      r.get("score"), r.get("rank"), n, r.get("organization"),
-                     "net_improvement", "arena-net-improvement")
+                     "net_improvement", "arena-net-improvement", r.get("published"))
 
     # Keep the newest-effort row when a model appears at several efforts on ONE
     # board (R2=C): the highest effort is what the operator would route to.
