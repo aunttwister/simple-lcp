@@ -871,20 +871,23 @@ function renderBoard(data) {
     html.push('<table class="data-table lb-table"><caption class="sr-only">' +
       esc(data.taxonomy) + ' — ' + esc(unitLabel(unit)) + '</caption><thead><tr>' +
       '<th scope="col" class="num">#</th><th scope="col">Model</th>' +
-      '<th scope="col">Lab</th><th scope="col">Effort</th>' +
-      '<th scope="col" class="num">Value</th><th scope="col" class="num">Percentile</th>' +
-      '<th scope="col">Board</th><th scope="col">Basis</th><th scope="col">Date</th>' +
+      '<th scope="col">Lab</th>' +
+      `<th scope="col" class="num">${esc(unitLabel(unit))}</th>` +
+      '<th scope="col" class="num">Percentile</th>' +
+      '<th scope="col">Date</th>' +
       '</tr></thead><tbody>');
     group.forEach((r, i) => {
+      // The board a number came from is the Value cell's title, not a column:
+      // the operator enumerated rank / model / lab / Elo / percentile / date.
+      const boards = (r.boards || [r.board]).filter(Boolean).join(', ') || '—';
+      const title = `${esc(r.source === 'custom' ? 'your rating' : (r.basis || 'board'))} — ${esc(boards)}`;
       html.push('<tr>' +
         `<td class="num">${r.rank ? r.rank : (i + 1)}</td>` +
-        `<td class="mono">${esc(r.model_slug)}</td>` +
+        `<td class="mono">${esc(r.model_slug)}` +
+        (r.effort ? `<span class="lb-effort">${esc(r.effort)}</span>` : '') + '</td>' +
         `<td>${esc(r.lab || '—')}</td>` +
-        `<td>${esc(r.effort || '—')}</td>` +
-        `<td class="num">${fmtValue(r.value, r.unit)}</td>` +
+        `<td class="num" title="${title}">${fmtValue(r.value, r.unit)}</td>` +
         `<td class="num">${r.percentile === null || r.percentile === undefined ? '—' : Number(r.percentile).toFixed(1)}</td>` +
-        `<td class="muted">${esc((r.boards || [r.board]).filter(Boolean).join(', ') || '—')}</td>` +
-        `<td class="muted">${esc(r.source === 'custom' ? 'your rating' : (r.basis || '—'))}</td>` +
         `<td>${esc(fmtWhen(r.published))}</td>` +
         '</tr>');
     });
