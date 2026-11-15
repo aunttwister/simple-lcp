@@ -62,6 +62,8 @@ from .endpoints import (
     EvidenceEndpoints,
 )
 
+from .model_ratings_endpoints import ModelRatingsEndpoints
+
 from .router import (
     RouteTable,
     any_of,
@@ -180,6 +182,7 @@ class LCPHandler(
     BudgetEndpoints,
     PluginEndpoints,
     ModelIntelEndpoints,
+    ModelRatingsEndpoints,
     UsageEndpoints,
     DashboardEndpoints,
     SettingsEndpoints,
@@ -1310,6 +1313,26 @@ def _build_routes() -> RouteTable:
     t.post("api.model_intel.identity.reject",
            exact("/api/model-intel/identity/reject"),
            lambda h, p: h._serve_model_intel_identity_api())
+    # Model ratings / leaderboard: position (Elo or net improvement) in its own
+    # store. Reads are the leaderboard + tabs; poll stages a diff, update accepts
+    # the ticked rows, clear discards them. None of it touches model_capabilities,
+    # so grading and routing are unchanged by a refresh.
+    t.get("api.model_ratings.leaderboard", exact("/api/model-ratings/leaderboard"),
+          lambda h, p: h._serve_model_ratings_leaderboard_api())
+    t.get("api.model_ratings.taxonomies", exact("/api/model-ratings/taxonomies"),
+          lambda h, p: h._serve_model_ratings_taxonomies_api())
+    t.get("api.model_ratings.staged", exact("/api/model-ratings/staged"),
+          lambda h, p: h._serve_model_ratings_staged_api())
+    t.post("api.model_ratings.poll", exact("/api/model-ratings/poll"),
+           lambda h, p: h._serve_model_ratings_poll_api())
+    t.post("api.model_ratings.update", exact("/api/model-ratings/update"),
+           lambda h, p: h._serve_model_ratings_update_api())
+    t.post("api.model_ratings.clear", exact("/api/model-ratings/clear"),
+           lambda h, p: h._serve_model_ratings_clear_api())
+    t.get("api.model_ratings.taxonomy", exact("/api/model-ratings/taxonomy"),
+          lambda h, p: h._serve_model_ratings_taxonomy_api())
+    t.post("api.model_ratings.taxonomy", exact("/api/model-ratings/taxonomy"),
+           lambda h, p: h._serve_model_ratings_taxonomy_api())
     # ── Work layer ──
     # The cron and sources APIs are gone (2026-10-25): their only caller was the
     # Cron and Config tabs, both decommissioned. The host-side collector reads and

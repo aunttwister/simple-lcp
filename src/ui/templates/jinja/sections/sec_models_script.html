@@ -34,6 +34,38 @@ const API = {
       body: JSON.stringify({model, scores, release})
     });
     return r.json();
+  },
+  // Leaderboard (ratings store). Position, not accuracy: Elo or net improvement.
+  async board(tax) {
+    const r = await fetch('/api/model-ratings/leaderboard' +
+      (tax ? '?taxonomy=' + encodeURIComponent(tax) : ''));
+    return r.json();
+  },
+  async boardStaged() {
+    const r = await fetch('/api/model-ratings/staged');
+    return r.json();
+  },
+  async boardPoll() {
+    const r = await fetch('/api/model-ratings/poll', {method: 'POST'});
+    return r.json();
+  },
+  async boardUpdate(keys) {
+    const r = await fetch('/api/model-ratings/update', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({keys: keys})
+    });
+    return r.json();
+  },
+  async boardClear() {
+    const r = await fetch('/api/model-ratings/clear', {method: 'POST'});
+    return r.json();
+  },
+  async taxonomy(body) {
+    const r = await fetch('/api/model-ratings/taxonomy', body ? {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    } : {});
+    return r.json();
   }
 };
 
@@ -738,8 +770,314 @@ function closeDeleteModel() {
 }
 
 
+// ── Leaderboard tabs, poll panel, manage taxonomy ───────────────────────────
+//
+// Column 2 is the model detail FIRST (its edit/register/score modals stay
+// reachable), then one tab per leaderboard. Column 3 is the poll panel and the
+// taxonomy manager, and it opens by itself: the explanation of what polling does
+// is the default content, not something behind a click.
+
+STATE.tax = 'model';
+STATE.tabs = [];
+STATE.lb = {rows: [], eligible: []};
+STATE.pollRows = [];
+
+function unitLabel(unit) {
+  return unit === 'elo' ? 'Elo' : (unit === 'net_improvement' ? 'net improvement' : unit);
+}
+
+function fmtValue(value, unit) {
+  if (value === null || value === undefined) return '—';
+  return unit === 'elo' ? Number(value).toFixed(1) : Number(value).toFixed(4);
+}
+
+function fmtWhen(s) {
+  // Trails span months, so the date is shown whole; the year is never dropped.
+  return s ? String(s).slice(0, 10) : '—';
+}
+
+function renderTabs() {
+  const wrap = document.getElementById('mlTabs');
+  if (!wrap) return;
+  const tabs = [{taxonomy: 'model', label: 'Model', kind: 'model', rows: 0, units: []}]
+    .concat(STATE.tabs || []);
+  wrap.innerHTML = tabs.map(t => {
+    const active = STATE.tax === t.taxonomy ? ' active' : '';
+    const sel = STATE.tax === t.taxonomy ? 'true' : 'false';
+    const badge = t.kind === 'custom'
+      ? '<span class="ml-tab-kind">yours</span>'
+      : (t.kind === 'arena' ? '<span class="ml-tab-kind">arena</span>' : '');
+    const count = t.kind === 'model' ? '' : `<span class="ml-tab-count">${t.rows}</span>`;
+    return `<button class="ml-tab${active}" role="tab" aria-selected="${sel}"
+      data-tax="${esc(t.taxonomy)}">${esc(t.label || t.taxonomy)}${badge}${count}</button>`;
+  }).join('');
+  wrap.querySelectorAll('.ml-tab').forEach(btn => {
+    btn.addEventListener('click', () => selectTab(btn.dataset.tax));
+  });
+}
+
+function selectTab(tax) {
+  STATE.tax = tax;
+  renderTabs();
+  const detail = document.getElementById('modelDetail');
+  const board = document.getElementById('leaderboardPane');
+  if (tax === 'model') {
+    if (detail) detail.hidden = false;
+    if (board) board.hidden = true;
+    if (STATE.selected) renderDetail(STATE.selected);
+  } else {
+    if (detail) detail.hidden = true;
+    if (board) board.hidden = false;
+    loadBoard(tax);
+  }
+}
+
+async function loadBoard(tax) {
+  const data = await API.board(tax);
+  STATE.lb = {rows: data.rows || [], eligible: data.eligible || []};
+  renderBoard(data);
+  if (data.tabs) { STATE.tabs = data.tabs; renderTabs(); }
+  const staged = await API.boardStaged();
+  STATE.pollRows = staged.rows || [];
+  renderPollPanel();
+  renderTaxList();
+}
+
+function renderBoard(data) {
+  const table = document.getElementById('lbTable');
+  const note = document.getElementById('lbNote');
+  if (!table) return;
+  const rows = data.rows || [];
+  const eligible = data.eligible || [];
+  const units = [...new Set(rows.map(r => r.unit))];
+  if (note) {
+    note.innerHTML = rows.length
+      ? `${rows.length} ranked rows from <strong>${esc(data.taxonomy)}</strong>` +
+        (units.length ? ` (${units.map(esc).map(unitLabel).join(' · ')})` : '') +
+        ` — only the ${eligible.length} models a provider serves can appear here.`
+      : `No leaderboard rows for this taxonomy yet. Eligible models: ${eligible.length}.`;
+  }
+  if (!rows.length) {
+    table.innerHTML = '<div class="empty">Nothing ranked on this taxonomy yet. ' +
+      'Poll for latest data, or rate models yourself in Manage taxonomy.</div>';
+    return;
+  }
+  const html = [];
+  units.forEach(unit => {
+    const group = rows.filter(r => r.unit === unit);
+    if (!group.length) return;
+    html.push(`<div class="lb-unit-head">${esc(unitLabel(unit))}
+      <span class="muted">${group.length} models</span></div>`);
+    html.push('<table class="data-table lb-table"><caption class="sr-only">' +
+      esc(data.taxonomy) + ' — ' + esc(unitLabel(unit)) + '</caption><thead><tr>' +
+      '<th scope="col" class="num">#</th><th scope="col">Model</th>' +
+      '<th scope="col">Lab</th><th scope="col">Effort</th>' +
+      '<th scope="col" class="num">Value</th><th scope="col" class="num">Percentile</th>' +
+      '<th scope="col">Board</th><th scope="col">Basis</th><th scope="col">Date</th>' +
+      '</tr></thead><tbody>');
+    group.forEach((r, i) => {
+      html.push('<tr>' +
+        `<td class="num">${r.rank ? r.rank : (i + 1)}</td>` +
+        `<td class="mono">${esc(r.model_slug)}</td>` +
+        `<td>${esc(r.lab || '—')}</td>` +
+        `<td>${esc(r.effort || '—')}</td>` +
+        `<td class="num">${fmtValue(r.value, r.unit)}</td>` +
+        `<td class="num">${r.percentile === null || r.percentile === undefined ? '—' : Number(r.percentile).toFixed(1)}</td>` +
+        `<td class="muted">${esc((r.boards || [r.board]).filter(Boolean).join(', ') || '—')}</td>` +
+        `<td class="muted">${esc(r.source === 'custom' ? 'your rating' : (r.basis || '—'))}</td>` +
+        `<td>${esc(fmtWhen(r.published))}</td>` +
+        '</tr>');
+    });
+    html.push('</tbody></table>');
+  });
+  table.innerHTML = html.join('');
+}
+
+function renderPollPanel() {
+  const intro = document.getElementById('pollIntro');
+  const results = document.getElementById('pollResults');
+  const rows = STATE.pollRows || [];
+  if (!intro || !results) return;
+  const showResults = rows.length > 0;
+  intro.hidden = showResults;
+  results.hidden = !showResults;
+  const elig = document.getElementById('pollEligible');
+  if (elig && STATE.lb.eligible) {
+    elig.textContent = `Right now ${STATE.lb.eligible.length} registered models are eligible ` +
+      'for a leaderboard row.';
+  }
+  if (!showResults) return;
+  const moved = rows.filter(r => r.changed);
+  document.getElementById('pollCount').textContent = String(rows.length);
+  document.getElementById('pollMoved').textContent =
+    `${moved.length} moved, ${rows.length - moved.length} unchanged`;
+  const wrap = document.getElementById('pollRows');
+  wrap.innerHTML = rows.map((r, i) => {
+    const oldv = r.old_value === null || r.old_value === undefined
+      ? '<span class="muted">new</span>'
+      : `<s>${fmtValue(r.old_value, r.unit)}</s>`;
+    const arrow = r.changed ? ' → ' + fmtValue(r.value, r.unit) : '';
+    const key = esc(JSON.stringify([r.model_slug, r.taxonomy, r.unit, r.board, r.effort]));
+    return `<label class="mp-row">
+      <input type="checkbox" class="mp-check" data-key="${key}" ${r.changed ? 'checked' : ''}>
+      <span class="mp-row-main">
+        <span class="mp-row-model mono">${esc(r.model_slug)}</span>
+        <span class="mp-row-tax">${esc(r.taxonomy)}${r.effort ? ' · ' + esc(r.effort) : ''}</span>
+        <span class="mp-row-val">${oldv}${arrow} <span class="muted">${esc(unitLabel(r.unit))}</span></span>
+        <span class="mp-row-dates">${esc(fmtWhen(r.old_date))} → ${esc(fmtWhen(r.new_date))}</span>
+      </span>
+    </label>`;
+  }).join('');
+}
+
+function pollKeys() {
+  return [...document.querySelectorAll('#pollRows .mp-check')]
+    .filter(c => c.checked)
+    .map(c => {
+      const [model_slug, taxonomy, unit, board, effort] = JSON.parse(c.dataset.key);
+      return {model_slug, taxonomy, unit, board, effort};
+    });
+}
+
+function pollMsg(text, tone) {
+  ['pollMsg', 'pollMsg2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text || '';
+    el.dataset.tone = tone || '';
+  });
+}
+
+async function runPoll() {
+  const btns = ['pollRunBtn', 'pollAgainBtn', 'pollUpdateBtn', 'pollClearBtn']
+    .map(id => document.getElementById(id)).filter(Boolean);
+  if (btns.length) { btns[0].disabled = true; }
+  pollMsg('Polling the LMArena boards…');
+  const r = await API.boardPoll();
+  if (btns.length) { btns[0].disabled = false; }
+  if (r.error) {
+    pollMsg('Poll failed upstream: ' + r.error + ' — nothing was changed. Try again.', 'bad');
+    return;
+  }
+  STATE.pollRows = r.rows || [];
+  if (r.taxonomies) { STATE.tabs = r.taxonomies.filter(t => t.kind !== 'custom' || t.rows > 0); }
+  renderPollPanel();
+  pollMsg('');
+  if (STATE.tax !== 'model') loadBoard(STATE.tax);
+  else { renderTabs(); renderTaxList(); }
+}
+
+async function updatePoll() {
+  const keys = pollKeys();
+  if (!keys.length) { pollMsg('Tick at least one row to publish.', 'warn'); return; }
+  pollMsg('Publishing ' + keys.length + ' rows…');
+  const r = await API.boardUpdate(keys);
+  if (r.error) { pollMsg('Update failed: ' + r.error, 'bad'); return; }
+  pollMsg(`Published ${r.written} rows. The leaderboard beside this panel has been re-rendered.`, 'ok');
+  STATE.pollRows = [];
+  if (STATE.tax === 'model') {
+    STATE.tabs = r.taxonomies || STATE.tabs;
+    renderTabs();
+    renderPollPanel();
+    renderTaxList();
+  } else {
+    loadBoard(STATE.tax);
+  }
+}
+
+async function clearPoll() {
+  const r = await API.boardClear();
+  if (r.error) { pollMsg('Clear failed: ' + r.error, 'bad'); return; }
+  STATE.pollRows = [];
+  pollMsg(`Discarded ${r.cleared} polled rows. The published leaderboard was not changed.`, 'ok');
+  renderPollPanel();
+}
+
+function renderTaxList() {
+  const wrap = document.getElementById('taxList');
+  if (!wrap) return;
+  const tabs = STATE.tabs || [];
+  wrap.innerHTML = tabs.length
+    ? tabs.map(t => `<div class="mp-tax-row${STATE.tax === t.taxonomy ? ' active' : ''}"
+        data-tax="${esc(t.taxonomy)}">
+        <span class="mp-tax-name">${esc(t.label || t.taxonomy)}</span>
+        <span class="mp-tax-kind">${t.kind === 'custom' ? 'yours' : 'arena'}</span>
+        <span class="mp-tax-rows">${t.rows} rows</span>
+      </div>`).join('')
+    : '<div class="muted">No taxonomies yet.</div>';
+  wrap.querySelectorAll('.mp-tax-row').forEach(el => {
+    el.addEventListener('click', () => selectTab(el.dataset.tax));
+  });
+}
+
+async function defineTaxonomy() {
+  const name = (document.getElementById('taxName').value || '').trim();
+  if (!name) { taxMsg('Name the taxonomy first.'); return; }
+  const r = await API.taxonomy({action: 'define', name});
+  if (r.error) { taxMsg('Error: ' + r.error); return; }
+  document.getElementById('taxName').value = '';
+  const tabs = await API.taxonomy();
+  STATE.tabs = tabs.tabs || [];
+  renderTabs();
+  renderTaxList();
+  taxMsg('Defined ' + r.taxonomy + '. Open its tab to rate models on it.');
+}
+
+async function importTaxonomyCsv() {
+  const csv = document.getElementById('taxCsv').value || '';
+  if (!csv.trim()) { taxMsg('Paste a CSV first — a header row and at least one model.'); return; }
+  const r = await API.taxonomy({action: 'import', csv});
+  if (r.error) { taxMsg('Error: ' + r.error); return; }
+  const tabs = await API.taxonomy();
+  STATE.tabs = tabs.tabs || [];
+  renderTabs();
+  renderTaxList();
+  let msg = `Imported ${r.written} ratings.`;
+  if (r.skipped_unregistered) msg += ` Skipped ${r.skipped_unregistered} (not registered here).`;
+  if (r.errors && r.errors.length) {
+    msg += ` ${r.errors.length} line(s) rejected: ` +
+      r.errors.slice(0, 3).map(e => 'line ' + e.line + ' ' + e.error).join('; ');
+  }
+  taxMsg(msg);
+}
+
+function taxMsg(text) {
+  const el = document.getElementById('taxMsg');
+  if (el) el.textContent = text || '';
+}
+
 // ── Wiring ──────────────────────────────────────────────────────────────────
 
+document.getElementById('pollRunBtn').addEventListener('click', runPoll);
+document.getElementById('pollAgainBtn').addEventListener('click', runPoll);
+document.getElementById('pollUpdateBtn').addEventListener('click', updatePoll);
+document.getElementById('pollClearBtn').addEventListener('click', clearPoll);
+document.getElementById('taxDefineBtn').addEventListener('click', defineTaxonomy);
+document.getElementById('taxImportBtn').addEventListener('click', importTaxonomyCsv);
+
+(async function initRatings() {
+  try {
+    const t = await API.taxonomy();
+    STATE.tabs = t.tabs || [];
+    renderTabs();
+    renderTaxList();
+    const staged = await API.boardStaged();
+    STATE.pollRows = staged.rows || [];
+    renderPollPanel();
+    const board = await API.board(false);
+    STATE.lb = {rows: board.rows || [], eligible: board.eligible || []};
+    const elig = document.getElementById('pollEligible');
+    if (elig) {
+      elig.textContent = `Right now ${STATE.lb.eligible.length} registered models are eligible ` +
+        'for a leaderboard row.';
+    }
+  } catch (e) {
+    // The panel is an addition to the page: if it cannot load, the model list and
+    // the capability matrix must still work.
+    const msg = document.getElementById('pollMsg');
+    if (msg) msg.textContent = 'Leaderboard panel unavailable: ' + e;
+  }
+})();
 
 document.getElementById('modelFilter').addEventListener('input', function() {
   STATE.filter = this.value;
