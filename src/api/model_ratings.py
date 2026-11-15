@@ -206,8 +206,12 @@ def leaderboard(con: sqlite3.Connection, taxonomy: str) -> list[dict]:
     """
     con = _rowify(con)
     out = []
-    for unit in {r[0] for r in con.execute(
-            "SELECT DISTINCT unit FROM model_ratings WHERE taxonomy=?", (taxonomy,))}:
+    # Deterministic unit order: iterating a set made the two groups swap places
+    # between two identical requests.
+    units = sorted({r[0] for r in con.execute(
+        "SELECT DISTINCT unit FROM model_ratings WHERE taxonomy=?", (taxonomy,))},
+        key=lambda u: ({"elo": 0, "net_improvement": 1}.get(u, 9), u))
+    for unit in units:
         rows = con.execute("""
             SELECT model_slug, value, unit, percentile, rank, lab, effort, board,
                    published, basis, source, updated_at

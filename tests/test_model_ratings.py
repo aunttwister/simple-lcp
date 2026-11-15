@@ -130,6 +130,9 @@ def test_leaderboard_keeps_units_apart(db):
     assert [r["model_slug"] for r in elo] == ["claude-opus-5", "glm-5.3-flash"]
     assert len(net) == 1                     # never ranked beside the Elo rows
     assert elo[0]["percentile"] == 100.0
+    # the group order is stable across identical calls (it used to come from a set)
+    assert [r["unit"] for r in mr.leaderboard(db, "debugging")] == \
+           [r["unit"] for r in mr.leaderboard(db, "debugging")]
 
 
 def test_diff_reports_both_dates(db):
