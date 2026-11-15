@@ -86,6 +86,79 @@
     <span class="muted">Last pass: <span id="titlingLastRun">{% if payload['titling'].last_run %}{{ payload['titling'].last_run }}{% else %}never{% endif %}</span></span>
   </div>
 </div>
+
+<h2>Model intelligence</h2>
+<p class="muted">
+  LCP learns which models exist and how they score from outside sources. Nothing is
+  fetched until you switch it on here, and each source is accepted separately — a
+  source you do not trust is simply never read. Discovery never changes routing: a
+  model the poller finds is staged for review, and an observed name that maps to no
+  known model goes to the identity queue instead of being stored as if it were known.
+</p>
+
+<div class="card" style="max-width:48rem">
+  <div class="settings-row">
+    <label class="toggle" for="miPollerEnabled">
+      <input type="checkbox" id="miPollerEnabled">
+      <span class="toggle-track" aria-hidden="true"></span>
+      <span class="toggle-label">Poll providers for fresh model lists (master switch)</span>
+    </label>
+  </div>
+  <div class="settings-row">
+    <label class="toggle" for="miSrcCatalog">
+      <input type="checkbox" id="miSrcCatalog">
+      <span class="toggle-track" aria-hidden="true"></span>
+      <span class="toggle-label">Accept the provider catalog source (each provider's own /models)</span>
+    </label>
+  </div>
+  <div class="settings-row">
+    <label class="toggle" for="miSrcArena">
+      <input type="checkbox" id="miSrcArena">
+      <span class="toggle-track" aria-hidden="true"></span>
+      <span class="toggle-label">Accept the LMArena leaderboard source (capability scores)</span>
+    </label>
+  </div>
+  <div class="settings-row">
+    <button type="button" class="btn-sm btn-primary" id="miSave">Save switches</button>
+    <button type="button" class="btn-sm" id="miPoll">Run poll now</button>
+    <span class="muted" id="miStatus" role="status" aria-live="polite"></span>
+  </div>
+  <div class="settings-row">
+    <span class="muted">
+      Guard: a listing under <span id="miShrink">50</span>% of the known active set is
+      treated as a truncated read, not a mass retirement — nothing is staged from it.
+      Minimum <span id="miInterval">300</span>s between polls.
+    </span>
+  </div>
+</div>
+
+<h3 style="margin-top:1.5rem">Poll health</h3>
+<p class="muted">
+  A poller that has been failing for a week must not look the same as one that is
+  switched off. Anything other than <em>ok</em> needs attention.
+</p>
+<div class="card">
+  <table class="data-table" id="miHealth">
+    <thead><tr><th>Endpoint</th><th>Polling</th><th>State</th><th>Last run</th><th>Last success</th><th>Failures</th></tr></thead>
+    <tbody><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<h3 style="margin-top:1.5rem">Identity queue</h3>
+<p class="muted">
+  Names observed from a source that map to no known model. They are <strong>not</strong>
+  stored as capability data — a row keyed by a spelling no lookup searches can never be
+  joined, and it makes coverage look better than it is. Accepting one writes the alias
+  that makes the link real and re-keys any capability rows stored under it. A suggested
+  model is an unverified guess: confirm the generation before accepting.
+</p>
+<div class="card">
+  <p class="muted" id="miQueueCount">Loading…</p>
+  <table class="data-table" id="miQueue">
+    <thead><tr><th>Observed name</th><th>Source</th><th>Seen</th><th>Suggested</th><th>Decision</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -172,6 +245,170 @@
       status.textContent = 'Titling failed.';
     }).finally(function () { runBtn.disabled = false; });
   });
+})();
+
+// ── Model intelligence: switches, poll health, identity queue ────────────────
+// Same discipline as the titling block: textContent only (server error strings
+// land in a status span), one fetch per action, no framework.
+(function () {
+  var status = document.getElementById('miStatus');
+  var box = document.getElementById('miPollerEnabled');
+  var srcCatalog = document.getElementById('miSrcCatalog');
+  var srcArena = document.getElementById('miSrcArena');
+  var queue = document.getElementById('miQueue');
+  var qcount = document.getElementById('miQueueCount');
+
+  function setStatus(t) { status.textContent = t; }
+
+  function fill(data) {
+    var cfg = data.config || {};
+    var sources = cfg.sources || {};
+    box.checked = !!cfg.poller_enabled;
+    srcCatalog.checked = !!((sources.provider_catalog || {}).accepted);
+    srcArena.checked = !!((sources.lmarena || {}).accepted);
+    var guard = cfg.guard || {};
+    document.getElementById('miShrink').textContent = guard.max_shrink_pct;
+    document.getElementById('miInterval').textContent = cfg.min_interval_s;
+
+    // health
+    var tb = document.querySelector('#miHealth tbody');
+    tb.textContent = '';
+    (data.endpoints || []).forEach(function (e) {
+      var tr = document.createElement('tr');
+      function td(text, cls) {
+        var c = document.createElement('td');
+        c.textContent = text;
+        if (cls) c.className = cls;
+        return c;
+      }
+      tr.appendChild(td(e.slug));
+      tr.appendChild(td(e.poll_enabled ? 'on' : 'off'));
+      tr.appendChild(td(e.state, e.state === 'ok' ? '' : 'badge badge-error'));
+      tr.appendChild(td(e.last_at || 'never'));
+      tr.appendChild(td(e.last_success_at || 'never'));
+      tr.appendChild(td(e.consecutive_failures + ' / ' + e.total_runs));
+      tb.appendChild(tr);
+    });
+
+    // identity queue
+    var qb = queue.querySelector('tbody');
+    qb.textContent = '';
+    var pending = data.pending_identity || [];
+    qcount.textContent = pending.length === 0
+      ? 'Nothing pending — every observed name maps to a known model.'
+      : pending.length + ' observed name(s) awaiting a decision.';
+    pending.slice(0, 60).forEach(function (row) {
+      var tr = document.createElement('tr');
+      function td(text, cls) {
+        var c = document.createElement('td');
+        c.textContent = text;
+        if (cls) c.className = cls;
+        return c;
+      }
+      tr.appendChild(td(row.raw));
+      tr.appendChild(td(row.source));
+      tr.appendChild(td(String(row.occurrences)));
+      var sugCell = td(row.suggested_slug ? (row.suggested_slug + ' (unverified)') : '—');
+      if (row.suggested_slug) sugCell.title = 'A prefix guess, not a confirmed identity';
+      tr.appendChild(sugCell);
+
+      var decide = document.createElement('td');
+      var slugInput = document.createElement('input');
+      slugInput.type = 'text';
+      slugInput.placeholder = 'canonical slug';
+      slugInput.value = row.suggested_slug || '';
+      slugInput.size = 18;
+      var acceptBtn = document.createElement('button');
+      acceptBtn.type = 'button';
+      acceptBtn.className = 'btn-sm';
+      acceptBtn.textContent = 'Accept';
+      acceptBtn.addEventListener('click', function () {
+        var slug = slugInput.value.trim();
+        if (!slug) { setStatus('Enter the canonical slug to accept onto.'); return; }
+        decideRow('accept', row.id, slug);
+      });
+      var rejectBtn = document.createElement('button');
+      rejectBtn.type = 'button';
+      rejectBtn.className = 'btn-sm';
+      rejectBtn.textContent = 'Reject';
+      rejectBtn.addEventListener('click', function () { decideRow('reject', row.id, null); });
+      decide.appendChild(slugInput);
+      decide.appendChild(document.createTextNode(' '));
+      decide.appendChild(acceptBtn);
+      decide.appendChild(document.createTextNode(' '));
+      decide.appendChild(rejectBtn);
+      tr.appendChild(decide);
+      qb.appendChild(tr);
+    });
+  }
+
+  function load() {
+    return fetch('/api/model-intel/settings').then(function (r) { return r.json(); })
+      .then(fill).catch(function () { setStatus('Could not load settings.'); });
+  }
+
+  function decideRow(verb, id, slug) {
+    var body = {queue_id: id};
+    if (slug) body.slug = slug;
+    setStatus(verb === 'accept' ? 'Linking…' : 'Recording…');
+    fetch('/api/model-intel/identity/' + verb, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); })
+      .then(function (res) {
+        if (res.ok && res.d.ok) {
+          setStatus(verb === 'accept'
+            ? ('Linked ' + res.d.raw + ' → ' + res.d.slug +
+               ' (' + res.d.capability_rows_rekeyed + ' capability rows re-keyed).')
+            : 'Recorded as not a model.');
+        } else {
+          setStatus((res.d && res.d.error) || 'That did not work.');
+        }
+        return load();
+      }).catch(function () { setStatus('That did not work.'); });
+  }
+
+  document.getElementById('miSave').addEventListener('click', function () {
+    setStatus('Saving…');
+    fetch('/api/model-intel/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        poller_enabled: box.checked,
+        sources: {
+          provider_catalog: {accepted: srcCatalog.checked},
+          lmarena: {accepted: srcArena.checked}
+        }
+      })
+    }).then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); })
+      .then(function (res) {
+        setStatus(res.ok && res.d.ok ? 'Saved.' : ((res.d && res.d.error) || 'Save failed.'));
+        return load();
+      }).catch(function () { setStatus('Save failed.'); });
+  });
+
+  document.getElementById('miPoll').addEventListener('click', function () {
+    var btn = document.getElementById('miPoll');
+    btn.disabled = true;
+    setStatus('Polling…');
+    fetch('/api/model-intel/poll', {method: 'POST'}).then(function (r) {
+      return r.json().then(function (d) { return {ok: r.ok, d: d}; });
+    }).then(function (res) {
+      if (res.ok && res.d.ok) {
+        var eps = (res.d.summary && res.d.summary.endpoints) || [];
+        setStatus(res.d.summary && res.d.summary.skipped
+          ? ('Not run: ' + res.d.summary.skipped)
+          : ('Polled ' + eps.length + ' endpoint(s).'));
+      } else {
+        setStatus((res.d && res.d.error) || 'Poll failed.');
+      }
+      return load();
+    }).catch(function () { setStatus('Poll failed.'); })
+      .finally(function () { btn.disabled = false; });
+  });
+
+  load();
 })();
 </script>
 {% endblock %}

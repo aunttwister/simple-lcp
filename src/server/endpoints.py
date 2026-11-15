@@ -3415,6 +3415,84 @@ class ModelIntelEndpoints:
         self._audit("model_intel.poll_toggle", slug=slug, enabled=enabled)
         self._send_json({"ok": True, **state})
 
+    def _serve_model_intel_settings_api(self):
+        """GET /api/model-intel/settings — the switches + poll health + queue depth.
+
+        POST {poller_enabled?, sources?, guard?, min_interval_s?} — merge one change.
+
+        Three opt-ins, all off by default: the master poller switch, per-source
+        acceptance, and the per-endpoint toggle (POST …/endpoints/toggle). Any one of
+        them can be turned off without disturbing the others.
+        """
+        from ..api.model_identity import connect as mi_connect
+        from ..api.model_identity_queue import list_pending
+        from ..api.model_intel_poll import endpoint_health, load_config, save_config
+
+        if self.command == "POST":
+            body = self._read_body()
+            updates = {k: body.get(k) for k in
+                       ("poller_enabled", "sources", "guard", "min_interval_s")
+                       if k in body}
+            if not updates:
+                self._send_json({"error": "no known keys in body"}, 400)
+                return
+            try:
+                cfg = save_config(self.config, updates)
+            except Exception as exc:  # noqa: BLE001 — surface, don't crash
+                self._send_json({"error": f"{type(exc).__name__}: {exc}"}, 500)
+                return
+            self._audit("model_intel.settings", keys=sorted(updates))
+            self._send_json({"ok": True, "config": cfg})
+            return
+
+        con = mi_connect(ro=True)
+        try:
+            health = endpoint_health(con)
+            pending = list_pending(con)
+            staged = [dict(r) for r in con.execute(
+                "SELECT deployment_id, endpoint_id, served_id, status, source, model_id"
+                " FROM mi_deployments WHERE status='new' ORDER BY deployment_id DESC LIMIT 50")]
+        finally:
+            con.close()
+        self._send_json({"config": load_config(self.config), "endpoints": health,
+                         "staged": staged, "pending_identity": pending,
+                         "pending_count": len(pending)})
+
+    def _serve_model_intel_identity_api(self):
+        """POST /api/model-intel/identity/{accept,reject} — promote or refuse a spelling.
+
+        Accept writes the alias (the authoritative bridge), which is what finally makes
+        the capability rows for that model reachable. Reject records the decision so the
+        same spelling is not offered again. Nothing here is automatic.
+        """
+        from ..api.model_identity import connect as mi_connect
+        from ..api.model_identity_queue import accept, reject
+
+        body = self._read_body()
+        try:
+            queue_id = int(body.get("queue_id"))
+        except (TypeError, ValueError):
+            self._send_json({"error": "queue_id (int) required"}, 400)
+            return
+        con = mi_connect()
+        try:
+            if self.path.rstrip("/").endswith("accept"):
+                slug = (body.get("slug") or "").strip()
+                if not slug:
+                    self._send_json({"error": "slug required to accept"}, 400)
+                    return
+                out = accept(con, queue_id, slug=slug, note=body.get("note") or "")
+            else:
+                out = reject(con, queue_id, note=body.get("note") or "")
+        except KeyError as exc:
+            self._send_json({"error": str(exc)}, 404)
+            return
+        finally:
+            con.close()
+        self._audit("model_intel.identity", queue_id=queue_id,
+                    decision=self.path.rsplit("/", 1)[-1])
+        self._send_json({"ok": True, **out})
+
 
 # ── Usage Stats API ──────────────────────────────────────────────────────────
 

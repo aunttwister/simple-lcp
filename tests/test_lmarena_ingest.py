@@ -1,8 +1,12 @@
-"""Unit tests for the LMArena capability ingester (CUR model-intel P3).
+"""Unit tests for the LMArena capability ingester (CUR model-intel).
 
 No network: ``_fetch_rows`` is monkeypatched to a fixed leaderboard snapshot.
-Pinned contract: category mapping, canonical-slug matching, livebench rows
-untouched (user-edited values immune), idempotent re-runs, provenance fields.
+
+The contract under test is the canonicalisation rule: a capability row is written ONLY
+for an arena name that resolves to a canonical model through the registry's own routes.
+Everything else goes to the identity queue, because a capability row keyed by a spelling
+no read path searches can never be joined — it inflates apparent coverage and is exactly
+the defect this replaced (2,743 dead rows of 2,869).
 """
 from __future__ import annotations
 
@@ -18,15 +22,26 @@ def db():
     con = sqlite3.connect(":memory:")
     con.row_factory = sqlite3.Row
     con.executescript("""
-        CREATE TABLE mi_models (model_id INTEGER PRIMARY KEY, slug TEXT, display_name TEXT);
+        CREATE TABLE mi_models (model_id INTEGER PRIMARY KEY, slug TEXT, display_name TEXT,
+          benchmark_key TEXT);
+        CREATE TABLE mi_aliases (id INTEGER PRIMARY KEY, endpoint_id INTEGER, alias TEXT,
+          model_id INTEGER, deployment_id INTEGER, source TEXT, valid_from TEXT,
+          valid_to TEXT, notes TEXT);
+        CREATE TABLE mi_deployments (deployment_id INTEGER PRIMARY KEY, endpoint_id INTEGER,
+          model_id INTEGER, served_id TEXT);
         CREATE TABLE model_capabilities (id INTEGER PRIMARY KEY, model TEXT, task_type TEXT,
           score REAL, source TEXT, benchmark_category TEXT, raw_score REAL,
           updated_at TEXT, release_label TEXT);
+        CREATE TABLE mi_identity_queue (
+          id INTEGER PRIMARY KEY, raw TEXT NOT NULL, norm TEXT NOT NULL,
+          source TEXT NOT NULL, kind TEXT NOT NULL, evidence TEXT, suggested_slug TEXT,
+          suggested_by TEXT, status TEXT NOT NULL DEFAULT 'pending',
+          first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+          occurrences INTEGER NOT NULL DEFAULT 1, decided_at TEXT, note TEXT,
+          UNIQUE(norm, source));
     """)
-    con.execute("INSERT INTO mi_models VALUES (1, 'claude-opus-5', 'Claude Opus 5')")
-    con.execute("INSERT INTO mi_models VALUES (2, 'gemini-4-carbon', 'Gemini 4 Carbon')")
-    con.execute("INSERT INTO mi_models VALUES (3, 'claude-opus-5-thinking',"
-                " 'Claude Opus 5 Thinking')")  # norm differs: unambiguous
+    con.execute("INSERT INTO mi_models VALUES (1, 'claude-opus-5', 'Claude Opus 5', NULL)")
+    con.execute("INSERT INTO mi_models VALUES (2, 'gpt-5.5', 'GPT 5.5', NULL)")
     con.execute("INSERT INTO model_capabilities VALUES (1, 'claude-opus-5',"
                 " 'code_generation', 88.0, 'livebench', 'coding', 0.77,"
                 " '2026-10-30', '2026-08-13')")
@@ -40,7 +55,7 @@ ARENA_ROWS = [
     ("coding", "Claude Opus 5", 1530.0, 1, 20000, "2026-11-11"),
     ("coding", "Mystery Model X", 1400.0, 2, 5000, "2026-11-11"),
     ("coding", "Claude Opus 5", 1500.0, 1, 10000, "2026-11-04"),  # superseded
-    ("math", "Claude Opus 5", 1510.0, 1, 15000, "2026-11-11"),
+    ("math", "gpt-5.5", 1510.0, 1, 15000, "2026-11-11"),
     ("chinese", "Claude Opus 5", 1500.0, 1, 9000, "2026-11-11"),  # no axis: skipped
     ("overall", "Claude Opus 5", 1520.0, 1, 99000, "2026-11-11"),  # blend: skipped
 ]
@@ -51,24 +66,56 @@ def arena(monkeypatch):
     monkeypatch.setattr(li, "_fetch_rows", lambda *a, **k: list(ARENA_ROWS))
 
 
+def _keys(con):
+    return {r["model"] for r in con.execute(
+        "select model from model_capabilities where source='lmarena'")}
+
+
+# ── the canonicalisation rule ──────────────────────────────────────────────
+
+def test_only_resolvable_names_become_capability_rows(db):
+    out = li.ingest(db)
+    assert out["rows"] == 2 and out["matched"] == 2, (
+        "one row for Claude Opus 5 (coding) and one for gpt-5.5 (math)")
+    assert _keys(db) == {"claude-opus-5", "gpt-5.5"}, (
+        "an unmatched arena name must never become a capability key")
+
+
+def test_unmatched_name_goes_to_the_identity_queue(db):
+    out = li.ingest(db)
+    assert out["queued"] == 1
+    q = db.execute("select raw, source, kind from mi_identity_queue").fetchall()
+    assert len(q) == 1 and q[0]["raw"] == "Mystery Model X"
+    assert q[0]["source"] == "lmarena" and q[0]["kind"] == "capability_name"
+
+
+def test_every_written_key_is_joinable_by_the_reader(db):
+    """The property that was violated before: no dead rows. A row the read path
+    cannot find is worse than no row, because it looks like coverage."""
+    li.ingest(db)
+    from src.api.model_identity_queue import resolve_canonical
+    for r in db.execute("select distinct model from model_capabilities"):
+        assert resolve_canonical(db, r["model"]), (
+            f"{r['model']!r} is stored but unreachable")
+
+
 def test_categories_map_onto_gateway_axes(db):
     out = li.ingest(db)
     assert out["categories"] == ["coding", "math"], (
         "language/industry/overall categories must be skipped")
 
 
-def test_canonical_slug_match_wins_and_dedupes(db):
-    """'Claude Opus 5' matches slug 'claude-opus-5' ('...-thinking' normalises
-    differently, so no collision). Keys are slugs, never ids."""
+def test_an_alias_or_served_id_also_brings_an_arena_name_in(db):
+    """Resolution is not slug-only: a declared alias and a served id are routes too."""
+    db.execute("INSERT INTO mi_aliases VALUES (1, NULL, 'Mystery Model X', 2, NULL,"
+               " 'operator', '2026-10-30', NULL, NULL)")
+    db.commit()
     out = li.ingest(db)
-    assert out["matched"] == 2  # coding + math rows for Claude Opus 5
-    keys = {r[0] for r in db.execute(
-        "select model from model_capabilities where source='lmarena'")}
-    assert keys == {"claude-opus-5", "Mystery Model X"}
+    assert out["rows"] == 3 and out["queued"] == 0
+    assert _keys(db) == {"claude-opus-5", "gpt-5.5"}
 
 
 def test_latest_snapshot_beats_superseded_rows(db):
-    """The 2026-11-04 coding row is superseded by the 2026-11-11 one."""
     li.ingest(db)
     rows = db.execute(
         "select raw_score, release_label from model_capabilities"
@@ -82,13 +129,13 @@ def test_score_is_percentile_and_raw_score_is_elo(db):
     li.ingest(db)
     row = db.execute(
         "select score, raw_score from model_capabilities"
-        " where source='lmarena' and model='Mystery Model X'").fetchone()
-    assert row["raw_score"] == 1400.0
-    assert row["score"] == 50.0  # rank 2 of 2 in coding
+        " where source='lmarena' and model='gpt-5.5'").fetchone()
+    assert row["raw_score"] == 1510.0
+    assert row["score"] == 100.0  # rank 1 of 1 in math
 
 
 def test_livebench_rows_are_never_touched(db):
-    """The operator's provenance rule: a poll never overwrites another source."""
+    """The provenance rule: a source never overwrites another source's rows."""
     li.ingest(db)
     row = db.execute(
         "select score, source, updated_at from model_capabilities where source='livebench'"
@@ -97,19 +144,41 @@ def test_livebench_rows_are_never_touched(db):
 
 
 def test_reruns_refresh_not_duplicate(db):
-    """3 mapped rows (coding x2 models + math) — a re-run refreshes, never grows."""
     li.ingest(db)
     n1 = db.execute(
         "select count(*) from model_capabilities where source='lmarena'").fetchone()[0]
     li.ingest(db)
     n2 = db.execute(
         "select count(*) from model_capabilities where source='lmarena'").fetchone()[0]
-    assert n1 == n2 == 3
+    assert n1 == n2 == 2, "a re-run refreshes its own rows and adds none"
+
+
+def test_queued_repeats_do_not_duplicate(db):
+    li.ingest(db)
+    li.ingest(db)
+    assert db.execute("select count(*) from mi_identity_queue").fetchone()[0] == 1
+    assert db.execute("select occurrences from mi_identity_queue").fetchone()[0] == 2
 
 
 def test_dry_run_writes_nothing(db):
     out = li.ingest(db, dry_run=True)
-    assert out["matched"] == 2 and out["rows"] == 0
+    assert out["matched"] == 2 and out["rows"] == 0 and out["queued"] == 1
+    assert db.execute("select count(*) from mi_identity_queue").fetchone()[0] == 0
     assert db.execute(
-        "select count(*) from model_capabilities where source='lmarena'"
-    ).fetchone()[0] == 0
+        "select count(*) from model_capabilities where source='lmarena'").fetchone()[0] == 0
+
+
+def test_accepting_a_queued_name_makes_later_rows_land_on_the_canonical_model(db):
+    """End to end: the observation queues, the operator links it, and the next ingest
+    writes the score against the canonical model instead of a dead name."""
+    li.ingest(db)
+    from src.api.model_identity_queue import accept, list_pending
+    item = list_pending(db)[0]
+    accept(db, item["id"], slug="gpt-5.5", note="operator linked")
+    li.ingest(db)
+    assert _keys(db) == {"claude-opus-5", "gpt-5.5"}
+    assert db.execute(
+        "select count(*) from model_capabilities where model='gpt-5.5'"
+    ).fetchone()[0] == 2, "the newly linked name now lands on gpt-5.5"
+    assert db.execute(
+        "select count(*) from mi_identity_queue where status='pending'").fetchone()[0] == 0

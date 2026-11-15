@@ -30,6 +30,13 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Optional
 
+from .model_identity_queue import (
+    KIND_CAPABILITY_NAME,
+    SOURCE_LMARENA,
+    observe,
+    resolve_canonical,
+)
+
 PARQUET_URL = ("https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/"
                "resolve/main/text/latest-00000-of-00001.parquet")
 
@@ -72,25 +79,17 @@ def _fetch_rows(timeout: float = 60.0):
     return rows
 
 
-def _canon_slug_map(con: sqlite3.Connection) -> dict:
-    """normalised mi_models slug -> canonical slug (unambiguous names only)."""
-    counts: dict = {}
-    first: dict = {}
-    for (slug,) in con.execute("SELECT slug FROM mi_models").fetchall():
-        n = _norm(slug)
-        if not n:
-            continue
-        counts[n] = counts.get(n, 0) + 1
-        first.setdefault(n, slug)
-    return {n: first[n] for n, c in counts.items() if c == 1}
-
-
 def ingest(con: sqlite3.Connection, *, dry_run: bool = False) -> dict:
     """Pull the LMArena text leaderboard and upsert capability rows.
 
-    Returns a summary {categories, rows, matched, unmatched, release_label}.
-    Never raises on upstream failure into the caller's transaction — the
-    fetch phase raising is fine (nothing written yet).
+    A row is written ONLY when its arena name resolves to a canonical model through
+    the registry's own routes (slug / alias / served id / benchmark key). Anything
+    else — the long tail of names the registry does not yet contain — is recorded in
+    the identity queue instead of being written into ``model_capabilities``, because a
+    capability row keyed by a spelling no read path searches is a dead row: it can
+    never be joined, and it makes the estate look better covered than it is.
+
+    Returns {categories, rows, matched, queued, release_label}.
     """
     rows = _fetch_rows()
     # Latest snapshot per (category, model_name): the leaderboard refreshes in
@@ -107,12 +106,10 @@ def ingest(con: sqlite3.Connection, *, dry_run: bool = False) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     release_label = max(r[5] for r in rows) if rows else None
 
-    canon = _canon_slug_map(con)
-    per_category = {}
+    per_category: dict = {}
     for category, *_ in rows:
         per_category[category] = per_category.get(category, 0) + 1
-    matched = unmatched = 0
-    written = 0
+    matched = queued = written = 0
     cur = None
     if not dry_run:
         cur = con.cursor()
@@ -121,32 +118,38 @@ def ingest(con: sqlite3.Connection, *, dry_run: bool = False) -> dict:
         task = CATEGORY_TO_TASK.get(category)
         if not task or model_name is None:
             continue
+        canonical = resolve_canonical(con, model_name)
+        if not canonical:
+            queued += 1
+            if not dry_run:
+                observe(con, model_name, source=SOURCE_LMARENA,
+                        kind=KIND_CAPABILITY_NAME,
+                        evidence={"categories": [category],
+                                  "rows": 1,
+                                  "best_rank": int(rank) if rank else None,
+                                  "rating": round(float(rating), 2)})
+            continue
+        matched += 1
+        if dry_run:
+            continue
         n = max(1, per_category.get(category, 1))
         # score = percentile within the category (higher is better, 0-100),
         # raw_score = the arena Elo itself.
         percentile = round(100.0 * (n - float(rank) + 1.0) / n, 2)
-        model_id = canon.get(_norm(model_name))
-        if model_id is not None:
-            matched += 1
-            model_key = model_id
-        else:
-            unmatched += 1
-            model_key = model_name
-        if not dry_run:
-            cur.execute(
-                "DELETE FROM model_capabilities WHERE model=? AND task_type=? AND source='lmarena'",
-                (model_key, task))
-            cur.execute(
-                "INSERT INTO model_capabilities (model, task_type, score, source,"
-                " benchmark_category, raw_score, updated_at, release_label)"
-                " VALUES (?,?,?,?,?,?,?,?)",
-                (model_key, task, percentile, "lmarena", category,
-                 round(float(rating), 2), now, release_label))
-            written += 1
+        cur.execute(
+            "DELETE FROM model_capabilities WHERE model=? AND task_type=? AND source='lmarena'",
+            (canonical, task))
+        cur.execute(
+            "INSERT INTO model_capabilities (model, task_type, score, source,"
+            " benchmark_category, raw_score, updated_at, release_label)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (canonical, task, percentile, "lmarena", category,
+             round(float(rating), 2), now, release_label))
+        written += 1
     if not dry_run:
         con.commit()
     return {"categories": sorted({r[0] for r in rows if r[0] in CATEGORY_TO_TASK}),
-            "rows": written, "matched": matched, "unmatched": unmatched,
+            "rows": written, "matched": matched, "queued": queued,
             "release_label": release_label}
 
 

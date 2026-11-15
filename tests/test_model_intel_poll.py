@@ -1,56 +1,83 @@
-"""Unit tests for the model-intel freshness poller (CUR model-intel redesign P1).
+"""Unit tests for the model-intel freshness poller (CUR model-intel redesign).
 
 The operator's contract, pinned here so a regression cannot ship:
-* polling is OFF per endpoint until the user toggles it on (migration 031);
+* polling is OFF until the master switch is on AND the source is accepted AND the
+  endpoint is opted in — three independent layers;
 * a poll writes only ``mi_polls`` audit rows and ``mi_deployments`` status /
   first_seen / last_seen / source — ``mi_models`` (canonical labels, user-edited
   display values) is never touched;
 * unknown served ids are staged ``status='new'``, which ``model_identity.resolve``
   never reads, so poll output cannot affect routing until a human confirms;
-* a vanished id becomes ``stale_candidate`` — kept, never auto-retired.
+* a served id that resolves is staged LINKED, so its capabilities are joinable;
+* a vanished id becomes ``stale_candidate`` — kept, never auto-retired;
+* an empty or sharply shrunken listing is a broken read, not a mass retirement;
+* a user-verified deployment is never auto-staled by a poll.
 """
 from __future__ import annotations
 
-import json
 import sqlite3
 
 import pytest
 
 from src.api import model_intel_poll as mip
-from src.api.model_identity import connect as mi_connect
+
+
+class _Cfg:
+    """A minimal stand-in for the gateway config object."""
+
+    def __init__(self, section=None):
+        self.raw = {"model_intel": section} if section else {}
+        self.saved = False
+
+    def save(self):
+        self.saved = True
+
+
+def _enabled_cfg(**over):
+    section = {
+        "poller_enabled": True,
+        "sources": {"provider_catalog": {"accepted": True}},
+    }
+    section.update(over)
+    return _Cfg(section)
+
+
+SCHEMA = """
+CREATE TABLE mi_endpoints (
+    endpoint_id INTEGER PRIMARY KEY, slug TEXT, display_name TEXT, base_url TEXT,
+    status TEXT, poll_enabled INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE mi_deployments (
+    deployment_id INTEGER PRIMARY KEY, endpoint_id INTEGER, model_id INTEGER,
+    served_id TEXT, variant TEXT, quantisation TEXT, context_window INTEGER,
+    status TEXT, source TEXT, verified_at TEXT, first_seen TEXT, last_seen TEXT,
+    notes TEXT);
+CREATE TABLE mi_models (
+    model_id INTEGER PRIMARY KEY, slug TEXT, display_name TEXT, family TEXT,
+    status TEXT, supersedes_model_id INTEGER, benchmark_key TEXT, created_at TEXT);
+CREATE TABLE mi_aliases (
+    id INTEGER PRIMARY KEY, endpoint_id INTEGER, alias TEXT, model_id INTEGER,
+    deployment_id INTEGER, source TEXT, valid_from TEXT, valid_to TEXT, notes TEXT);
+CREATE TABLE mi_polls (
+    poll_id INTEGER PRIMARY KEY, endpoint_id INTEGER NOT NULL, polled_at TEXT NOT NULL,
+    ok INTEGER NOT NULL, http_status INTEGER, model_count INTEGER,
+    model_ids_json TEXT, error TEXT, duration_ms INTEGER);
+CREATE TABLE mi_identity_queue (
+    id INTEGER PRIMARY KEY, raw TEXT NOT NULL, norm TEXT NOT NULL, source TEXT NOT NULL,
+    kind TEXT NOT NULL, evidence TEXT, suggested_slug TEXT, suggested_by TEXT,
+    status TEXT NOT NULL DEFAULT 'pending', first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL, occurrences INTEGER NOT NULL DEFAULT 1,
+    decided_at TEXT, note TEXT, UNIQUE(norm, source));
+"""
 
 
 @pytest.fixture
-def db(tmp_path):
-    """The model-intel tables with the real staging schema, then seed rows."""
-    db_path = str(tmp_path / "costs.db")
-    con = sqlite3.connect(db_path)
+def db():
+    con = sqlite3.connect(":memory:")
     con.row_factory = sqlite3.Row
-    con.executescript("""
-        CREATE TABLE mi_endpoints (
-            endpoint_id INTEGER PRIMARY KEY,
-            slug TEXT, display_name TEXT, base_url TEXT, tier TEXT,
-            status TEXT, notes TEXT, created_at TEXT,
-            poll_enabled INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE mi_deployments (
-            deployment_id INTEGER PRIMARY KEY,
-            endpoint_id INTEGER, model_id INTEGER, served_id TEXT,
-            variant TEXT, quantisation TEXT, context_window INTEGER,
-            status TEXT, source TEXT, verified_at TEXT,
-            first_seen TEXT, last_seen TEXT, notes TEXT);
-        CREATE TABLE mi_models (
-            model_id INTEGER PRIMARY KEY,
-            slug TEXT, display_name TEXT, family TEXT, status TEXT,
-            supersedes_model_id INTEGER, benchmark_key TEXT, created_at TEXT);
-        CREATE TABLE mi_polls (
-            poll_id INTEGER PRIMARY KEY,
-            endpoint_id INTEGER NOT NULL, polled_at TEXT NOT NULL,
-            ok INTEGER NOT NULL, http_status INTEGER, model_count INTEGER,
-            model_ids_json TEXT, error TEXT, duration_ms INTEGER);
-    """)
+    con.executescript(SCHEMA)
     con.execute(
         "INSERT INTO mi_endpoints (endpoint_id, slug, display_name, base_url, status,"
-        " poll_enabled) VALUES (1, 'prov-a', 'Prov A', 'https://a/v1', 'active', 0)")
+        " poll_enabled) VALUES (1, 'prov-a', 'Prov A', 'https://a/v1', 'active', 1)")
     con.execute(
         "INSERT INTO mi_deployments (endpoint_id, served_id, status, source,"
         " first_seen, last_seen) VALUES (1, 'known-model', 'active', 'seed',"
@@ -62,12 +89,6 @@ def db(tmp_path):
     con.commit()
     yield con
     con.close()
-
-
-def _poll_with(db, ids, *, ok=True, status=200):
-    """Run poll_all against a fake catalog for prov-a."""
-    with patch_fetch(ids, ok=ok, status=status):
-        return mip.poll_all(con=db)
 
 
 def patch_fetch(ids, *, ok=True, status=200):
@@ -87,43 +108,59 @@ def patch_fetch(ids, *, ok=True, status=200):
     return _Ctx()
 
 
-# ── 1. the toggle: polling is off until the user opts in ─────────────────────
+def _poll(db, ids, *, ok=True, status=200, cfg=None):
+    with patch_fetch(ids, ok=ok, status=status):
+        return mip.poll_all(con=db, config=cfg or _enabled_cfg(), force=True)
 
-def test_poll_touches_nothing_while_every_toggle_is_off(db):
-    """The default state of every endpoint: no poll, no rows, no requests."""
-    out = _poll_with(db, ["brand-new-model"])
-    assert out["endpoints"] == [], (
-        "polling must be opt-in per endpoint; nothing enabled means no polls")
+
+# ── 1. the three switches: master, source, endpoint ─────────────────────────
+
+def test_poll_does_nothing_while_the_master_switch_is_off(db):
+    out = mip.poll_all(con=db, config=_Cfg())  # no section → defaults, all off
+    assert out["enabled"] is False and out["endpoints"] == []
+    assert "off" in out["skipped"]
     assert db.execute("select count(*) from mi_polls").fetchone()[0] == 0
 
 
-def test_set_poll_enabled_opts_in_exactly_one_endpoint(db):
-    state = mip.set_poll_enabled(con=db, slug="prov-a", enabled=True)
-    assert state["poll_enabled"] is True
-    row = db.execute("select poll_enabled from mi_endpoints where slug='prov-a'").fetchone()
-    assert row["poll_enabled"] == 1
+def test_poll_does_nothing_when_the_source_is_not_accepted(db):
+    cfg = _Cfg({"poller_enabled": True})
+    out = mip.poll_all(con=db, config=cfg)
+    assert out["enabled"] is False and "not accepted" in out["skipped"]
+
+
+def test_poll_skips_an_endpoint_that_is_not_opted_in(db):
+    db.execute("update mi_endpoints set poll_enabled=0")
+    db.commit()
+    out = _poll(db, ["x"])
+    assert out["endpoints"] == []
 
 
 def test_toggled_endpoint_polls_and_writes_an_audit_row(db):
-    mip.set_poll_enabled(con=db, slug="prov-a", enabled=True)
-    out = _poll_with(db, ["known-model", "brand-new-model"])
+    out = _poll(db, ["known-model", "brand-new-model"])
     ep = out["endpoints"][0]
     assert ep["ok"] is True and ep["model_count"] == 2
-    assert ep["new"] == ["brand-new-model"]
+    assert "brand-new-model" in ep["new"]
     polls = db.execute("select * from mi_polls").fetchall()
     assert len(polls) == 1 and polls[0]["ok"] == 1 and polls[0]["model_count"] == 2
 
 
-def test_toggle_rejects_an_unknown_slug(db):
+def test_set_poll_enabled_round_trips_and_rejects_unknown_slug(db):
+    assert mip.set_poll_enabled(con=db, slug="prov-a", enabled=False)["poll_enabled"] is False
     with pytest.raises(KeyError):
-        mip.set_poll_enabled(con=db, slug="does-not-exist", enabled=True)
+        mip.set_poll_enabled(con=db, slug="nope", enabled=True)
+
+
+def test_second_run_inside_the_floor_is_skipped(db):
+    _poll(db, ["known-model"])
+    out = mip.poll_all(con=db, config=_enabled_cfg())  # not forced
+    assert out["endpoints"][0].get("skipped"), (
+        "two runs in quick succession must not interleave")
 
 
 # ── 2. staging: new ids never touch routing ──────────────────────────────────
 
 def test_unknown_id_is_staged_new_with_poll_provenance(db):
-    mip.set_poll_enabled(con=db, slug="prov-a", enabled=True)
-    _poll_with(db, ["known-model", "brand-new-model"])
+    _poll(db, ["known-model", "brand-new-model"])
     row = db.execute(
         "select status, source from mi_deployments where served_id='brand-new-model'"
     ).fetchone()
@@ -131,25 +168,37 @@ def test_unknown_id_is_staged_new_with_poll_provenance(db):
 
 
 def test_resolve_only_honours_active_so_new_staging_cannot_route(db):
-    """The safety property the whole design rests on."""
-    mip.set_poll_enabled(con=db, slug="prov-a", enabled=True)
-    _poll_with(db, ["known-model", "brand-new-model"])
-    statuses = dict(db.execute(
-        "select served_id, status from mi_deployments").fetchall())
-    assert statuses["brand-new-model"] == "new"
-    assert statuses["known-model"] == "active"
-    # resolve() honours only active: prove the query shape it uses
-    routed = db.execute(
-        "select served_id from mi_deployments where status = 'active'"
-    ).fetchall()
-    assert [r["served_id"] for r in routed] == ["known-model"]
+    _poll(db, ["known-model", "brand-new-model"])
+    routed = [r["served_id"] for r in db.execute(
+        "select served_id from mi_deployments where status = 'active'")]
+    assert routed == ["known-model"]
 
 
-# ── 3. known ids: refresh without rewriting ─────────────────────────────────
+def test_a_served_id_that_matches_a_known_alias_is_staged_linked(db):
+    """The canonicalisation win: a staged model that has an identity also has
+    capabilities, because capability rows join on that identity."""
+    db.execute("INSERT INTO mi_aliases VALUES (1, NULL, 'served/known-model', 1, NULL,"
+               " 'operator', '2026-10-30', NULL, NULL)")
+    db.commit()
+    out = _poll(db, ["served/known-model"])
+    row = db.execute(
+        "select model_id from mi_deployments where served_id='served/known-model'"
+    ).fetchone()
+    assert row["model_id"] == 1, "a resolvable served id must be staged linked"
+    assert out["endpoints"][0].get("linked") == ["served/known-model"]
+
+
+def test_an_unresolvable_served_id_is_queued_not_left_anonymous(db):
+    _poll(db, ["totally-unknown/some-model"])
+    q = db.execute("select raw, source, kind from mi_identity_queue").fetchall()
+    assert len(q) == 1 and q[0]["source"] == "provider_catalog"
+    assert q[0]["kind"] == "served_id"
+
+
+# ── 3. known ids, stale candidates, user-verified immunity ──────────────────
 
 def test_known_id_gets_last_seen_bumped_and_status_untouched(db):
-    mip.set_poll_enabled(con=db, slug="prov-a", enabled=True)
-    _poll_with(db, ["known-model"])
+    _poll(db, ["known-model"])
     row = db.execute(
         "select status, source, last_seen from mi_deployments where served_id='known-model'"
     ).fetchone()
@@ -158,8 +207,7 @@ def test_known_id_gets_last_seen_bumped_and_status_untouched(db):
 
 
 def test_vanished_id_becomes_stale_candidate_and_is_never_deleted(db):
-    mip.set_poll_enabled(con=db, slug="prov-a", enabled=True)
-    _poll_with(db, ["something-else"])
+    _poll(db, ["something-else"])
     row = db.execute(
         "select status from mi_deployments where served_id='known-model'").fetchone()
     assert row["status"] == "stale_candidate", (
@@ -169,34 +217,116 @@ def test_vanished_id_becomes_stale_candidate_and_is_never_deleted(db):
     ).fetchone()[0] == 1
 
 
-def test_republished_stale_candidate_is_revived_to_active(db):
-    mip.set_poll_enabled(con=db, slug="prov-a", enabled=True)
-    _poll_with(db, ["something-else"])   # known-model goes stale
-    _poll_with(db, ["known-model"])      # endpoint re-lists it
+def test_republished_stale_candidate_is_revived(db):
+    _poll(db, ["something-else"])
+    _poll(db, ["known-model"])
     row = db.execute(
         "select status from mi_deployments where served_id='known-model'").fetchone()
     assert row["status"] == "active"
 
 
-# ── 4. provenance: the poll never touches the canonical labels ───────────────
+def test_a_user_verified_deployment_is_never_auto_staled(db):
+    """A human confirmed it; a poll must not overrule that."""
+    db.execute("update mi_deployments set verified_at='2026-11-01T00:00:00'"
+               " where served_id='known-model'")
+    db.commit()
+    out = _poll(db, ["something-else"])
+    row = db.execute(
+        "select status from mi_deployments where served_id='known-model'").fetchone()
+    assert row["status"] == "active", "a verified deployment must survive a poll"
+    assert "known-model" in out["endpoints"][0].get("protected", [])
+
+
+# ── 4. edge cases: a broken read is not a mass retirement ───────────────────
+
+def test_empty_catalog_stages_nothing_and_stales_nothing(db):
+    out = _poll(db, [])
+    ep = out["endpoints"][0]
+    assert ep["suspect"] is True and "empty" in ep["suspect_reason"]
+    assert db.execute(
+        "select status from mi_deployments where served_id='known-model'").fetchone()[
+            "status"] == "active", "an empty response must not retire the estate"
+    assert db.execute("select count(*) from mi_deployments").fetchone()[0] == 1
+
+
+def test_sharply_shrunken_listing_is_suspicious(db):
+    for i in range(10):
+        db.execute("INSERT INTO mi_deployments (endpoint_id, served_id, status, source,"
+                   " first_seen, last_seen) VALUES (1, ?, 'active', 'seed', 'x', 'x')",
+                   (f"m{i}",))
+    db.commit()
+    out = _poll(db, ["m0"])  # 1 of 11 known active
+    assert out["endpoints"][0]["suspect"] is True
+    still_active = db.execute(
+        "select count(*) from mi_deployments where status='active'").fetchone()[0]
+    assert still_active == 11, "a partial listing must not mass-retire"
+
+
+def test_a_small_but_complete_listing_is_not_suspicious(db):
+    out = _poll(db, ["known-model", "n1", "n2", "n3"])
+    assert out["endpoints"][0]["suspect"] is False
+
+
+# ── 5. provenance: canonical labels are immune, failures are recorded ───────
 
 def test_poll_never_touches_mi_models_user_edits(db):
-    mip.set_poll_enabled(con=db, slug="prov-a", enabled=True)
-    _poll_with(db, ["known-model", "brand-new-model"])
+    _poll(db, ["known-model", "brand-new-model"])
     row = db.execute("select display_name from mi_models where model_id=1").fetchone()
     assert row["display_name"] == "USER EDITED NAME", (
         "canonical/user-edited model fields are immune to polls")
     assert db.execute("select count(*) from mi_models").fetchone()[0] == 1
 
 
-# ── 5. failures are recorded, never raised ──────────────────────────────────
-
-def test_failed_poll_is_audited_with_the_error(db):
-    mip.set_poll_enabled(con=db, slug="prov-a", enabled=True)
-    out = _poll_with(db, [], ok=False, status=500)
+def test_failed_poll_is_audited_with_the_error_and_changes_nothing(db):
+    out = _poll(db, [], ok=False, status=500)
     assert out["endpoints"][0]["ok"] is False
     row = db.execute("select ok, http_status, error from mi_polls").fetchone()
     assert row["ok"] == 0 and row["http_status"] == 500 and row["error"]
-    # and a failed poll changed nothing in the registry
     assert db.execute(
         "select count(*) from mi_deployments where status='new'").fetchone()[0] == 0
+
+
+# ── 6. health: a dead poller must not look switched off ─────────────────────
+
+def test_health_reports_off_never_polled_ok_and_failing(db):
+    assert mip.endpoint_health(db)[0]["state"] == "never_polled"
+
+    _poll(db, ["known-model"])
+    assert mip.endpoint_health(db)[0]["state"] == "ok"
+
+    _poll(db, [], ok=False, status=503)
+    h = mip.endpoint_health(db)[0]
+    assert h["state"] == "failing" and h["consecutive_failures"] == 1
+    assert h["last_success_at"], "the last good run must stay visible"
+
+    db.execute("update mi_endpoints set poll_enabled=0")
+    db.commit()
+    assert mip.endpoint_health(db)[0]["state"] == "off"
+
+
+def test_run_guarded_reports_a_concurrent_run_instead_of_interleaving(db):
+    mip._run_lock.acquire()
+    try:
+        out = mip.run_guarded(con=db, config=_enabled_cfg())
+        assert "already running" in out["skipped"]
+    finally:
+        mip._run_lock.release()
+
+
+# ── 7. config: defaults are all-off, and a write is surgical ────────────────
+
+def test_defaults_are_off_and_a_missing_config_cannot_start_polling():
+    cfg = mip.load_config(_Cfg())
+    assert cfg["poller_enabled"] is False
+    assert mip.source_accepted(cfg, mip.SOURCE_PROVIDER_CATALOG) is False
+    assert mip.source_accepted(cfg, mip.SOURCE_LMARENA) is False
+
+
+def test_save_config_merges_without_clearing_siblings():
+    cfg = _Cfg()
+    mip.save_config(cfg, {"poller_enabled": True})
+    mip.save_config(cfg, {"sources": {"lmarena": {"accepted": True}}})
+    eff = mip.load_config(cfg)
+    assert eff["poller_enabled"] is True
+    assert mip.source_accepted(eff, mip.SOURCE_LMARENA) is True
+    assert eff["guard"]["max_shrink_pct"] == 50, "untouched keys must survive"

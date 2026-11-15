@@ -330,7 +330,7 @@ REQUIRED_SECTIONS = ("server", "profiles", "providers", "pricing",
 ALL_SECTIONS = ("server", "profiles", "providers", "pricing",
                 "circuit_breaker", "retry", "database",
                 "dynamic_routing", "model_limits", "plugins",
-                "conversation_titling")
+                "conversation_titling", "model_intel")
 
 
 def _env_db_path() -> str:
