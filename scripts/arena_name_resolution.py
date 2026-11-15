@@ -91,6 +91,19 @@ def main():
         for slug, in c.execute("SELECT slug FROM mi_models"):
             known[norm(slug)] = slug
 
+    # OPERATOR RULE (2026-11-15): "R3 only the ones that are registered in
+    # provider should be visible in our models leaderboard, so if we are not
+    # having it registered then you can ignore it." A model is visible only if a
+    # provider registers it — i.e. it carries a served_id in mi_deployments (or a
+    # provider's config lists it). Everything else is IGNORED, not registered:
+    # that is what keeps a 153-name arena from flooding a 19-model registry.
+    registered = set()
+    if a.db:
+        cc = sqlite3.connect(a.db)
+        registered = {r[0] for r in cc.execute(
+            "SELECT DISTINCT m.slug FROM mi_deployments d JOIN mi_models m ON m.model_id = d.model_id")}
+        registered |= {r[0] for r in cc.execute("SELECT slug FROM mi_models WHERE status='active'")} if False else set()
+
     audit, new_entries = [], {}
     for name, meta in sorted(seen.items()):
         base = name
@@ -118,8 +131,13 @@ def main():
             new_entries.setdefault(slug, {}).setdefault("arena_names", [])
         if slug in new_entries:
             new_entries[slug]["arena_names"].append(name)
+        visible = slug in registered if registered else True
+        if not visible:
+            decision = "ignored-not-registered"
+            new_entries.pop(slug, None)
         audit.append(dict(arena_name=name, base=base, effort=eff, model_slug=slug,
-                          decision=decision, lab=meta["org"], boards=sorted(meta["boards"])))
+                          decision=decision, visible=visible, lab=meta["org"],
+                          boards=sorted(meta["boards"])))
 
     json.dump(audit, open(a.out, "w"), indent=1)
     matched = sum(1 for r in audit if r["decision"] == "matched-existing")
