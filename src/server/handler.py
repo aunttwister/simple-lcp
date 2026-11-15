@@ -1301,6 +1301,16 @@ def _build_routes() -> RouteTable:
     t.post("api.model_intel.endpoint.toggle",
            exact("/api/model-intel/endpoints/toggle"),
            lambda h, p: h._serve_model_intel_endpoint_toggle_api())
+    t.get("api.model_intel.settings", exact("/api/model-intel/settings"),
+          lambda h, p: h._serve_model_intel_settings_api())
+    t.post("api.model_intel.settings", exact("/api/model-intel/settings"),
+           lambda h, p: h._serve_model_intel_settings_api())
+    t.post("api.model_intel.identity.accept",
+           exact("/api/model-intel/identity/accept"),
+           lambda h, p: h._serve_model_intel_identity_api())
+    t.post("api.model_intel.identity.reject",
+           exact("/api/model-intel/identity/reject"),
+           lambda h, p: h._serve_model_intel_identity_api())
     # ── Work layer ──
     # The cron and sources APIs are gone (2026-10-25): their only caller was the
     # Cron and Config tabs, both decommissioned. The host-side collector reads and
