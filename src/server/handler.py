@@ -1208,11 +1208,6 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_logs_page())
     t.get("page.alerts", exact("/alerts"),
           lambda h, p: h._serve_alerts_page())
-    # CUR-329: estate-level switches (titling today). Registered with the other
-    # pages, before the per-profile suffix rule below.
-    t.get("page.settings", exact("/settings"),
-          lambda h, p: h._serve_settings_page())
-
     # ── public marketing landing (no admin session required) ──
     # /welcome is PUBLIC_EXACT in admin_auth; /welcome/ serves its assets.
     # The bare path redirects so the page's relative URLs resolve.
@@ -1293,14 +1288,6 @@ def _build_routes() -> RouteTable:
     # ── settings / routing ──
     t.get("api.settings", exact("/api/settings"),
           lambda h, p: h._serve_settings_api())
-    # CUR-329: the conversations-titling section. Registered BEFORE
-    # api.settings.cache.* would matter only if the matchers overlapped —
-    # they do not — but it sits with its siblings for readability.
-    t.get("api.settings.conversations", exact("/api/settings/conversations"),
-          lambda h, p: h._serve_conversations_settings_api())
-    t.post("api.settings.conversations.title",
-          exact("/api/settings/conversations/title"),
-          lambda h, p: h._serve_conversations_title_api())
     t.get("api.routing.status", exact("/api/routing/status"),
           lambda h, p: h._serve_routing_status_api())
     # Model-intel freshness polls (CUR model-intel redesign P1): audit is a
@@ -1528,8 +1515,6 @@ def _build_routes() -> RouteTable:
     t.post("memory.write",
            regex(r"^/(?P<profile>[^/]+)/memory/(?P<action>retain|recall|forget)$"),
            _memory_write)
-    t.post("api.settings.conversations", exact("/api/settings/conversations"),
-           lambda h, p: h._serve_conversations_settings_update_api())
 
 
     return t
