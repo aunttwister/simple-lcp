@@ -1,93 +1,112 @@
 #!/usr/bin/env python3
-"""Poll BOTH Arena board families into the ratings store.
+"""Poll LMArena's boards into the ratings store (CLI).
 
-Resolution order (fixes the gap found 2026-11-15): the alias table
-`mi_model_names` is consulted FIRST, so operator-declared aliases win (e.g.
-Qwen3.8-27B -> qwen3.8-27b-heretic); slug spelling is only the fallback. Effort
-suffixes are stripped into a dimension (R2=C). Only provider-registered,
-non-retired models are written; everything else is ignored.
+    python3 scripts/poll_arena_into_store.py <costs.db>            # poll + show the diff
+    python3 scripts/poll_arena_into_store.py <costs.db> --commit   # accept every row
+    python3 scripts/poll_arena_into_store.py <costs.db> --release  # release-watch report only
+
+The poll STAGES: nothing becomes the published baseline until it is accepted.
+That is the same rule the UI follows (poll -> diff -> tick -> Update), so a
+headless run and a click can never disagree about what is in force.
+
+Needs DuckDB (declared in pyproject; present in the image). Run it inside the
+container to be sure of the version:
+
+    docker exec lcp-staging python3 /app/scripts/poll_arena_into_store.py \
+        /app/data/costs.db --commit
 """
-import json, re, sqlite3, sys, urllib.request
+from __future__ import annotations
+
+import argparse
+import json
+import sqlite3
+import sys
+
 sys.path.insert(0, ".")
-from src.api.model_ratings import upsert_ratings, leaderboard
 
-API = "https://datasets-server.huggingface.co/rows"
-DS = "lmarena-ai%2Fleaderboard-dataset"
-TEXT = {"coding": ["code_generation", "debugging", "unit_tests"],
-        "math": ["reasoning_chain"], "hard_prompts_english": ["reasoning_chain"],
-        "expert": ["reasoning_chain"], "instruction_following": ["planning"],
-        "multi_turn": ["casual_chat"], "creative_writing": ["casual_chat"]}
-AGENT = {"agent": "agentic_multi_step", "agent_task_outcome_explicit": "agentic_multi_step",
-         "agent_steerability": "planning", "agent_tool_hallucination": "research_deep",
-         "agent_bash_reliability": "debugging", "agent_bash_recovery_steps": "debugging",
-         "agent_praise_complaint": "casual_chat"}
-EFFORT = re.compile(r"\s*[\(\[]\s*(x?high|max|low|medium|minimal)\s*[\)\]]\s*$", re.I)
+from src.api import arena_poll, model_ratings  # noqa: E402
 
-def norm(s):
-    s = re.sub(r"[\s_]+", "-", (s or "").strip().lower())
-    return re.sub(r"-{2,}", "-", s).strip("-")
 
-def rows(cfg, attempts=4):
-    """The datasets-server 503s when hammered; back off rather than fail the poll."""
-    import time
-    u = f"{API}?dataset={DS}&config={cfg}&split=latest&offset=0&length=100"
-    last = None
-    for i in range(attempts):
-        try:
-            with urllib.request.urlopen(u, timeout=60) as r:
-                return [x["row"] for x in json.load(r).get("rows", [])]
-        except Exception as e:
-            last = e
-            time.sleep(2 ** i)
-    print(f"  ! {cfg}: {last}")
-    return []
+def _fmt_row(r) -> str:
+    val = f"{r['value']:>10.4f}"
+    old = "—" if r["old_value"] is None else f"{r['old_value']:>10.4f}"
+    flag = " " if not r["changed"] else "*"
+    return ("  %s %-22s %-9s %s -> %s  p%-5s %s"
+            % (flag, r["model_slug"], r["unit"], old, val,
+               r["percentile"], r.get("old_date") or "new"))
 
-db = sys.argv[1]
-con = sqlite3.connect(db); con.row_factory = sqlite3.Row
-# 1. alias table first (operator aliases win), then slug spelling
-alias = {}
-for r in con.execute("""SELECT n.name AS arena, m.slug AS slug FROM mi_model_names n
-                        JOIN mi_models m ON m.model_id = n.model_id"""):
-    alias[norm(r["arena"])] = r["slug"]
-known = {norm(r[0]): r[0] for r in con.execute("SELECT slug FROM mi_models")}
 
-def resolve(name):
-    base = EFFORT.sub("", name); eff = None
-    m = EFFORT.search(name)
-    if m: eff = m.group(1).lower()
-    k = norm(base)
-    return alias.get(k) or known.get(k), eff
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("db", help="path to costs.db")
+    ap.add_argument("--commit", action="store_true",
+                    help="accept every staged row as the new baseline")
+    ap.add_argument("--release", action="store_true",
+                    help="only run the release watcher (no poll, no writes)")
+    ap.add_argument("--json", action="store_true", help="machine-readable summary")
+    args = ap.parse_args()
 
-out = []
-# ONE fetch per board, expanded across every axis that board informs. (Fetching
-# inside the axis loop silently wrote only the first axis of a shared board.)
-for cfg, axes in TEXT.items():
-    rs = rows(cfg)
-    for r in rs:
-        slug, eff = resolve(r["model_name"] or "")
-        if not slug: continue
-        n = len(rs)
-        pct = round(100*(1-(r["rank"]-1)/max(n-1,1)),1) if r.get("rank") else None
-        for ax in axes:
-            out.append(dict(model_slug=slug, taxonomy=ax, value=r["rating"], unit="elo",
-                            rank=r["rank"], n=n, percentile=pct, source="arena", board=cfg,
-                            lab=r.get("organization"), effort=eff, basis="arena-measured",
-                            published=r.get("leaderboard_publish_date")))
-for cfg, ax in AGENT.items():
-    rs = rows(cfg)
-    for r in rs:
-        slug, eff = resolve(r["model_name"] or "")
-        if not slug: continue
-        n = len(rs)
-        out.append(dict(model_slug=slug, taxonomy=ax, value=r["score"], unit="net_improvement",
-                        rank=r["rank"], n=n,
-                        percentile=round(100*(1-(r["rank"]-1)/max(n-1,1)),1) if r.get("rank") else None,
-                        source="arena", board=cfg, lab=r.get("organization"), effort=eff,
-                        basis="arena-measured", published=r.get("leaderboard_publish_date")))
-print("polled rows:", len(out))
-print("upsert:", upsert_ratings(con, out))
-for t in ("code_generation", "debugging", "agentic_multi_step", "research_deep"):
-    lb = leaderboard(con, t)
-    print(f"\n{t} ({len(lb)} rows):")
-    for r in lb[:4]:
-        print("   %-24s %10.4f %-16s p%-5s %s" % (r["model_slug"], r["value"], r["unit"], r["percentile"], r["lab"]))
+    con = sqlite3.connect(args.db)
+    con.row_factory = sqlite3.Row
+
+    if args.release:
+        boards = arena_poll.default_fetch()
+        report = arena_poll.release_candidates(con, boards)
+        print(json.dumps(report, indent=1) if args.json else _release_text(report))
+        return 0
+
+    result = model_ratings.stage_poll(con)
+    print(f"polled {result['staged']} rows at {result['poll_id']}")
+    for board, st in sorted(result["boards"].items()):
+        print("  %-34s fetched=%-4s matched=%-3s rows=%-4s unmatched=%s"
+              % (board, st["fetched"], st["matched"], st["rows"], st["unmatched"]))
+    rows = result["rows"]
+    changed = [r for r in rows if r["changed"]]
+    print(f"\n{len(changed)} changed of {len(rows)} staged:")
+    for r in changed[:60]:
+        print(_fmt_row(r))
+    rel = result.get("release") or {}
+    if rel.get("candidates"):
+        print(f"\nrelease candidates ({len(rel['candidates'])}; "
+              f"{rel.get('newer_count', 0)} a newer release):")
+        for c in rel["candidates"][:25]:
+            print("  %-5s %-40s -> %s  (rank %s, %s)"
+                  % ("NEWER" if c.get("newer") else "", c["arena_name"],
+                     ", ".join(c["registered_same_line"]),
+                     c["best_rank"], c["organization"]))
+
+    if args.commit:
+        committed = model_ratings.commit_staged(con)
+        print("\ncommitted:", {k: v for k, v in committed.items()
+                               if k in ("written", "skipped_unregistered",
+                                        "rejected_namespace", "remaining")})
+        for tax in ("code_generation", "debugging", "agentic_multi_step",
+                    "research_deep"):
+            lb = model_ratings.leaderboard(con, tax)
+            print(f"\n{tax} ({len(lb)} rows):")
+            for r in lb[:4]:
+                print("   %-24s %10.4f %-16s p%-5s %s"
+                      % (r["model_slug"], r["value"], r["unit"], r["percentile"],
+                         r["lab"]))
+    con.close()
+    return 0
+
+
+def _release_text(report: dict) -> str:
+    out = [f"release watch — {report['registry_active']} active registered models, "
+           f"{report['unresolved_names']} unresolved arena names"]
+    out.append("\nadd candidates (unresolved name on a line we already carry):")
+    for c in report["candidates"]:
+        out.append("  %-40s -> %-28s rank %s  %s"
+                   % (c["arena_name"], ", ".join(c["registered_same_line"]),
+                      c["best_rank"], c["organization"]))
+    if not report["candidates"]:
+        out.append("  (none)")
+    out.append("\nregistered models arena does not score at all:")
+    for s in report["not_on_any_board"]:
+        out.append(f"  {s}")
+    return "\n".join(out)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

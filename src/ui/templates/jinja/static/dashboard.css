@@ -4124,3 +4124,124 @@ tr.log-row-failed td.num { opacity: 0.55; }
 #auditRows tr:nth-child(even) td { background: hsl(var(--secondary) / 0.22); }
 #auditRows td { border-bottom: 1px solid hsl(var(--card-border) / 0.5); }
 .work-chip-ok { color: #3fb950; border-color: #3fb950; }
+
+/* ── Models: leaderboard tabs (column 2) + poll/taxonomy panel (column 3) ─────
+   The models page gains a third column: column 1 is the model list, column 2 is
+   the model detail FIRST and then one tab per leaderboard, column 3 is the poll
+   panel and the taxonomy manager. The panel is IN-GRID (reserved by its own grid
+   column), so no body margin is added — a fixed lane's margin here would
+   double-count the width and leave a dead gutter beside it.
+
+   Selectors are `.models-layout.three-col` (two classes) so they out-specify the
+   plain `.models-layout` rules elsewhere in this file regardless of order. */
+.models-layout.three-col { grid-template-columns: 280px minmax(0, 1fr) 360px; }
+.models-detail-body { min-width: 0; }
+
+.ml-tabs {
+  display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.875rem;
+  border-bottom: 1px solid hsl(var(--card-border)); padding-bottom: 0.5rem;
+}
+.ml-tab {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius);
+  color: hsl(var(--muted-foreground)); cursor: pointer;
+  font-size: 0.8125rem; padding: 0.25rem 0.5rem; white-space: nowrap;
+}
+.ml-tab:hover { background: hsl(var(--secondary) / 0.6); color: hsl(var(--foreground)); }
+.ml-tab.active {
+  background: hsl(var(--secondary)); color: hsl(var(--foreground));
+  border-color: hsl(var(--card-border));
+}
+.ml-tab:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+.ml-tab-kind {
+  font-size: 0.625rem; letter-spacing: 0.04em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); border: 1px solid hsl(var(--card-border));
+  border-radius: 999px; padding: 0 0.3rem;
+}
+.ml-tab-count { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); }
+
+.ml-board { min-width: 0; }
+.lb-unit-head {
+  display: flex; align-items: baseline; gap: 0.5rem; margin: 0.75rem 0 0.25rem;
+  font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.lb-unit-head .muted { text-transform: none; letter-spacing: 0; }
+.lb-table { margin-bottom: 0.5rem; }
+.lb-table th { font-size: 0.6875rem; letter-spacing: 0.04em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); text-align: left; padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid hsl(var(--card-border)); white-space: nowrap; }
+.lb-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid hsl(var(--card-border) / 0.5); }
+.lb-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.lb-table tbody tr:hover td { background: hsl(var(--secondary) / 0.35); }
+
+.models-panel {
+  min-width: 0; display: flex; flex-direction: column; gap: 1rem;
+  position: sticky; top: 1rem;
+}
+.mp-section {
+  background: hsl(var(--card)); border: 1px solid hsl(var(--card-border));
+  border-radius: var(--radius); padding: 0.875rem;
+}
+.mp-title { margin: 0 0 0.5rem; font-size: 0.875rem; }
+.mp-prose { font-size: 0.75rem; color: hsl(var(--muted-foreground)); line-height: 1.5; }
+.mp-prose p { margin: 0 0 0.5rem; }
+.mp-prose strong { color: hsl(var(--foreground)); }
+.mp-list { margin: 0 0 0.5rem 1rem; padding: 0; }
+.mp-list li { margin-bottom: 0.35rem; }
+.mp-eligible { color: hsl(var(--muted-foreground)); font-size: 0.75rem; margin: 0 0 0.5rem; }
+.mp-foot { margin-top: 0.5rem; }
+.mp-field { margin: 0.5rem 0; }
+.mp-csv { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.6875rem; }
+.mp-csv code, .mp-prose code { font-size: 0.6875rem; }
+
+.mp-msg { font-size: 0.75rem; color: hsl(var(--muted-foreground)); margin-top: 0.4rem; display: block; }
+.mp-msg[data-tone="ok"] { color: hsl(var(--green-fg)); }
+.mp-msg[data-tone="bad"] { color: hsl(var(--red-fg)); }
+.mp-msg[data-tone="warn"] { color: hsl(var(--amber-fg)); }
+
+.mp-poll-head { display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 0.5rem; margin-bottom: 0.5rem; }
+.mp-poll-title { font-size: 0.8125rem; color: hsl(var(--foreground)); }
+.mp-poll-sub { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); }
+.mp-rows { max-height: 22rem; overflow-y: auto; border: 1px solid hsl(var(--card-border));
+  border-radius: var(--radius); }
+.mp-row { display: flex; gap: 0.45rem; align-items: flex-start; padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid hsl(var(--card-border) / 0.5); cursor: pointer; }
+.mp-row:last-child { border-bottom: none; }
+.mp-row:hover { background: hsl(var(--secondary) / 0.35); }
+.mp-check { margin-top: 0.15rem; accent-color: hsl(217 91% 60%); flex: none; }
+.mp-row-main { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.mp-row-model { font-size: 0.75rem; }
+.mp-row-tax { font-size: 0.625rem; color: hsl(var(--muted-foreground));
+  letter-spacing: 0.03em; text-transform: uppercase; }
+.mp-row-val { font-size: 0.75rem; color: hsl(var(--foreground)); font-variant-numeric: tabular-nums; }
+.mp-row-val s { color: hsl(var(--muted-foreground)); }
+.mp-row-dates { font-size: 0.625rem; color: hsl(var(--muted-foreground)); }
+.mp-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; }
+
+.mp-tax-list { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; }
+.mp-tax-row { display: flex; align-items: baseline; gap: 0.4rem; font-size: 0.75rem;
+  padding: 0.25rem 0.4rem; border: 1px solid transparent; border-radius: var(--radius);
+  cursor: pointer; }
+.mp-tax-row:hover { background: hsl(var(--secondary) / 0.4); }
+.mp-tax-row.active { border-color: hsl(var(--card-border)); background: hsl(var(--secondary) / 0.6); }
+.mp-tax-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.mp-tax-kind { font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.04em;
+  color: hsl(var(--muted-foreground)); }
+.mp-tax-rows { font-size: 0.6875rem; color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1400px) {
+  .models-layout.three-col { grid-template-columns: 240px minmax(0, 1fr) 320px; }
+}
+/* Below 1180px the lane cannot fit. The three columns STACK (list, detail,
+   panel) rather than becoming a slide-over: an in-grid panel that flows under
+   the content never covers it, so there is nothing to auto-open and no modal
+   behaviour to avoid. */
+@media (max-width: 1180px) {
+  .models-layout.three-col { grid-template-columns: minmax(0, 1fr); }
+  .models-panel { position: static; }
+  .mp-rows { max-height: none; }
+}

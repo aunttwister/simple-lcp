@@ -9,7 +9,7 @@
   <span id="routingNote" class="seed-status"></span>
 </p>
 
-<div class="models-layout">
+<div class="models-layout three-col">
   <!-- ── Left: model list ─────────────────────────────────────────────── -->
   <div class="models-sidebar">
     <div class="models-sidebar-head">
@@ -22,10 +22,89 @@
     <div id="modelList" class="model-list"></div>
   </div>
 
-  <!-- ── Right: selected model detail ─────────────────────────────────── -->
-  <div class="models-detail" id="modelDetail">
-    <div class="empty">Select a model from the list.</div>
+  <!-- ── Middle: Model detail first, then one tab per leaderboard ─────── -->
+  <div class="models-detail">
+    <div class="ml-tabs" id="mlTabs" role="tablist" aria-label="Model and leaderboards">
+      <button class="ml-tab active" role="tab" aria-selected="true" data-tax="model" id="mlTab-model">Model</button>
+    </div>
+
+    <div class="models-detail-body" id="modelDetail">
+      <div class="empty">Select a model from the list.</div>
+    </div>
+
+    <div class="ml-board" id="leaderboardPane" hidden>
+      <p class="subtitle" id="lbNote"></p>
+      <div id="lbTable" class="table-wrap"></div>
+    </div>
   </div>
+
+  <!-- ── Right: poll panel + manage taxonomy (auto-opens) ─────────────── -->
+  <aside class="models-panel" id="modelsPanel" aria-label="Poll and taxonomies">
+    <section class="mp-section">
+      <h4 class="mp-title">Poll for latest data</h4>
+      <div id="pollIntro" class="mp-prose">
+        <p>This reads the public <strong>LMArena</strong> leaderboards and shows you what has
+          changed since the numbers you last kept.</p>
+        <ul class="mp-list">
+          <li>Only models a provider here actually serves are read. Every other name on the
+            board is ignored — nothing is invented.</li>
+          <li>A rating is shown as <strong>Elo</strong> (text boards, around 1500) or as a
+            <strong>net improvement</strong> (agent boards, small signed values), plus a
+            <strong>percentile</strong>. The two are different measurements and are never
+            ranked against each other.</li>
+          <li>Polling <strong>saves nothing</strong>. Tick the rows you want and press
+            <strong>Update</strong> to publish them; <strong>Clear</strong> throws the polled
+            results away.</li>
+          <li>Updating writes the leaderboard only. The capability matrix the router sorts by
+            is not touched.</li>
+        </ul>
+        <p class="mp-eligible" id="pollEligible"></p>
+        <button class="btn btn-primary btn-sm" id="pollRunBtn">Poll for latest data</button>
+        <div class="mp-msg" id="pollMsg"></div>
+      </div>
+
+      <div id="pollResults" hidden>
+        <div class="mp-poll-head">
+          <div>
+            <div class="mp-poll-title">Polled <span id="pollCount">0</span> rows</div>
+            <div class="mp-poll-sub" id="pollMoved"></div>
+          </div>
+          <button class="btn btn-outline btn-sm" id="pollAgainBtn">Poll again</button>
+        </div>
+        <div id="pollRows" class="mp-rows"></div>
+        <div class="mp-actions">
+          <button class="btn btn-primary btn-sm" id="pollUpdateBtn">Update</button>
+          <button class="btn btn-outline btn-sm" id="pollClearBtn">Clear</button>
+          <span class="mp-msg" id="pollMsg2"></span>
+        </div>
+        <p class="mp-prose mp-foot">Update publishes the ticked rows to the leaderboard and
+          re-renders the tab beside it. The capability matrix is unchanged.</p>
+      </div>
+    </section>
+
+    <section class="mp-section">
+      <h4 class="mp-title">Manage taxonomy</h4>
+      <p class="mp-prose">Define your own leaderboard and rate models on it by hand, or import
+        a CSV. Your boards are kept separate from the LMArena ones — a poll never overwrites
+        them, and your numbers are never mixed into an LMArena ranking.</p>
+      <div id="taxList" class="mp-tax-list"></div>
+      <div class="mp-field">
+        <label class="form-label" for="taxName">New taxonomy</label>
+        <input class="form-input" id="taxName" type="text" placeholder="e.g. local-served quality">
+      </div>
+      <button class="btn btn-outline btn-sm" id="taxDefineBtn">Define taxonomy</button>
+      <div class="mp-field">
+        <label class="form-label" for="taxCsv">CSV import</label>
+        <textarea class="form-input mp-csv" id="taxCsv" rows="3"
+          placeholder="model_slug,value,taxonomy,lab&#10;glm-5.3-flash,1520,local-served,zai"></textarea>
+        <div class="form-help">Header row required. <code>model_slug</code> and
+          <code>value</code> are required; <code>taxonomy</code> and <code>lab</code> are
+          optional. Values are ratings you set yourself.</div>
+      </div>
+      <button class="btn btn-outline btn-sm" id="taxImportBtn">Import CSV</button>
+      <div class="mp-msg" id="taxMsg"></div>
+    </section>
+  </aside>
 </div>
 
 <!-- Edit model modal -->
