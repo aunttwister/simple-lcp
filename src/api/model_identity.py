@@ -229,7 +229,11 @@ def registry_version(con: sqlite3.Connection) -> int:
 
 
 def _endpoint(con: sqlite3.Connection, slug: Optional[str]):
-    """(endpoint_id, slug) for a live or legacy spelling, else (None, None)."""
+    """(endpoint_id, slug) for a live or legacy spelling, else (None, None).
+
+    A legacy spelling is a ``mi_sources`` row of kind ``provider_endpoint`` attached to
+    an endpoint (e.g. the historical ``zgx`` for ``local-zgx``).
+    """
     if not slug:
         return None, None
     row = con.execute(
@@ -238,8 +242,9 @@ def _endpoint(con: sqlite3.Connection, slug: Optional[str]):
     if row:
         return int(row["endpoint_id"]), row["slug"]
     row = con.execute(
-        "SELECT e.endpoint_id, e.slug FROM mi_endpoint_aliases a"
-        " JOIN mi_endpoints e ON e.endpoint_id = a.endpoint_id WHERE a.alias = ?",
+        "SELECT e.endpoint_id, e.slug FROM mi_sources s"
+        " JOIN mi_endpoints e ON e.endpoint_id = s.endpoint_id"
+        " WHERE s.slug = ? AND s.kind = 'provider_endpoint'",
         (slug,),
     ).fetchone()
     if row:
@@ -435,17 +440,34 @@ def resolve(
 
         # -- layer 1: an explicit alias, in force at `at` ---------------------------
         # Endpoint-specific wins over global; within that, the most recent start.
+        # The naming authority is now a source row: a name asserted by a provider
+        # applies to that provider's endpoint, one asserted by the operator applies
+        # everywhere. Canonical slugs and benchmark keys are NOT aliases — they have
+        # their own layer below.
         row = con.execute(
-            "SELECT deployment_id, model_id FROM mi_aliases"
-            " WHERE alias = ? AND (endpoint_id IS NULL OR endpoint_id = ?)"
-            "   AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)"
-            " ORDER BY (endpoint_id IS NOT NULL) DESC, valid_from DESC LIMIT 1",
-            (raw, ep_id, at, at),
+            "SELECT n.model_id, s.kind, s.endpoint_id FROM mi_model_names n"
+            " JOIN mi_sources s ON s.source_id = n.source_id"
+            " WHERE n.name = ? AND n.is_primary = 0"
+            "   AND s.kind IN ('provider_endpoint', 'operator')"
+            "   AND (n.valid_from IS NULL OR n.valid_from <= ?)"
+            "   AND (n.valid_to IS NULL OR n.valid_to > ?)"
+            "   AND (s.endpoint_id IS NULL OR s.endpoint_id = ?)"
+            " ORDER BY (s.endpoint_id IS NOT NULL) DESC, COALESCE(n.valid_from,'') DESC"
+            " LIMIT 1",
+            (raw, at, at, ep_id),
         ).fetchone()
         if row:
-            if row["deployment_id"] is not None:
-                return _from_deployment(con, int(row["deployment_id"]), at,
-                                        matched_by=MATCH_ALIAS, **ctx)
+            # A provider-asserted name identifies the deployment that serves it; an
+            # operator-asserted global name identifies the model.
+            if row["endpoint_id"] is not None:
+                dep = con.execute(
+                    "SELECT deployment_id FROM mi_deployments"
+                    " WHERE endpoint_id = ? AND served_id = ? LIMIT 1",
+                    (row["endpoint_id"], raw),
+                ).fetchone()
+                if dep:
+                    return _from_deployment(con, int(dep["deployment_id"]), at,
+                                            matched_by=MATCH_ALIAS, **ctx)
             if row["model_id"] is not None:
                 return _from_model(con, int(row["model_id"]), at,
                                    matched_by=MATCH_ALIAS, **ctx)
@@ -469,15 +491,23 @@ def resolve(
                     return _from_deployment(con, int(r["deployment_id"]), at,
                                             matched_by=MATCH_NORMALISED, **ctx)
         for r in con.execute(
-            "SELECT alias, deployment_id, model_id FROM mi_aliases"
-            " WHERE endpoint_id IS NULL OR endpoint_id = ?"
-            " ORDER BY (endpoint_id IS NOT NULL) DESC",
+            "SELECT n.name, n.model_id, s.endpoint_id FROM mi_model_names n"
+            " JOIN mi_sources s ON s.source_id = n.source_id"
+            " WHERE n.is_primary = 0 AND s.kind IN ('provider_endpoint', 'operator')"
+            "   AND (s.endpoint_id IS NULL OR s.endpoint_id = ?)"
+            " ORDER BY (s.endpoint_id IS NOT NULL) DESC",
             (ep_id,),
         ):
-            if normalise_model_string(r["alias"]) == norm:
-                if r["deployment_id"] is not None:
-                    return _from_deployment(con, int(r["deployment_id"]), at,
-                                            matched_by=MATCH_NORMALISED, **ctx)
+            if normalise_model_string(r["name"]) == norm:
+                if r["endpoint_id"] is not None:
+                    dep = con.execute(
+                        "SELECT deployment_id FROM mi_deployments"
+                        " WHERE endpoint_id = ? AND served_id = ? LIMIT 1",
+                        (r["endpoint_id"], r["name"]),
+                    ).fetchone()
+                    if dep:
+                        return _from_deployment(con, int(dep["deployment_id"]), at,
+                                                matched_by=MATCH_NORMALISED, **ctx)
                 if r["model_id"] is not None:
                     return _from_model(con, int(r["model_id"]), at,
                                        matched_by=MATCH_NORMALISED, **ctx)
@@ -558,25 +588,28 @@ def list_deployments(con: Optional[sqlite3.Connection] = None) -> list[dict]:
 
 
 def aliases(model_or_deployment: Any, *, con: Optional[sqlite3.Connection] = None) -> list[dict]:
-    """Every accepted spelling for a model slug or a deployment id."""
+    """Every accepted spelling for a model slug or a deployment id.
+
+    Sourced from ``mi_model_names``: each row names the authority that asserts the
+    spelling, which endpoint (if any) it applies to, and when a human confirmed it.
+    """
     own = con is None
     con = _rowify(con or connect(ro=True))
     try:
         _ensure_ready(con)
+        base = ("SELECT n.name AS alias, s.slug AS source, e.slug AS endpoint,"
+                "       n.confidence, n.valid_from, n.valid_to, n.verified_at, n.evidence"
+                " FROM mi_model_names n"
+                " JOIN mi_sources s ON s.source_id = n.source_id"
+                " LEFT JOIN mi_endpoints e ON e.endpoint_id = s.endpoint_id")
         if isinstance(model_or_deployment, int):
-            sel = ("SELECT a.alias, e.slug AS endpoint, a.source, a.valid_from, a.valid_to"
-                   " FROM mi_aliases a"
-                   " LEFT JOIN mi_endpoints e ON e.endpoint_id = a.endpoint_id"
-                   " WHERE a.deployment_id = ? ORDER BY a.valid_from")
+            sel = (base + " WHERE n.model_id = (SELECT model_id FROM mi_deployments"
+                   " WHERE deployment_id = ?)"
+                   " ORDER BY n.is_primary DESC, n.name")
             return [dict(r) for r in con.execute(sel, (model_or_deployment,))]
-        sel = ("SELECT a.alias, e.slug AS endpoint, a.source, a.valid_from, a.valid_to"
-               " FROM mi_aliases a"
-               " LEFT JOIN mi_endpoints e ON e.endpoint_id = a.endpoint_id"
-               " LEFT JOIN mi_models m ON m.model_id = a.model_id"
-               " LEFT JOIN mi_deployments d ON d.deployment_id = a.deployment_id"
-               " LEFT JOIN mi_models dm ON dm.model_id = d.model_id"
-               " WHERE m.slug = ? OR dm.slug = ? ORDER BY a.valid_from")
-        return [dict(r) for r in con.execute(sel, (model_or_deployment, model_or_deployment))]
+        sel = (base + " JOIN mi_models m ON m.model_id = n.model_id"
+               " WHERE m.slug = ? ORDER BY n.is_primary DESC, n.name")
+        return [dict(r) for r in con.execute(sel, (model_or_deployment,))]
     finally:
         if own:
             con.close()
@@ -626,26 +659,25 @@ def price_for(deployment_id: int, *, con: Optional[sqlite3.Connection] = None) -
 
 
 def capabilities_for(model: str, *, con: Optional[sqlite3.Connection] = None) -> list[dict]:
-    """Capability rows for a logical model, found via every spelling it is known by."""
+    """Capability rows for a logical model, found via every spelling it is known by.
+
+    One join instead of the old four-step key assembly: ``mi_model_names`` holds every
+    spelling the model is known by (its canonical slug, its benchmark key, each
+    provider's id for it, each operator alias, each served id), so this is a single
+    lookup keyed by the model. Row names that are not registered names are still matched
+    by exact string, so an un-promoted capability key remains visible rather than
+    silently disappearing.
+    """
     own = con is None
     con = _rowify(con or connect(ro=True))
     try:
         _ensure_ready(con)
         keys = {model, normalise_model_string(model)}
-        mrow = con.execute(
-            "SELECT model_id, benchmark_key FROM mi_models WHERE slug = ?", (model,)
-        ).fetchone()
-        if mrow and mrow["benchmark_key"]:
-            keys.add(mrow["benchmark_key"])
-        for r in con.execute("SELECT alias FROM mi_aliases"):
-            if normalise_model_string(r["alias"]) in {normalise_model_string(k) for k in keys}:
-                keys.add(r["alias"])
-        if mrow:
-            for r in con.execute(
-                "SELECT d.served_id FROM mi_deployments d WHERE d.model_id = ?",
-                (mrow["model_id"],),
-            ):
-                keys.add(r["served_id"])
+        for r in con.execute(
+            "SELECT n.name FROM mi_model_names n JOIN mi_models m ON m.model_id = n.model_id"
+            " WHERE m.slug = ?", (model,),
+        ):
+            keys.add(r["name"])
         out: list[dict] = []
         for k in sorted(keys):
             for r in con.execute(

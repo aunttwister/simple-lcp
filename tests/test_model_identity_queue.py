@@ -24,8 +24,14 @@ def db():
         CREATE TABLE mi_endpoints (endpoint_id INTEGER PRIMARY KEY, slug TEXT);
         CREATE TABLE mi_deployments (deployment_id INTEGER PRIMARY KEY,
             endpoint_id INTEGER, model_id INTEGER, served_id TEXT);
-        CREATE TABLE mi_aliases (id INTEGER PRIMARY KEY, endpoint_id INTEGER, alias TEXT,
-            model_id INTEGER, source TEXT, valid_from TEXT, notes TEXT);
+        CREATE TABLE mi_sources (source_id INTEGER PRIMARY KEY, slug TEXT UNIQUE NOT NULL,
+            kind TEXT NOT NULL, endpoint_id INTEGER, convention TEXT,
+            status TEXT NOT NULL DEFAULT 'active', created_at TEXT);
+        CREATE TABLE mi_model_names (id INTEGER PRIMARY KEY, model_id INTEGER NOT NULL,
+            source_id INTEGER NOT NULL, name TEXT NOT NULL,
+            is_primary INTEGER NOT NULL DEFAULT 0, confidence TEXT, evidence TEXT,
+            valid_from TEXT, valid_to TEXT, first_seen TEXT, last_seen TEXT,
+            verified_at TEXT, note TEXT, UNIQUE(source_id, name));
         CREATE TABLE model_capabilities (id INTEGER PRIMARY KEY, model TEXT, task_type TEXT,
             score REAL, source TEXT, raw_score REAL);
         CREATE TABLE mi_identity_queue (
@@ -40,8 +46,14 @@ def db():
     con.execute("INSERT INTO mi_models VALUES (2, 'gpt-5.5', NULL)")
     con.execute("INSERT INTO mi_endpoints VALUES (1, 'commandcode')")
     con.execute("INSERT INTO mi_deployments VALUES (1, 1, 2, 'gpt-5.5')")
-    con.execute("INSERT INTO mi_aliases VALUES (1, NULL, 'claude-5-opus-thinking', 1,"
-                " 'operator', '2026-10-30', NULL)")
+    for slug, kind in (("canonical", "canonical"), ("benchmark", "benchmark_arena"),
+                       ("lmarena", "benchmark_arena"), ("operator", "operator")):
+        con.execute("INSERT INTO mi_sources (slug, kind) VALUES (?,?)", (slug, kind))
+    # an operator-declared name for claude-opus-5
+    con.execute(
+        "INSERT INTO mi_model_names (model_id, source_id, name, confidence, verified_at)"
+        " VALUES (1, (SELECT source_id FROM mi_sources WHERE slug='operator'),"
+        " 'claude-5-opus-thinking', 'verified', '2026-01-01')")
     con.commit()
     yield con
     con.close()
@@ -111,8 +123,11 @@ def test_accept_writes_the_alias_that_makes_capabilities_reachable(db):
     ref = q.observe(db, "Claude Opus 4.6", source=q.SOURCE_LMARENA,
                     kind=q.KIND_CAPABILITY_NAME)
     q.accept(db, ref["queue_id"], slug="claude-opus-5", note="operator confirmed")
-    aliases = [r["alias"] for r in db.execute("select alias from mi_aliases").fetchall()]
-    assert "Claude Opus 4.6" in aliases, "accept must write the bridge the reader honours"
+    names = [r["name"] for r in db.execute(
+        "SELECT name FROM mi_model_names WHERE source_id ="
+        " (SELECT source_id FROM mi_sources WHERE slug='operator')").fetchall()]
+    assert "Claude Opus 4.6" in names, (
+        "accept must record the name under the operator source — that is the bridge")
     row = db.execute("select status from mi_identity_queue where id=?",
                      (ref["queue_id"],)).fetchone()
     assert row["status"] == "accepted"
@@ -137,16 +152,16 @@ def test_accept_rejects_an_unknown_slug(db):
 
 
 def test_accept_is_idempotent(db):
-    """A retry (double-click, network replay) must not stack duplicate aliases —
-    the alias is what resolve() reads, so duplicates fake extra attestation."""
+    """A retry (double-click, network replay) must not stack duplicate names —
+    duplicates fake extra attestation."""
     ref = q.observe(db, "Some New Model", source=q.SOURCE_LMARENA,
                     kind=q.KIND_CAPABILITY_NAME)
     first = q.accept(db, ref["queue_id"], slug="gpt-5.5")
     second = q.accept(db, ref["queue_id"], slug="gpt-5.5")
-    assert first["alias_created"] is True and second["alias_created"] is False
-    n = db.execute("select count(*) from mi_aliases where alias='Some New Model'"
-                   ).fetchone()[0]
-    assert n == 1, "the same spelling must not be aliased twice to one model"
+    assert first["name_recorded"] is True and second["name_recorded"] is False
+    n = db.execute(
+        "select count(*) from mi_model_names where name='Some New Model'").fetchone()[0]
+    assert n == 1, "the same spelling must not be recorded twice"
 
 
 def test_reject_records_the_decision_and_stops_re_offering(db):

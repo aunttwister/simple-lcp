@@ -20,7 +20,7 @@ stored as capability data. An observation that resolves to none of those lands H
 where it is visible, deduplicated, and cheap to promote.
 
 Promotion is explicit and is the only way an observed name reaches routing: accepting
-an entry writes an ``mi_aliases`` row (the existing, authoritative bridge), after which
+an entry writes a ``mi_model_names`` row under the ``operator`` source, after which
 ``capabilities_for()`` finds the capability rows and the alias is available to
 ``resolve()``. Rejecting records the decision so the same name is not offered again.
 """
@@ -83,7 +83,7 @@ def resolve_canonical(con: sqlite3.Connection, raw: str) -> Optional[str]:
     for r in con.execute("""
         SELECT m.slug AS slug, m.slug AS k FROM mi_models m
         UNION SELECT m.slug, m.benchmark_key FROM mi_models m WHERE m.benchmark_key IS NOT NULL
-        UNION SELECT m.slug, a.alias FROM mi_aliases a JOIN mi_models m ON m.model_id = a.model_id
+        UNION SELECT m.slug, n.name FROM mi_model_names n JOIN mi_models m ON m.model_id = n.model_id
         UNION SELECT m.slug, d.served_id FROM mi_deployments d JOIN mi_models m ON m.model_id = d.model_id
     """):
         if _loose(r["k"] or "") == n:
@@ -175,11 +175,13 @@ def list_pending(con: Optional[sqlite3.Connection] = None, *, status: str = PEND
 
 
 def accept(con: sqlite3.Connection, queue_id: int, *, slug: str, note: str = "") -> dict:
-    """Promote an observation to a canonical model by writing the alias.
+    """Promote an observation to a canonical model by recording the name.
 
-    The alias is the authoritative bridge the read path already honours, so this is
-    what makes previously-unreachable capability rows findable. Also re-keys any
-    capability rows already stored under the raw spelling, so nothing is left behind.
+    The row is written into ``mi_model_names`` under the ``operator`` source with
+    ``verified_at`` set: a human has confirmed this spelling names this model. That is
+    the bridge the read path honours, so this is what makes previously-unreachable
+    capability rows findable. Also re-keys any capability rows already stored under the
+    raw spelling, so nothing is left behind.
     """
     q = con.execute("SELECT * FROM mi_identity_queue WHERE id=?", (queue_id,)).fetchone()
     if q is None:
@@ -187,19 +189,30 @@ def accept(con: sqlite3.Connection, queue_id: int, *, slug: str, note: str = "")
     m = con.execute("SELECT model_id FROM mi_models WHERE slug=?", (slug,)).fetchone()
     if m is None:
         raise KeyError(f"no canonical model {slug!r}")
+    src = con.execute(
+        "SELECT source_id FROM mi_sources WHERE slug='operator'").fetchone()
+    if src is None:
+        raise RuntimeError("mi_sources is not migrated (no 'operator' source)")
+    src_id = int(src["source_id"])
     now = _now()
     cur = con.cursor()
     # Idempotent: a retry (double-click, network replay) must not stack duplicate
-    # aliases onto the same model — the alias is what resolve() reads, so duplicates
-    # are noise that makes the identity look more heavily attested than it is.
+    # names — duplicates make the identity look more heavily attested than it is.
     dupe = cur.execute(
-        "SELECT 1 FROM mi_aliases WHERE alias=? AND model_id=?",
-        (q["raw"], m["model_id"])).fetchone()
-    if not dupe:
+        "SELECT 1 FROM mi_model_names WHERE name=? AND source_id=?",
+        (q["raw"], src_id)).fetchone()
+    if dupe:
         cur.execute(
-            "INSERT INTO mi_aliases (endpoint_id, alias, model_id, source, valid_from, notes)"
-            " VALUES (NULL, ?, ?, 'identity_promotion', ?, ?)",
-            (q["raw"], m["model_id"], now, note or f"promoted from {q['source']}"))
+            "UPDATE mi_model_names SET model_id=?, verified_at=?, note=?"
+            " WHERE name=? AND source_id=?",
+            (m["model_id"], now, note, q["raw"], src_id))
+    else:
+        cur.execute(
+            "INSERT INTO mi_model_names (model_id, source_id, name, is_primary,"
+            " confidence, evidence, first_seen, last_seen, verified_at, note)"
+            " VALUES (?,?,?,0,'verified',?,?,?,?,?)",
+            (m["model_id"], src_id, q["raw"], f"promoted from {q['source']}",
+             now, now, now, note or None))
     moved = 0
     if q["kind"] == KIND_CAPABILITY_NAME:
         moved = cur.execute(
@@ -210,7 +223,7 @@ def accept(con: sqlite3.Connection, queue_id: int, *, slug: str, note: str = "")
         (ACCEPTED, now, note, queue_id))
     con.commit()
     return {"queue_id": queue_id, "raw": q["raw"], "slug": slug,
-            "alias_created": not dupe, "capability_rows_rekeyed": moved}
+            "name_recorded": not dupe, "capability_rows_rekeyed": moved}
 
 
 def reject(con: sqlite3.Connection, queue_id: int, *, note: str = "") -> dict:

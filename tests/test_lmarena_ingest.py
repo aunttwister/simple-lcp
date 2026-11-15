@@ -24,9 +24,13 @@ def db():
     con.executescript("""
         CREATE TABLE mi_models (model_id INTEGER PRIMARY KEY, slug TEXT, display_name TEXT,
           benchmark_key TEXT);
-        CREATE TABLE mi_aliases (id INTEGER PRIMARY KEY, endpoint_id INTEGER, alias TEXT,
-          model_id INTEGER, deployment_id INTEGER, source TEXT, valid_from TEXT,
-          valid_to TEXT, notes TEXT);
+        CREATE TABLE mi_sources (source_id INTEGER PRIMARY KEY, slug TEXT UNIQUE NOT NULL,
+          kind TEXT NOT NULL, endpoint_id INTEGER, convention TEXT,
+          status TEXT NOT NULL DEFAULT 'active', created_at TEXT);
+        CREATE TABLE mi_model_names (id INTEGER PRIMARY KEY, model_id INTEGER NOT NULL,
+          source_id INTEGER NOT NULL, name TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0,
+          confidence TEXT, evidence TEXT, valid_from TEXT, valid_to TEXT, first_seen TEXT,
+          last_seen TEXT, verified_at TEXT, note TEXT, UNIQUE(source_id, name));
         CREATE TABLE mi_deployments (deployment_id INTEGER PRIMARY KEY, endpoint_id INTEGER,
           model_id INTEGER, served_id TEXT);
         CREATE TABLE model_capabilities (id INTEGER PRIMARY KEY, model TEXT, task_type TEXT,
@@ -42,6 +46,9 @@ def db():
     """)
     con.execute("INSERT INTO mi_models VALUES (1, 'claude-opus-5', 'Claude Opus 5', NULL)")
     con.execute("INSERT INTO mi_models VALUES (2, 'gpt-5.5', 'GPT 5.5', NULL)")
+    for slug, kind in (("canonical", "canonical"), ("benchmark", "benchmark_arena"),
+                       ("lmarena", "benchmark_arena"), ("operator", "operator")):
+        con.execute("INSERT INTO mi_sources (slug, kind) VALUES (?,?)", (slug, kind))
     con.execute("INSERT INTO model_capabilities VALUES (1, 'claude-opus-5',"
                 " 'code_generation', 88.0, 'livebench', 'coding', 0.77,"
                 " '2026-10-30', '2026-08-13')")
@@ -106,9 +113,10 @@ def test_categories_map_onto_gateway_axes(db):
 
 
 def test_an_alias_or_served_id_also_brings_an_arena_name_in(db):
-    """Resolution is not slug-only: a declared alias and a served id are routes too."""
-    db.execute("INSERT INTO mi_aliases VALUES (1, NULL, 'Mystery Model X', 2, NULL,"
-               " 'operator', '2026-10-30', NULL, NULL)")
+    """Resolution is not slug-only: an operator-declared name is a route too."""
+    db.execute(
+        "INSERT INTO mi_model_names (model_id, source_id, name) VALUES (2,"
+        " (SELECT source_id FROM mi_sources WHERE slug='operator'), 'Mystery Model X')")
     db.commit()
     out = li.ingest(db)
     assert out["rows"] == 3 and out["queued"] == 0

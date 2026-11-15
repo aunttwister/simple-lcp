@@ -15,6 +15,7 @@ provider list in the UI.
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -370,79 +371,142 @@ DEFAULT_MODEL_REGISTRY: list[dict] = [
 
 
 def seed_model_registry(db_path: str, sync: bool = False) -> int:
-    """Seed the model_registry table from DEFAULT_MODEL_REGISTRY.
+    """Seed the registry from DEFAULT_MODEL_REGISTRY.
 
-    Insert-only by default: existing rows are NOT overwritten — the DB is the
-    source of truth once seeded. With ``sync=True``, curated defaults are
-    re-applied to existing rows (provider_mappings, benchmark_key,
-    active_release, benchmark_release) so a code-level identity→release
-    migration can be pushed out without wiping admin edits to unmanaged
-    columns.
+    Writes into ``mi_models`` (the canonical model) and ``mi_model_names`` (each
+    provider's spelling, under that provider's ``mi_sources`` row). Insert-only by
+    default: existing rows are NOT overwritten — the DB is the source of truth once
+    seeded. With ``sync=True``, curated defaults are re-applied (benchmark_key,
+    release fields, provider names) so a code-level identity→release migration can be
+    pushed out without wiping admin edits.
+
+    The signature and return value are unchanged from the ``model_registry`` version,
+    so ``router.get_model_registry`` and the seeding CLI keep working as before.
     """
-    from src.api.models import ModelRegistryEntry
-
-    session = _get_session(db_path)
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
     now = datetime.now(timezone.utc).isoformat()
     count = 0
-
-    for entry in DEFAULT_MODEL_REGISTRY:
-        existing = session.query(ModelRegistryEntry).filter_by(
-            logical_name=entry["logical_name"]
-        ).first()
-        if existing:
-            if sync:
-                existing.benchmark_key = entry["benchmark_key"]
-                existing.provider_mappings_json = json.dumps(entry.get("provider_mappings", {}))
-                existing.active_release = entry.get("active_release")
-                existing.benchmark_release = entry.get("benchmark_release")
-                existing.quantization = entry.get("quantization")
-                existing.updated_at = now
+    try:
+        for entry in DEFAULT_MODEL_REGISTRY:
+            logical = entry["logical_name"]
+            row = con.execute(
+                "SELECT model_id FROM mi_models WHERE slug = ?", (logical,)).fetchone()
+            if row:
+                model_id = int(row["model_id"])
+                if sync:
+                    con.execute(
+                        "UPDATE mi_models SET benchmark_key = COALESCE(?, benchmark_key),"
+                        " active_release = COALESCE(?, active_release),"
+                        " benchmark_release = COALESCE(?, benchmark_release),"
+                        " quantization = COALESCE(?, quantization) WHERE model_id = ?",
+                        (entry.get("benchmark_key"), entry.get("active_release"),
+                         entry.get("benchmark_release"), entry.get("quantization"),
+                         model_id))
+                    count += 1
+            else:
+                con.execute(
+                    "INSERT INTO mi_models (slug, display_name, family, status,"
+                    " benchmark_key, active_release, benchmark_release, quantization,"
+                    " created_at) VALUES (?,?,?,'active',?,?,?,?,?)",
+                    (logical, logical, None, entry.get("benchmark_key"),
+                     entry.get("active_release"), entry.get("benchmark_release"),
+                     entry.get("quantization"), now))
+                model_id = int(con.execute(
+                    "SELECT model_id FROM mi_models WHERE slug = ?", (logical,)
+                ).fetchone()["model_id"])
                 count += 1
-            continue
-        session.add(ModelRegistryEntry(
-            logical_name=entry["logical_name"],
-            benchmark_key=entry["benchmark_key"],
-            provider_mappings_json=json.dumps(entry.get("provider_mappings", {})),
-            active_release=entry.get("active_release"),
-            benchmark_release=entry.get("benchmark_release"),
-            quantization=entry.get("quantization"),
-            updated_at=now,
-        ))
-        count += 1
 
-    session.commit()
-    session.close()
+            # the canonical slug and the benchmark key are names too
+            _ensure_source(con, "canonical", "canonical", None, now)
+            _ensure_name(con, model_id, "canonical", logical, 1, "high",
+                         "canonical slug", now)
+            if entry.get("benchmark_key"):
+                _ensure_source(con, "benchmark", "benchmark_arena", None, now)
+                _ensure_name(con, model_id, "benchmark", entry["benchmark_key"], 0,
+                             "high", "benchmark snapshot key", now)
+
+            for provider, name in (entry.get("provider_mappings") or {}).items():
+                ep = con.execute(
+                    "SELECT endpoint_id FROM mi_endpoints WHERE slug = ?",
+                    (provider,)).fetchone()
+                _ensure_source(con, provider, "provider_endpoint",
+                               int(ep["endpoint_id"]) if ep else None, now)
+                _ensure_name(con, model_id, provider, name, 0, "high",
+                             "curated provider mapping", now, verified=True)
+        con.commit()
+    finally:
+        con.close()
     print(f"Seeded {count} model registry entries")
     return count
+
+
+def _ensure_source(con, slug: str, kind: str, endpoint_id, now: str) -> None:
+    con.execute(
+        "INSERT OR IGNORE INTO mi_sources (slug, kind, endpoint_id, created_at)"
+        " VALUES (?,?,?,?)", (slug, kind, endpoint_id, now))
+
+
+def _ensure_name(con, model_id: int, source_slug: str, name: str, is_primary: int,
+                 confidence: str, evidence: str, now: str, *,
+                 verified: bool = False) -> None:
+    src = con.execute(
+        "SELECT source_id FROM mi_sources WHERE slug = ?", (source_slug,)).fetchone()
+    if src is None:
+        return
+    con.execute(
+        "INSERT INTO mi_model_names (model_id, source_id, name, is_primary, confidence,"
+        " evidence, first_seen, last_seen, verified_at) VALUES (?,?,?,?,?,?,?,?,?)"
+        " ON CONFLICT(source_id, name) DO UPDATE SET"
+        " model_id = excluded.model_id",
+        (model_id, int(src["source_id"]), name, is_primary, confidence, evidence,
+         now, now, now if verified else None))
 
 
 def load_model_registry(db_path: str) -> dict[str, dict]:
     """Load the model registry as {logical_name: {...}}.
 
     Each entry: {benchmark_key, provider_mappings, active_release,
-    benchmark_release, quantization}. ``active_release`` is the CURRENT model
-    version (e.g. ``2026-08-13``); ``benchmark_release`` is the leaderboard
-    snapshot date the scores came from (e.g. ``2026-06-25``).
+    benchmark_release, quantization}. Built from ``mi_models`` plus ``mi_model_names``
+    (the provider-asserted spellings) instead of the retired ``model_registry`` table.
+
+    The return shape is deliberately identical, so every caller — including the router's
+    ``_alias_to_logical`` index and ``benchmark_model_name``/``provider_model_name`` —
+    is unaffected. Unlike the old table this covers **every** canonical model, so a
+    model that exists in the identity registry is no longer invisible to routing.
     """
-    from src.api.models import ModelRegistryEntry
-
-    session = _get_session(db_path)
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
     registry: dict[str, dict] = {}
-
-    for row in session.query(ModelRegistryEntry).all():
-        try:
-            provider_mappings = json.loads(row.provider_mappings_json or "{}")
-        except (json.JSONDecodeError, TypeError):
-            provider_mappings = {}
-        registry[row.logical_name] = {
-            "benchmark_key": row.benchmark_key,
-            "provider_mappings": provider_mappings,
-            "active_release": row.active_release,
-            "benchmark_release": row.benchmark_release,
-            "quantization": row.quantization,
-        }
-
-    session.close()
+    try:
+        rows = con.execute(
+            "SELECT model_id, slug, benchmark_key, active_release, benchmark_release,"
+            " quantization FROM mi_models").fetchall()
+        for r in rows:
+            entry = {
+                "benchmark_key": r["benchmark_key"],
+                "provider_mappings": {},
+                "active_release": r["active_release"],
+                "benchmark_release": r["benchmark_release"],
+                "quantization": r["quantization"],
+            }
+            registry[r["slug"]] = entry
+            try:
+                names = con.execute(
+                    "SELECT s.slug AS source, n.name FROM mi_model_names n"
+                    " JOIN mi_sources s ON s.source_id = n.source_id"
+                    " WHERE n.model_id = ? AND s.kind = 'provider_endpoint'"
+                    " ORDER BY (n.verified_at IS NULL),"
+                    " CASE n.confidence WHEN 'verified' THEN 0 WHEN 'high' THEN 1"
+                    "   WHEN 'observed' THEN 2 ELSE 3 END, n.name",
+                    (r["model_id"],)).fetchall()
+            except sqlite3.OperationalError:
+                names = []
+            for n in names:
+                # first (best-attested) spelling wins, matching model_names.provider_mappings_for
+                entry["provider_mappings"].setdefault(n["source"], n["name"])
+    finally:
+        con.close()
     return registry
 
 
