@@ -46,6 +46,7 @@ def build_runtime(engine, config, db_path: str, data_dir: str) -> Runtime:
         key_manager as key_manager_mod,
         memory as memory_mod,
         prompt_cache as prompt_cache_mod,
+        provider_type_store as provider_type_store_mod,
         reasoning_store as reasoning_store_mod,
         router as router_mod,
         runtime as runtime_mod,
@@ -73,6 +74,7 @@ def build_runtime(engine, config, db_path: str, data_dir: str) -> Runtime:
     rt.register(circuit_breaker_mod.CircuitBreakerComponent())
     rt.register(key_manager_mod.KeyManagerComponent())
     rt.register(credential_store_mod.CredentialStoreComponent())
+    rt.register(provider_type_store_mod.ProviderTypeStoreComponent())
     rt.register(alert_manager_mod.AlertManagerComponent())
     rt.register(router_mod.RouterComponent(
         db_path=db_path,

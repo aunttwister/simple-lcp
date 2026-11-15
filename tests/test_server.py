@@ -700,17 +700,31 @@ class TestStaticEndpoints:
         assert _status(h) == 200
 
     def test_page_activity(self, temp_db):
-        """The Activity page is the observability surface (M2)."""
+        """A bare /activity IS the Activity page (default tab: logs). Only an
+        explicit ?tab=overview redirects to the homepage — the sidebar's own
+        link must not bounce off its target (CUR-330, operator 2026-11-07)."""
         h = TestHandler(path="/activity", engine=temp_db)
         h.do_GET()
         assert _status(h) == 200
 
-    def test_page_dashboard(self, temp_db):
-        """Legacy /dashboard now redirects to Activity (M2)."""
-        h = TestHandler(path="/dashboard", engine=temp_db)
+    def test_page_activity_overview_tab_redirects(self, temp_db):
+        """The legacy ?tab=overview bookmark still redirects to `/`."""
+        h = TestHandler(path="/activity?tab=overview", engine=temp_db)
         h.do_GET()
         assert _status(h) == 302
-        assert _header(h, "Location") == "/activity"
+        assert _header(h, "Location") == "/"
+
+    def test_page_home(self, temp_db):
+        """`/` IS the overview homepage now — it serves 200."""
+        h = TestHandler(path="/", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 200
+
+    def test_page_dashboard(self, temp_db):
+        """CUR-330: /dashboard serves the homepage directly, like /."""
+        h = TestHandler(path="/dashboard", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 200
 
     def test_page_keys(self, temp_db):
         """Legacy /keys now redirects to the API Keys tab of Profiles (M2)."""
@@ -850,17 +864,17 @@ class TestStaticEndpoints:
         assert _status(h) == 404
 
     def test_dashboard_with_profile_filter(self, temp_db):
-        """The per-profile dashboard URL survives as a filtered Activity redirect."""
+        """The per-profile dashboard URL survives as a filtered homepage redirect."""
         h = TestHandler(path="/l2/dashboard", engine=temp_db)
         h.do_GET()
         assert _status(h) == 302
-        assert _header(h, "Location") == "/activity?profile=l2"
+        assert _header(h, "Location") == "/?profile=l2"
 
     def test_per_profile_dashboard(self, temp_db):
         h = TestHandler(path="/l1/dashboard", engine=temp_db)
         h.do_GET()
         assert _status(h) == 302
-        assert _header(h, "Location") == "/activity?profile=l1"
+        assert _header(h, "Location") == "/?profile=l1"
 
 
 # ═══════════════════════════════════════════════════════════════════════

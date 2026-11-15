@@ -1172,7 +1172,19 @@ def _build_routes() -> RouteTable:
     t.get("page.in_progress", exact("/in-progress"),
           lambda h, p: h._serve_in_progress_page())
     t.get("page.dashboard", exact("/", "/dashboard"),
-          lambda h, p: h._serve_dashboard())
+          lambda h, p: h._serve_home_page())
+    # CUR-329: estate-level switches (titling today). Registered with the other
+    # pages, before the per-profile suffix rule below.
+    t.get("page.settings", exact("/settings"),
+          lambda h, p: h._serve_settings_page())
+    # CUR-329: the conversations-titling section. Registered BEFORE
+    # api.settings.cache.* would matter only if the matchers overlapped —
+    # they do not — but it sits with its siblings for readability.
+    t.get("api.settings.conversations", exact("/api/settings/conversations"),
+          lambda h, p: h._serve_conversations_settings_api())
+    t.post("api.settings.conversations.title",
+          exact("/api/settings/conversations/title"),
+          lambda h, p: h._serve_conversations_title_api())
     t.get("page.keys", exact("/keys", "/keys/dashboard"),
           lambda h, p: h._serve_keys_dashboard())
     t.get("page.providers", exact("/providers"),
@@ -1516,6 +1528,8 @@ def _build_routes() -> RouteTable:
     t.post("memory.write",
            regex(r"^/(?P<profile>[^/]+)/memory/(?P<action>retain|recall|forget)$"),
            _memory_write)
+    t.post("api.settings.conversations", exact("/api/settings/conversations"),
+           lambda h, p: h._serve_conversations_settings_update_api())
 
 
     return t

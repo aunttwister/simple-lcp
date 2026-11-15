@@ -101,12 +101,11 @@ class TestDoGet:
 
         h = _TestHandler("/", engine=temp_db)
         h.do_GET()
-        # M2: / is the legacy dashboard URL and now redirects to Activity
+        # CUR-330: / IS the overview homepage — it serves 200 directly.
         assert h.send_response.called
-        assert h.send_response.call_args[0][0] == 302
-        loc = [c[0][1] for c in h.send_header.call_args_list
-               if c[0] and c[0][0] == "Location"]
-        assert loc == ["/activity"]
+        assert h.send_response.call_args[0][0] == 200
+        body = _get_written_bytes(h).decode("utf-8", "replace")
+        assert "<!DOCTYPE html>" in body
 
     def test_health(self, temp_db):
         h = _TestHandler("/health", engine=temp_db)

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Overview — LCP{% endblock %}
+
+{#
+  CUR-330 — the homepage. The LCP brand link opens it, and it is the only page
+  that renders the cost/token overview — as a standalone dashboard with NO tab
+  strip (operator, 2026-11-07: overview and Activity are fully separated).
+  Activity keeps the log realms (Logs, Evidence) on its own page.
+
+  Everything below renders from src/ui/dashboard.py over ONE period window
+  (?period=7|14|30|90|all, default 14). Cards and trend bars open the
+  right-hand detail panel (sections/sec_dashboard_script.html) — there is no
+  profile dropdown and no per-profile mini cards any more.
+#}
+
+{% block head_extra %}
+{% include "sections/sec_dashboard_head.html" %}
+{% endblock %}
+
+{% block content %}
+{% if profile_filter %}
+<div class="page-tabs">
+  <a class="tab-btn" href="/">Clear profile filter ({{ profile_filter | upper }})</a>
+</div>
+{% endif %}
+
+{% include "sections/sec_dashboard.html" %}
+{% endblock %}
+
+{% block scripts %}
+{% include "sections/sec_dashboard_script.html" %}
+{% endblock %}

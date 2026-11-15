@@ -7,6 +7,7 @@ import tempfile
 import pytest
 import src.api.router as router_mod
 from tests import _intent_oracle, _model_names_fixtures
+from tests import _intent_oracle
 from src.api.router import (
     CapabilityRouter, classify_task, get_dynamic_router,
     logical_model_name, benchmark_model_name,
