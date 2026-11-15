@@ -4134,7 +4134,7 @@ tr.log-row-failed td.num { opacity: 0.55; }
 
    Selectors are `.models-layout.three-col` (two classes) so they out-specify the
    plain `.models-layout` rules elsewhere in this file regardless of order. */
-.models-layout.three-col { grid-template-columns: 280px minmax(0, 1fr) 360px; }
+.models-layout.three-col { grid-template-columns: 240px minmax(0, 1fr) 340px; }
 .models-detail-body { min-width: 0; }
 
 .ml-tabs {
@@ -4234,7 +4234,7 @@ tr.log-row-failed td.num { opacity: 0.55; }
   font-variant-numeric: tabular-nums; }
 
 @media (max-width: 1400px) {
-  .models-layout.three-col { grid-template-columns: 240px minmax(0, 1fr) 320px; }
+  .models-layout.three-col { grid-template-columns: 200px minmax(0, 1fr) 300px; }
 }
 /* Below 1180px the lane cannot fit. The three columns STACK (list, detail,
    panel) rather than becoming a slide-over: an in-grid panel that flows under
@@ -4244,4 +4244,13 @@ tr.log-row-failed td.num { opacity: 0.55; }
   .models-layout.three-col { grid-template-columns: minmax(0, 1fr); }
   .models-panel { position: static; }
   .mp-rows { max-height: none; }
+}
+
+/* The reasoning-effort dimension rides beside the model name (R2=C): it is a
+   property of the row, not a column of its own. */
+.lb-effort {
+  margin-left: 0.35rem; font-size: 0.625rem; letter-spacing: 0.03em;
+  text-transform: uppercase; color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--card-border)); border-radius: 999px; padding: 0 0.3rem;
+  white-space: nowrap;
 }
