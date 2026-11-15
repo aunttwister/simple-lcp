@@ -4254,3 +4254,12 @@ tr.log-row-failed td.num { opacity: 0.55; }
   border: 1px solid hsl(var(--card-border)); border-radius: 999px; padding: 0 0.3rem;
   white-space: nowrap;
 }
+
+/* A taxonomy section head inside the polled-results list, so 200+ rows read as
+   grouped sections instead of one wall. */
+.mp-group {
+  position: sticky; top: 0; z-index: 1;
+  font-size: 0.625rem; letter-spacing: 0.05em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); background: hsl(var(--secondary) / 0.95);
+  padding: 0.2rem 0.5rem; border-bottom: 1px solid hsl(var(--card-border));
+}

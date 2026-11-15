@@ -851,11 +851,17 @@ function renderBoard(data) {
   const eligible = data.eligible || [];
   const units = [...new Set(rows.map(r => r.unit))];
   if (note) {
-    note.innerHTML = rows.length
-      ? `${rows.length} ranked rows from <strong>${esc(data.taxonomy)}</strong>` +
-        (units.length ? ` (${units.map(esc).map(unitLabel).join(' · ')})` : '') +
-        ` — only the ${eligible.length} models a provider serves can appear here.`
-      : `No leaderboard rows for this taxonomy yet. Eligible models: ${eligible.length}.`;
+    if (rows.length) {
+      // Per unit, because the two families are different measurements and the
+      // total would imply one ranking.
+      const per = units.map(u =>
+        `${rows.filter(r => r.unit === u).length} on ${unitLabel(u)}`).join(' · ');
+      note.innerHTML = `<strong>${esc(data.taxonomy)}</strong>: ${per}. Only the ` +
+        `${eligible.length} models a provider serves here can appear.`;
+    } else {
+      note.innerHTML = `Nothing ranked on <strong>${esc(data.taxonomy)}</strong> yet — ` +
+        `${eligible.length} models are eligible. Poll for latest data, or rate models yourself.`;
+    }
   }
   if (!rows.length) {
     table.innerHTML = '<div class="empty">Nothing ranked on this taxonomy yet. ' +
@@ -919,19 +925,29 @@ function renderPollPanel() {
   document.getElementById('pollMoved').textContent =
     `${moved.length} moved, ${rows.length - moved.length} unchanged`;
   const wrap = document.getElementById('pollRows');
+  let lastTax = null;
   wrap.innerHTML = rows.map((r, i) => {
-    const oldv = r.old_value === null || r.old_value === undefined
-      ? '<span class="muted">new</span>'
-      : `<s>${fmtValue(r.old_value, r.unit)}</s>`;
-    const arrow = r.changed ? ' → ' + fmtValue(r.value, r.unit) : '';
+    // Changed rows read as a move (old struck -> new, both dates). An unchanged
+    // row shows its value once, plainly: striking it through with no successor
+    // reads as a missing value rather than as "nothing moved".
+    const moved = r.changed;
+    const val = moved
+      ? `${r.old_value === null || r.old_value === undefined ? '<span class="muted">new</span>' : '<s>' + fmtValue(r.old_value, r.unit) + '</s>'} → ${fmtValue(r.value, r.unit)}`
+      : fmtValue(r.value, r.unit);
+    const when = moved
+      ? `${esc(fmtWhen(r.old_date))} → ${esc(fmtWhen(r.new_date))}`
+      : esc(fmtWhen(r.new_date || r.old_date));
     const key = esc(JSON.stringify([r.model_slug, r.taxonomy, r.unit, r.board, r.effort]));
-    return `<label class="mp-row">
-      <input type="checkbox" class="mp-check" data-key="${key}" ${r.changed ? 'checked' : ''}>
+    const head = r.taxonomy !== lastTax
+      ? `<div class="mp-group">${esc(r.taxonomy)}</div>` : '';
+    lastTax = r.taxonomy;
+    return `${head}<label class="mp-row">
+      <input type="checkbox" class="mp-check" data-key="${key}" ${moved ? 'checked' : ''}>
       <span class="mp-row-main">
         <span class="mp-row-model mono">${esc(r.model_slug)}</span>
         <span class="mp-row-tax">${esc(r.taxonomy)}${r.effort ? ' · ' + esc(r.effort) : ''}</span>
-        <span class="mp-row-val">${oldv}${arrow} <span class="muted">${esc(unitLabel(r.unit))}</span></span>
-        <span class="mp-row-dates">${esc(fmtWhen(r.old_date))} → ${esc(fmtWhen(r.new_date))}</span>
+        <span class="mp-row-val">${val} <span class="muted">${esc(unitLabel(r.unit))}</span></span>
+        <span class="mp-row-dates">${when}</span>
       </span>
     </label>`;
   }).join('');
