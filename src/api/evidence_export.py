@@ -241,7 +241,7 @@ def _extract_model_registry(conn: sqlite3.Connection) -> tuple[bytes, int]:
               "task_type", "score", "source", "benchmark_category",
               "release_label"]
     rows_out: list[list] = []
-    if _table_exists(conn, "mi_models"):
+    if _table_exists(conn, "mi_models") and _table_exists(conn, "mi_model_names"):
         cap = ("model_capabilities" if _table_exists(conn, "model_capabilities")
                else None)
         # provider_mappings is assembled from mi_model_names (the normalisation

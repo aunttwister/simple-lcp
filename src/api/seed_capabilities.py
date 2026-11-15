@@ -19,6 +19,11 @@ import sqlite3
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+
+from .logging_config import get_logger
+
+logger = get_logger("lcp.seed_capabilities")
+
 from typing import Optional
 
 # Map LiveBench categories → LCP task types
@@ -388,6 +393,13 @@ def seed_model_registry(db_path: str, sync: bool = False) -> int:
     now = datetime.now(timezone.utc).isoformat()
     count = 0
     try:
+        if con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                       " AND name='mi_models'").fetchone() is None:
+            # The registry lives in tables the migrations own. A database without them
+            # predates the identity registry, so there is nowhere to seed — that is a
+            # no-op, not an error.
+            logger.warning("seed_model_registry_unmigrated", db_path=db_path)
+            return 0
         for entry in DEFAULT_MODEL_REGISTRY:
             logical = entry["logical_name"]
             row = con.execute(
@@ -479,9 +491,16 @@ def load_model_registry(db_path: str) -> dict[str, dict]:
     con.row_factory = sqlite3.Row
     registry: dict[str, dict] = {}
     try:
-        rows = con.execute(
-            "SELECT model_id, slug, benchmark_key, active_release, benchmark_release,"
-            " quantization FROM mi_models").fetchall()
+        try:
+            rows = con.execute(
+                "SELECT model_id, slug, benchmark_key, active_release, benchmark_release,"
+                " quantization FROM mi_models").fetchall()
+        except sqlite3.OperationalError:
+            # No mi_models table: the database predates the identity registry. That is an
+            # empty registry, not an error — the caller seeds one (get_model_registry does
+            # exactly that) or falls back to normalising the string.
+            logger.warning("load_model_registry_unmigrated", db_path=db_path)
+            return {}
         for r in rows:
             entry = {
                 "benchmark_key": r["benchmark_key"],

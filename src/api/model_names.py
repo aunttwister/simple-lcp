@@ -97,15 +97,25 @@ def provider_mappings_for(con: sqlite3.Connection, model_id: int) -> dict:
     return out
 
 
+def _migrated(con: sqlite3.Connection) -> bool:
+    """True when the normalisation tables exist — an unmigrated DB has no registry."""
+    return con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mi_model_names'"
+    ).fetchone() is not None
+
+
 def registry_entries(target: Any = None) -> list[dict]:
     """Every canonical model with its names, in the shape the registry API exposes.
 
     ``providers``/``provider_mappings`` are the provider-asserted names; the release
     fields come from ``mi_models`` (where the retired ``model_registry`` put them).
+    Returns [] on a database that predates the identity registry.
     """
     con = _connect(target)
     con.row_factory = sqlite3.Row
     try:
+        if not _migrated(con):
+            return []
         out = []
         for r in con.execute(
                 "SELECT model_id, slug, benchmark_key, active_release, benchmark_release,"
@@ -343,6 +353,8 @@ def sources(target: Any = None) -> list[dict]:
     con = _connect(target)
     con.row_factory = sqlite3.Row
     try:
+        if not _migrated(con):
+            return []
         return [dict(r) for r in con.execute(
             "SELECT s.source_id, s.slug, s.kind, s.endpoint_id, s.status, s.convention,"
             " (SELECT COUNT(*) FROM mi_model_names n WHERE n.source_id = s.source_id) AS names"
