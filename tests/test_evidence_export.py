@@ -57,11 +57,22 @@ CREATE TABLE provider_health (
     status VARCHAR NOT NULL, consecutive_failures INTEGER NOT NULL,
     last_failure VARCHAR, last_failure_reason TEXT, last_success VARCHAR,
     tripped_until FLOAT, manual_override VARCHAR, updated_at VARCHAR NOT NULL);
-CREATE TABLE model_registry (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, logical_name VARCHAR NOT NULL,
-    benchmark_key VARCHAR NOT NULL, updated_at VARCHAR NOT NULL,
-    active_release VARCHAR, provider_mappings_json TEXT DEFAULT '{}',
-    benchmark_release VARCHAR, quantization VARCHAR, UNIQUE (logical_name));
+CREATE TABLE mi_models (
+    model_id INTEGER PRIMARY KEY AUTOINCREMENT, slug VARCHAR NOT NULL,
+    display_name VARCHAR, family VARCHAR, status VARCHAR DEFAULT 'active',
+    supersedes_model_id INTEGER, benchmark_key VARCHAR, created_at VARCHAR,
+    active_release VARCHAR, benchmark_release VARCHAR, quantization VARCHAR,
+    UNIQUE (slug));
+CREATE TABLE mi_sources (
+    source_id INTEGER PRIMARY KEY AUTOINCREMENT, slug VARCHAR NOT NULL UNIQUE,
+    kind VARCHAR NOT NULL, endpoint_id INTEGER, convention VARCHAR,
+    status VARCHAR NOT NULL DEFAULT 'active', created_at VARCHAR);
+CREATE TABLE mi_model_names (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, model_id INTEGER NOT NULL,
+    source_id INTEGER NOT NULL, name VARCHAR NOT NULL,
+    is_primary INTEGER NOT NULL DEFAULT 0, confidence VARCHAR, evidence VARCHAR,
+    valid_from VARCHAR, valid_to VARCHAR, first_seen VARCHAR, last_seen VARCHAR,
+    verified_at VARCHAR, note VARCHAR, UNIQUE (source_id, name));
 CREATE TABLE model_capabilities (
     id INTEGER PRIMARY KEY AUTOINCREMENT, model VARCHAR NOT NULL,
     task_type VARCHAR NOT NULL, score FLOAT NOT NULL,
@@ -116,10 +127,28 @@ def gw_db(tmp_path):
         "'2026-10-01T10:00:00Z',NULL,NULL,'2026-10-01T10:00:00Z')"
     )
     conn.execute(
-        "INSERT INTO model_registry (logical_name, benchmark_key, updated_at, "
-        "active_release, provider_mappings_json) VALUES "
-        "('m1','bench-m1','2026-10-01T00:00:00Z','v9','{\"p1\": [\"m1\"]}'),"
-        "('m-orphan','bench-orphan','2026-10-01T00:00:00Z','v1','{}')"
+        "INSERT INTO mi_models (slug, benchmark_key, created_at, active_release,"
+        " status) VALUES "
+        "('m1','bench-m1','2026-10-01T00:00:00Z','v9','active'),"
+        "('m-orphan','bench-orphan','2026-10-01T00:00:00Z','v1','active')"
+    )
+    conn.execute(
+        "INSERT INTO mi_sources (slug, kind) VALUES "
+        "('canonical','canonical'),('benchmark','benchmark_arena'),"
+        "('p1','provider_endpoint')"
+    )
+    conn.execute(
+        "INSERT INTO mi_model_names (model_id, source_id, name, is_primary) VALUES "
+        "((SELECT model_id FROM mi_models WHERE slug='m1'),"
+        " (SELECT source_id FROM mi_sources WHERE slug='canonical'),'m1',1),"
+        "((SELECT model_id FROM mi_models WHERE slug='m1'),"
+        " (SELECT source_id FROM mi_sources WHERE slug='benchmark'),'bench-m1',0),"
+        "((SELECT model_id FROM mi_models WHERE slug='m1'),"
+        " (SELECT source_id FROM mi_sources WHERE slug='p1'),'m1',0),"
+        "((SELECT model_id FROM mi_models WHERE slug='m-orphan'),"
+        " (SELECT source_id FROM mi_sources WHERE slug='canonical'),'m-orphan',1),"
+        "((SELECT model_id FROM mi_models WHERE slug='m-orphan'),"
+        " (SELECT source_id FROM mi_sources WHERE slug='benchmark'),'bench-orphan',0)"
     )
     conn.execute(
         "INSERT INTO model_capabilities (model, task_type, score, source, "
@@ -334,7 +363,9 @@ class TestFieldFidelity:
         # 2 registry rows; the orphan survives the LEFT JOIN with empty caps.
         assert len(rows) == 2
         m1 = [r for r in rows if r["logical_name"] == "m1"][0]
-        assert m1["provider_mappings"] == '{"p1": ["m1"]}'
+        # provider_mappings is now assembled from mi_model_names: the same object the
+        # old JSON column held, with each provider's spelling as a string.
+        assert json.loads(m1["provider_mappings"]) == {"p1": "m1"}
         assert m1["active_release"] == "v9"
         assert m1["task_type"] == "code"
         assert m1["score"] == "0.91"
