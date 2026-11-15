@@ -24,6 +24,7 @@ from .exceptions import (
     ConfigError,
     ProviderAuthError,
     ProviderBadRequestError,
+    ProviderFirstByteTimeoutError,
     RequestUnsupportedError,
     ProviderCreditsError,
     ProviderInternalError,
@@ -81,6 +82,63 @@ def _upstream_read_timeout() -> float:
     except (TypeError, ValueError):
         value = _UPSTREAM_READ_TIMEOUT_DEFAULT
     return max(value, 30.0)
+
+
+def first_byte_timeout(profile_cfg: dict, step: dict, config=None) -> float | None:
+    """The FIRST-BYTE budget for one chain step, or None for no budget.
+
+    Behaviour this exists for (2026-11-15, postmortem
+    ``okf-homelab-documentation/local-ai/playbooks-glm-queue-saturation-postmortem-20261114``):
+    a request sent to a local engine whose admission queue is already deep sits
+    in that queue producing nothing. LCP's relay ceiling is 900 s precisely
+    because a legitimate long-context cloud compression can take 8-9 minutes
+    before its first byte — but that same tolerance is what let a queued local
+    request hang for 15 minutes. The budget is therefore PER STEP: "try this
+    provider for N seconds; if it has produced nothing, move to the next in
+    line".
+
+    Precedence:
+      1. the chain step's own ``timeout_s``   (finest: this hop only)
+      2. the profile's ``step_timeout_s``     (the usual home — the latency
+         budget belongs to the CALLER, not the provider: an l1/l2 agent turn
+         tolerates a long prefill, a cron/titler call does not, and the same
+         provider serves both)
+      3. absent -> None -> the historical relay ceiling applies unchanged.
+
+    Scope note: the budget is a STREAMING first-byte budget only. On a
+    non-streaming request a first byte and the whole answer are the same
+    read, so applying it there would silently become a total-request timeout
+    and kill legitimately long generations. Non-streaming keeps the ceiling.
+    """
+    for src, key in ((step, "timeout_s"), (profile_cfg, "step_timeout_s")):
+        if not isinstance(src, dict):
+            continue
+        raw = src.get(key)
+        if raw is None:
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return None
+
+
+def _relax_socket_timeout(resp, seconds: float) -> None:
+    """Raise the live socket's timeout after the first byte arrived.
+
+    Best-effort: this only reaches into ``http.client`` internals to let a
+    legitimately long generation continue past the first-byte budget. If the
+    socket cannot be reached, the request simply keeps the original timeout —
+    which is the pre-existing behaviour, never a new failure.
+    """
+    try:
+        sock = resp.fp.raw._sock
+        sock.settimeout(max(float(seconds), 30.0))
+    except Exception:  # noqa: BLE001 — never fail a request over a timeout tweak
+        pass
+
 
 # Substrings that identify an insufficient-balance / out-of-credits response
 # from a provider. Detected in the HTTP error body regardless of status code.
@@ -742,19 +800,45 @@ def forward_request(provider_cfg: dict, body: dict, config, session_id: str | No
 
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     _read_timeout = _upstream_read_timeout()
+    # Per-step FIRST-BYTE budget (see first_byte_timeout). Streaming only: a step
+    # that has produced nothing by the budget is abandoned so the chain can try
+    # the next in line, while a step that DID start is relaxed to the full relay
+    # ceiling so a legitimately long generation is never killed mid-stream.
     try:
-        resp = urllib.request.urlopen(req, timeout=_read_timeout)
+        _budget = float(provider_cfg.get("first_byte_timeout") or 0) or None
+    except (TypeError, ValueError):
+        _budget = None
+    if not streaming:
+        _budget = None
+    _open_timeout = _budget if _budget else _read_timeout
+    try:
+        resp = urllib.request.urlopen(req, timeout=_open_timeout)
         if streaming:
             # Return a closure that yields chunks and closes the response when done.
             # This avoids buffering the entire SSE stream in memory.
             def chunk_reader():
+                first = True
                 try:
                     while True:
                         chunk = resp.read(8192)
                         if not chunk:
                             break
+                        if first:
+                            first = False
+                            if _budget:
+                                _relax_socket_timeout(resp, _read_timeout)
                         yield chunk
                 except TimeoutError as e:
+                    # Timed out with no first byte inside the step's budget: the
+                    # step was still working (queue/prefill), which is NOT a
+                    # provider fault — distinct exception so the chain fails over
+                    # without recording a failure and latching a busy lane.
+                    if first and _budget:
+                        raise ProviderFirstByteTimeoutError(
+                            f"Provider {provider_cfg['provider']} produced no first byte "
+                            f"within its {_budget:.0f}s step budget"
+                        ) from e
+                    # Otherwise it STARTED and then stalled: a genuine fault.
                     # Mid-stream socket read timeout (socket.timeout == TimeoutError
                     # on py3.10+). Classify as ProviderTimeoutError so the chain
                     # fallback can engage instead of escaping as an untyped error.
@@ -1148,6 +1232,9 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
         step_with_key = {
             **step,
             "base_url": base_url,
+            # "Try this step for N seconds; if it has produced nothing, move to
+            # the next in line." None = no per-step budget (relay ceiling only).
+            "first_byte_timeout": first_byte_timeout(profile_cfg, step, config),
         }
 
         # Per-provider retry config (5xx/429 retried with backoff). Real Config
@@ -1210,6 +1297,31 @@ def try_chain(profile_name: str, profile_cfg: dict, body: dict, config,
                 chain_len=chain_len,
                 next=chain[i + 1]["provider"] if i + 1 < chain_len else "none",
                 error=reason,
+            )
+        except ProviderFirstByteTimeoutError as e:
+            # The step was still WORKING when its budget ran out — a deep local
+            # admission queue or a long prefill, not a fault. Fail over, but do
+            # NOT record a circuit-breaker failure: counting a busy-but-serving
+            # provider against its health would latch it degraded/dead (the
+            # 2026-10-27 latch finding), which is exactly what a per-step budget
+            # is meant to avoid. The health signal for this lane is the Spark
+            # admission alert, not a false "provider down".
+            errors.append(f"{provider_name}: {e}")
+            if i + 1 < chain_len:
+                cb.record_failover(
+                    profile_name, provider_name, chain[i + 1]["provider"],
+                    reason="FirstByteTimeout", error_message=str(e),
+                )
+            logger.warning(
+                "chain_skip_step_timeout",
+                profile=profile_name,
+                provider=provider_name,
+                model=model,
+                attempt=i + 1,
+                chain_len=chain_len,
+                budget_s=step_with_key.get("first_byte_timeout"),
+                next=chain[i + 1]["provider"] if i + 1 < chain_len else "none",
+                error=str(e),
             )
         except (ProviderTimeoutError, ProviderAuthError, ProviderCreditsError,
                 ProviderRateLimitError, ProviderInternalError) as e:

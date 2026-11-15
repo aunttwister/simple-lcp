@@ -104,6 +104,30 @@ class ProviderCreditsError(ProviderError):
     status_code = 402
 
 
+class ProviderFirstByteTimeoutError(ProviderTimeoutError):
+    """The step produced NO first byte inside its configured budget.
+
+    Distinct from a plain ``ProviderTimeoutError`` on purpose, because the two
+    mean different things about the provider:
+
+    * ``ProviderTimeoutError`` (a mid-stream or whole-body read timeout) is a
+      provider that STARTED answering and then stalled — evidence of a real
+      fault, so the chain records it against the provider's health.
+    * THIS one is a step that was STILL WORKING when its budget ran out. The
+      canonical case is a local engine whose admission queue is deep: it is
+      healthy, it is serving, it simply could not reach this request within the
+      budget. Counting that as an outage would latch a busy-but-fine provider
+      degraded/dead (see the 2026-10-27 breaker-latch finding), so the chain
+      FAILS OVER to the next step without recording a failure.
+
+    Subclasses ``ProviderTimeoutError`` so every existing handler, HTTP status
+    (504) and error-code consumer keeps working unchanged.
+    """
+
+    code = "LCP-2007"
+    status_code = 504
+
+
 class ProviderBadRequestError(ProviderError):
     """Upstream provider returned HTTP 400 — the request itself is invalid.
 
