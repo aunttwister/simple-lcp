@@ -4134,7 +4134,7 @@ tr.log-row-failed td.num { opacity: 0.55; }
 
    Selectors are `.models-layout.three-col` (two classes) so they out-specify the
    plain `.models-layout` rules elsewhere in this file regardless of order. */
-.models-layout.three-col { grid-template-columns: 240px minmax(0, 1fr) 340px; }
+.models-layout.three-col { grid-template-columns: 220px minmax(0, 1fr) 320px; }
 .models-detail-body { min-width: 0; }
 
 .ml-tabs {
@@ -4169,9 +4169,9 @@ tr.log-row-failed td.num { opacity: 0.55; }
 .lb-unit-head .muted { text-transform: none; letter-spacing: 0; }
 .lb-table { margin-bottom: 0.5rem; }
 .lb-table th { font-size: 0.6875rem; letter-spacing: 0.04em; text-transform: uppercase;
-  color: hsl(var(--muted-foreground)); text-align: left; padding: 0.35rem 0.5rem;
+  color: hsl(var(--muted-foreground)); text-align: left; padding: 0.35rem 0.35rem;
   border-bottom: 1px solid hsl(var(--card-border)); white-space: nowrap; }
-.lb-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid hsl(var(--card-border) / 0.5); }
+.lb-table td { padding: 0.3rem 0.35rem; border-bottom: 1px solid hsl(var(--card-border) / 0.5); }
 .lb-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .lb-table tbody tr:hover td { background: hsl(var(--secondary) / 0.35); }
 
@@ -4234,7 +4234,7 @@ tr.log-row-failed td.num { opacity: 0.55; }
   font-variant-numeric: tabular-nums; }
 
 @media (max-width: 1400px) {
-  .models-layout.three-col { grid-template-columns: 200px minmax(0, 1fr) 300px; }
+  .models-layout.three-col { grid-template-columns: 190px minmax(0, 1fr) 290px; }
 }
 /* Below 1180px the lane cannot fit. The three columns STACK (list, detail,
    panel) rather than becoming a slide-over: an in-grid panel that flows under
