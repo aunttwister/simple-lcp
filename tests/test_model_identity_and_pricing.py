@@ -18,7 +18,6 @@ Four behaviours are pinned here:
 4. The provider cost plugins price every spelling of DeepSeek-V4.1-Flash.
 """
 
-import json
 import sqlite3
 from datetime import datetime, timezone
 
@@ -36,6 +35,12 @@ from src.api.router import (
     get_model_registry,
     invalidate_registry_cache,
     logical_model_name,
+)
+from tests._model_names_fixtures import (
+    add_model,
+    add_name,
+    add_source,
+    mi_schema,
 )
 
 # Billing is time-dependent for every DeepSeek-backed model: peak hours are
@@ -57,36 +62,34 @@ V41_MAPPINGS = {
 
 @pytest.fixture
 def registry_db(tmp_path, monkeypatch):
-    """A real SQLite registry DB holding only the V4.1-Flash entry."""
+    """A real SQLite registry DB holding only the V4.1-Flash entry.
+
+    Seeded through the tables that replaced the dropped ``model_registry``
+    JSON blob: ``mi_models`` (the canonical model) plus ``mi_sources`` +
+    ``mi_model_names`` (one row per naming authority). The canonical slug and
+    benchmark key are names on the canonical/benchmark sources; each provider's
+    spelling is a row under that provider's ``provider_endpoint`` source.
+    """
     db = tmp_path / "costs.db"
-    con = sqlite3.connect(db)
-    con.execute(
-        """CREATE TABLE model_registry (
-               id INTEGER PRIMARY KEY AUTOINCREMENT,
-               logical_name TEXT NOT NULL UNIQUE,
-               benchmark_key TEXT,
-               active_release TEXT,
-               provider_mappings_json TEXT,
-               benchmark_release TEXT,
-               quantization TEXT,
-               updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-           )"""
-    )
-    con.execute(
-        "INSERT INTO model_registry (logical_name, benchmark_key, provider_mappings_json)"
-        " VALUES (?,?,?)",
-        ("deepseek-flash", "deepseek-v4.1-flash", json.dumps(V41_MAPPINGS)),
-    )
-    con.execute(
-        "INSERT INTO model_registry (logical_name, benchmark_key, provider_mappings_json)"
-        " VALUES (?,?,?)",
-        ("deepseek-v4-pro", "deepseek-v4-pro",
-         json.dumps({"deepseek": "deepseek-v4-pro",
-                     "opencode": "deepseek-v4-pro",
-                     "commandcode": "deepseek/deepseek-v4-pro"})),
-    )
+    con = mi_schema(sqlite3.connect(db))
+
+    # One logical model, benchmark key `deepseek-v4.1-flash`, three provider
+    # spellings — the registry row the operator half-built at 13:23, completed.
+    flash_id = add_model(con, "deepseek-flash", benchmark_key="deepseek-v4.1-flash")
+    pro_id = add_model(con, "deepseek-v4-pro", benchmark_key="deepseek-v4-pro")
+    for provider in ("deepseek", "opencode", "commandcode"):
+        add_source(con, provider)
+    for model_id, mapping in (
+        (flash_id, V41_MAPPINGS),
+        (pro_id, {"deepseek": "deepseek-v4-pro",
+                  "opencode": "deepseek-v4-pro",
+                  "commandcode": "deepseek/deepseek-v4-pro"}),
+    ):
+        for provider, name in mapping.items():
+            add_name(con, model_id, provider, name, verified=True)
     con.commit()
     con.close()
+
     invalidate_registry_cache()
     yield str(db)
     invalidate_registry_cache()
