@@ -129,10 +129,16 @@ class TestRenderDashboard:
         html = render_dashboard(dash_config, engine, dash_headers)
 
         assert "<!DOCTYPE html>" in html
-        # Summary totals
+        # Summary totals (2 decimals, CUR-330 item 2)
         assert "$5.51" in html
         # Formatter paths: 2M prompt tokens -> "2.0M"
         assert "2.0M" in html
+        # Real off-primary counting (CUR-330 item 1): the l1 row (provider=
+        # deepseek) is l1's primary so NOT off-primary; the l2 row on deepseek
+        # IS (l2's primary is opencode); the 'unknown'-provider row is not a
+        # real route.
+        assert "1 off-primary" in html
+        assert "99.9%" not in html
         # Budget cards rendered (active + exceeded)
         assert "L2 Cap" in html
         assert "Blown Cap" in html
@@ -150,9 +156,12 @@ class TestRenderDashboard:
         from src.ui.dashboard import render_dashboard
         html = render_dashboard(dash_config, engine, dash_headers)
         assert "<!DOCTYPE html>" in html
-        assert "$0.000000" in html  # _fmt_cost(0)
-        # The global header widget renders (empty state is now client-side JS).
-        assert 'id="pluginHeaderBadge"' in html
+        assert "$0.00" in html  # usage value renders at 2 decimals (CUR-330 item 2)
+        # The global header widget does NOT render on the overview: the whole
+        # widget is a usage surface and the page leads with the Usage Value card
+        # (CUR-330, operator 2026-11-07). header-status.js still loads and
+        # null-guards the missing elements.
+        assert 'id="pluginHeaderBadge"' not in html
         assert 'header-status.js' in html
 
     def test_budget_query_failure_swallowed(self, temp_db, dash_config, dash_headers):

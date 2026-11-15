@@ -84,6 +84,22 @@ def _credential_store_for(handler):
     )
 
 
+def _provider_type_store_for(handler):
+    """Resolve the provider-type store from the active runtime, else a lazy
+    store against the handler's engine (standalone/tests). ``None`` when there
+    is no runtime store AND no usable engine — the same degradation as the
+    credential store, so a mock/standalone handler never explodes on the
+    unbound mapper."""
+    from ..api.provider_type_store import ProviderTypeStore, get_provider_type_store
+    store = get_provider_type_store(getattr(handler, "engine", None))
+    if store is not None:
+        return store
+    engine = getattr(handler, "engine", None)
+    if engine is not None:
+        return ProviderTypeStore(engine)
+    return None
+
+
 # Networks a provider test/discover fetch must never reach unless explicitly
 # allowlisted (SSRF guard, CWE-918). Covers RFC1918, loopback, link-local
 # (includes the cloud metadata address 169.254.169.254), CGNAT, multicast,
@@ -343,7 +359,9 @@ def _derive_engine_metrics(health: Any, counters: dict) -> dict:
 
     return {
         "model_backend": health.get("backend"),
-        "ok": bool(health.get("ok")),
+        # TensorFold v1.1.9+ answers {"status": "ok"} and no longer emits a
+        # boolean "ok" key — accept either shape or a healthy engine reads failed.
+        "ok": bool(health.get("ok") or (health.get("status") == "ok")),
         "busy": bool(health.get("busy")),
         "requests_running": running,
         "requests_waiting": waiting,
@@ -1336,20 +1354,19 @@ class ProviderEndpoints:
         cfg = self.config
         providers = {}
         store = resolve_service("credential_store", fallback=get_credential_store)
+        tstore = _provider_type_store_for(self)
         for name, pdata in cfg.providers.items():
             providers[name] = {
                 "api_base": pdata.get("api_base", ""),
                 "models": pdata.get("models", []),
-                # The vendor family this entry belongs to, resolved (declared →
-                # inferred). Every UI panel and every vendor-plugin lookup keys
-                # on this instead of the literal name, which is what makes a
-                # second account of a vendor a first-class provider.
+                # The vendor family this entry belongs to, resolved (hard row →
+                # declared → inferred). Every UI panel and every vendor-plugin
+                # lookup keys on this instead of the literal name, which is what
+                # makes a second account of a vendor a first-class provider.
                 "type": _resolved_provider_type(cfg, name),
-                "type_declared": (
-                    isinstance(pdata.get("type"), str)
-                    and pdata.get("type", "").strip().lower()
-                    in _provider_types()
-                ),
+                # A type is DECLARED when the hard provider_types row exists;
+                # an inferred/boot-backfilled answer is a name-derived shim.
+                "type_declared": bool(tstore and tstore.get(name)),
                 "has_api_key": bool(store and store.has(name)),
             }
         profile_chains = {}
@@ -1437,10 +1454,19 @@ class ProviderEndpoints:
             "api_base": body.get("api_base", ""),
             "models": body.get("models", []),
         }
-        if ptype:
-            provider_data["type"] = ptype
         cfg.raw.setdefault("providers", {})[name] = provider_data
         cfg.save()
+        # The type is a HARD value in the provider_types table (alembic 029),
+        # not a free-text string in the config blob. Write the row here so the
+        # provider is on the type axis from creation; an absent/empty type means
+        # it is inferred from the name.
+        tstore = _provider_type_store_for(self)
+        if tstore is not None:
+            try:
+                tstore.set(name, ptype or "")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("provider_type_write_failed", provider=name,
+                               error=str(exc))
         # Best-effort: learn each model's real served context window so the
         # context-aware router + /v1/models know the true capacity.
         _auto_learn_model_contexts(cfg, name, provider_data.get("api_base", ""))
@@ -1487,12 +1513,17 @@ class ProviderEndpoints:
             if not ok:
                 self._send_json({"error": type_err}, 400)
                 return
-            # An explicit empty value clears the declaration, returning the
+            # The type is stored in the HARD provider_types table, never in the
+            # config blob. An explicit empty value clears the row, returning the
             # entry to name inference — the way back from a wrong type.
-            if ptype:
-                pdata["type"] = ptype
-            else:
-                pdata.pop("type", None)
+            tstore = _provider_type_store_for(self)
+            if tstore is not None:
+                try:
+                    tstore.set(name, ptype or "")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("provider_type_write_failed", provider=name,
+                                   error=str(exc))
+            pdata.pop("type", None)
         if "api_base" in body:
             pdata["api_base"] = body["api_base"]
         if "models" in body:
@@ -1545,6 +1576,14 @@ class ProviderEndpoints:
         store = _credential_store_for(self)
         if store is not None:
             store.set(name, "")
+        # Drop the hard provider-type row for the deleted provider.
+        tstore = _provider_type_store_for(self)
+        if tstore is not None:
+            try:
+                tstore.drop(name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("provider_type_drop_failed", provider=name,
+                               error=str(exc))
         # Cascade: a provider's persisted circuit-breaker health is otherwise
         # immortal — attach_engine() materializes EVERY provider_health row at
         # boot, so /health and /api/providers/health kept listing the deleted
@@ -1639,6 +1678,18 @@ class ProviderEndpoints:
             except Exception as exc:  # noqa: BLE001 — rename must not fail wholesale
                 logger.warning("provider_rename_credential_move_failed",
                                provider=name, new_name=new_name, error=str(exc))
+
+        # Move the hard provider-type row to the new name (delete + rewrite):
+        # the row keys on the provider name, so it must follow the rename.
+        tstore = _provider_type_store_for(self)
+        if tstore is not None:
+            try:
+                old_type = tstore.get(name) or ""
+                tstore.drop(name)
+                tstore.set(new_name, old_type)
+            except Exception as exc:  # noqa: BLE001 — rename must not fail wholesale
+                logger.warning("provider_type_rename_failed", provider=name,
+                               new_name=new_name, error=str(exc))
 
         # Drop the live plugin under the old identity and bind it under the new.
         _unwire_provider_plugin(name)
@@ -3472,6 +3523,100 @@ class ModelIntelEndpoints:
         self._send_json({"ok": True, **out})
 
 
+    def _serve_intent_model_api(self):
+        """GET /api/intent_model[?profile=X] — effective intent-model config.
+
+        POST /api/intent_model {url?, format?, api_key?, timeout_ms?,
+        min_score?, enabled?, profile?, clear_profile?} — persist for a scope.
+
+        Mirrors /api/routing/policy: a ``profile`` scopes the change to that
+        profile's override (``intent_model_*:<profile>``); without it the
+        GLOBAL baseline is set, which every non-overriding profile inherits.
+        The response never contains the api_key — only whether one is set.
+        """
+        from ..api.cost_cache import get_settings
+        settings = resolve_service("settings", fallback=get_settings)
+        if settings is None:
+            self._send_json({"error": "settings store not initialized"}, 500)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        profile = (qs.get("profile", [None])[0] or "").strip() or None
+
+        if self.command == "GET":
+            def scope(p):
+                return {
+                    "url": settings.get_intent_model_url(profile=p),
+                    "format": settings.get_intent_model_format(profile=p),
+                    "api_key_set": bool(settings.get_intent_model_api_key(profile=p)),
+                    "model": settings.get_intent_model_model(profile=p),
+                    "timeout_ms": settings.get_intent_model_timeout_ms(profile=p),
+                    "min_score": settings.get_intent_model_min_score(profile=p),
+                    "enabled": settings.get_intent_model_enabled(profile=p),
+                }
+            prof = scope(profile)
+            glob = scope(None)
+            if profile:
+                prof["has_override"] = any(
+                    settings.get(f"{k}:{profile}", None) is not None
+                    for k in (settings.INTENT_MODEL_URL_KEY, settings.INTENT_MODEL_ENABLED_KEY)
+                )
+            else:
+                prof["has_override"] = False
+            self._send_json({"profile": profile, "effective": prof, "global": glob,
+                             "contract": {
+                                 "request": {"method": "POST", "body": {
+                                     "message": "string", "labels": ["from the profile taxonomy"],
+                                     "profile": "string", "taxonomy_id": "string",
+                                     "taxonomy_version": "int"}},
+                                 "response_lcp_v1": {"label": "one of labels", "score": "0-1",
+                                                     "scores": "optional map"},
+                                 "response_openai": "choices[0].message.content names exactly one label",
+                             }})
+            return
+
+        try:
+            body = self._read_body()
+        except Exception:
+            self._send_json({"error": "invalid JSON body"}, 400)
+            return
+        profile = (body.get("profile") or "").strip() or None
+        if body.get("clear_profile") is True and profile:
+            settings.clear_intent_model(profile)
+            self._audit("intent_model.clear", profile=profile)
+            self._send_json({"ok": True, "cleared": profile})
+            return
+        try:
+            if "url" in body:
+                url = str(body["url"]).strip()
+                if url:
+                    settings.set_intent_model_url(url, profile=profile)
+                elif profile:
+                    # An empty URL on save clears the profile's URL override so it
+                    # inherits the global baseline again (per-profile key only).
+                    settings._clear_key(settings._profile_key(settings.INTENT_MODEL_URL_KEY, profile))
+            if "format" in body:
+                settings.set_intent_model_format(str(body["format"]), profile=profile)
+            if "api_key" in body:
+                settings.set_intent_model_api_key(str(body["api_key"]), profile=profile)
+            if "model" in body:
+                settings.set_intent_model_model(str(body["model"]), profile=profile)
+            if "timeout_ms" in body:
+                settings.set_intent_model_timeout_ms(int(body["timeout_ms"]), profile=profile)
+            if "min_score" in body:
+                settings.set_intent_model_min_score(float(body["min_score"]), profile=profile)
+            if "enabled" in body:
+                if not isinstance(body["enabled"], bool):
+                    self._send_json({"error": "enabled must be a boolean"}, 400)
+                    return
+                settings.set_intent_model_enabled(body["enabled"], profile=profile)
+        except (ValueError, TypeError) as exc:
+            self._send_json({"error": str(exc)}, 400)
+            return
+        self._audit("intent_model.config_update", profile=profile,
+                    fields=sorted(k for k in ("url", "format", "api_key", "model",
+                                              "timeout_ms", "min_score", "enabled") if k in body))
+        self._send_json({"ok": True, "profile": profile})
+
 # ── Usage Stats API ──────────────────────────────────────────────────────────
 
 class UsageEndpoints:
@@ -3582,6 +3727,7 @@ class UsageEndpoints:
                 # tables under "Daily Spending (N days)" aggregated ALL TIME
                 # while the chart showed the window, so deepseek read $234 in
                 # the table and $0 in the chart at once. Scope them the same.
+                # while the chart showed the window. Scope them the same.
                 window = [RequestModel.timestamp >= (datetime.utcnow() - timedelta(days=days)).isoformat()] if not (start_str and end_str) else []
                 model_q = (
                     session.query(
@@ -3845,19 +3991,173 @@ class DashboardEndpoints:
         return {"Host": host, "X-Forwarded-Proto": scheme}
 
     def _serve_activity_page(self):
-        """Server-rendered Activity page (?tab=overview|logs[&view=...]).
+        """Server-rendered Activity page (?tab=logs|evidence).
 
-        ``?tab=logs&view=conversations`` is the retired realm — it redirects to the
-        Conversations page rather than rendering an empty table, so an old link
-        still reaches the data it was asking for.
+        The overview tab left in CUR-330 — it is the homepage now. Any overview
+        URL (bare ``?tab=overview``, or the legacy ``?view=overview``) redirects
+        to ``/`` so an old bookmark still reaches the data it was asking for;
+        ``?view=conversations`` keeps its own redirect to the Conversations page.
         """
         qs = self._qs()
+        tab = str(qs.get("tab") or qs.get("view") or "").strip().lower()
         if str(qs.get("view") or "") == "conversations":
             self._redirect("/conversations")
+            return
+        # Only an EXPLICIT overview URL redirects to the homepage. A bare
+        # /activity is the sidebar's own link and must render Activity
+        # (default tab: logs) — treating empty as "overview" here sent the
+        # navbar click to `/` (operator, 2026-11-07).
+        if tab in ("overview",):
+            target = "/"
+            if qs.get("profile"):
+                from urllib.parse import quote
+                target += "?profile=" + quote(str(qs["profile"]))
+            self._redirect(target)
             return
         from ..ui.pages import render_activity_page
         self._send_html(render_activity_page(self.config, self.engine,
                                              qs, self._host_headers()))
+
+    def _serve_settings_page(self):
+        """Server-rendered Settings page (CUR-329) — estate-level switches."""
+        from ..ui.pages import render_settings_page
+        self._send_html(render_settings_page(self.config, self.engine, self._qs()))
+
+    def _serve_conversations_settings_api(self):
+        """GET /api/settings/conversations — the titling switch + model options."""
+        from ..ui.pages import settings_payload
+        self._send_json(settings_payload(self.config))
+
+    def _serve_conversations_settings_update_api(self):
+        """POST /api/settings/conversations — persist the titling config.
+
+        Body ``{enabled: bool, model: str|null}``. The whole section is written
+        through ``config.save()`` like every other UI edit, so it survives a
+        restart (the settings table is the source of truth; see config.py).
+        """
+        try:
+            body = self._read_body()
+        except Exception:
+            self._send_json({"error": "invalid JSON body"}, 400)
+            return
+        if not isinstance(body, dict):
+            self._send_json({"error": "body must be an object"}, 400)
+            return
+
+        enabled = body.get("enabled")
+        if not isinstance(enabled, bool):
+            self._send_json({"error": "enabled must be a boolean"}, 400)
+            return
+
+        # The picker only offers chained models; the API holds the same line, so
+        # a hand-built request cannot store a model the titler cannot resolve to
+        # a chain step (it would then silently never title anything). The value
+        # is matched VERBATIM against the chains — re-spelling it here would
+        # make the stored string diverge from the step the titler must find it
+        # at (a spelling is not an identity; see test_model_identity_guard).
+        model = body.get("model")
+        if model is not None and not isinstance(model, str):
+            self._send_json({"error": "model must be a string or null"}, 400)
+            return
+        if model:
+            chained = set()
+            for prof in (self.config.profiles or {}).values():
+                for step in (prof.get("chain") or []):
+                    chained.add(step.get("model"))
+            if model not in chained:
+                self._send_json({"error": "model is not in any profile chain"}, 400)
+                return
+            stored_model: str | None = model
+        else:
+            stored_model = None  # unset = default profile's chain head
+
+        # CUR-329: interval_hours (how often the scheduled pass runs) and scope
+        # (untitled|all) extend the section. interval clamped to [1, 168]; scope
+        # falls back to 'untitled' if not one of the two valid values.
+        interval_raw = body.get("interval_hours")
+        if interval_raw is not None and not isinstance(interval_raw, (int, float)):
+            self._send_json({"error": "interval_hours must be a number"}, 400)
+            return
+        try:
+            interval = int(interval_raw) if interval_raw is not None else 24
+            if interval < 1 or interval > 168:
+                self._send_json({"error": "interval_hours must be 1..168"}, 400)
+                return
+        except (TypeError, ValueError):
+            self._send_json({"error": "interval_hours must be an integer 1..168"}, 400)
+            return
+
+        scope_raw = body.get("scope")
+        if scope_raw is None:
+            stored_scope = "untitled"
+        elif isinstance(scope_raw, str) and scope_raw.strip().lower() in ("untitled", "all"):
+            stored_scope = scope_raw.strip().lower()
+        else:
+            self._send_json({"error": "scope must be 'untitled' or 'all'"}, 400)
+            return
+
+        # Start the scheduler so the interval applies immediately; it
+        # self-governs (no-op if already alive).
+        try:
+            from ..api import conv_titler
+            conv_titler.ensure_scheduler()
+        except Exception:  # noqa: BLE001 — scheduling must not fail the save
+            pass
+
+        self.config.raw["conversation_titling"] = {
+            "enabled": enabled,
+            "model": stored_model,
+            "interval_hours": interval,
+            "scope": stored_scope,
+        }
+        self.config.save()
+        self._audit("settings.conversation_titling", enabled=enabled,
+                    model=stored_model, interval_hours=interval, scope=stored_scope)
+        self._send_json({"ok": True, "enabled": enabled, "model": stored_model,
+                         "interval_hours": interval, "scope": stored_scope})
+
+    def _serve_conversations_title_api(self):
+        """POST /api/settings/conversations/title — run a titling pass now.
+
+        Body ``{scope?: 'untitled'|'all'}`` (defaults to config.scope).
+        ``scope='all'`` forces a fresh re-title of every conversation. Runs
+        synchronously in the request; a bad pass returns the error rather than
+        failing the connection. Returns the pass stats.
+        """
+        try:
+            body = self._read_body()
+        except Exception:
+            body = {}
+        if body is None:
+            body = {}
+        req_scope = body.get("scope") if isinstance(body, dict) else None
+        if req_scope is not None and req_scope not in ("untitled", "all"):
+            self._send_json({"error": "scope must be 'untitled' or 'all'"}, 400)
+            return
+        from ..api import conv_titler
+        stats = conv_titler.run_titling_pass(scope_value=req_scope)
+        if stats.get("error"):
+            self._send_json({"error": stats["error"]}, 500)
+            return
+        self._audit("settings.conversation_titling.run", scope=stats.get("scope"),
+                    titled=stats.get("titled"), scanned=stats.get("scanned"))
+        self._send_json({"ok": True, **stats})
+
+
+    def _serve_home_page(self):
+        """Server-rendered Overview homepage — ``/`` (CUR-330).
+
+        ``?period=7|14|30|90|all`` selects the date window every card, trend and
+        breakdown is computed over (default 14). ``?profile=`` scopes the page —
+        the old per-profile dropdown is gone, but the URL it produced keeps
+        working.
+        """
+        qs = self._qs()
+        from ..ui.pages import render_home_page
+        self._send_html(render_home_page(
+            self.config, self.engine, self._host_headers(),
+            profile_filter=qs.get("profile") or None,
+            period=qs.get("period") or "14"))
 
     def _serve_conversations_page(self):
         """Server-rendered Conversations page — live in-flight + history."""
@@ -3901,10 +4201,12 @@ class DashboardEndpoints:
         self._send_json(in_progress_payload(self.engine))
 
     def _serve_dashboard(self, profile_filter: str | None = None):
-        """Legacy / and /dashboard — now the Overview tab of Activity (M2)."""
-        target = "/activity"
+        """Legacy /dashboard and /{profile}/dashboard — CUR-330 moved the overview
+        to ``/``. A 302 (not 301): a UI re-organisation must not be cached forever."""
+        target = "/"
         if profile_filter:
-            target += "?profile=" + profile_filter
+            from urllib.parse import quote
+            target += "?profile=" + quote(profile_filter)
         self._redirect(target)
 
     def _serve_logs_page(self):
