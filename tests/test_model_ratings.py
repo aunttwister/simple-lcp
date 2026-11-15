@@ -202,15 +202,15 @@ def test_import_csv_requires_a_taxonomy(db):
 BOARDS = {
     "coding": [
         {"model_name": "GLM 5.3 Flash", "organization": "zai", "rating": 1509.4,
-         "rank": 87, "vote_count": 100},
+         "rank": 87, "vote_count": 100, "published": "2026-11-11"},
         {"model_name": "Claude Opus 5 (Max)", "organization": "anthropic",
-         "rating": 1532.0, "rank": 1, "vote_count": 200},
+         "rating": 1532.0, "rank": 1, "vote_count": 200, "published": "2026-11-11"},
         {"model_name": "Nobody Known", "organization": "x", "rating": 1400.0,
-         "rank": 300, "vote_count": 3},
+         "rank": 300, "vote_count": 3, "published": "2026-11-11"},
     ],
     "agent_tool_hallucination": [
         {"model_name": "GLM-5.3-Flash", "organization": "zai", "score": 0.0099,
-         "rank": 2, "session_count": 61020},
+         "rank": 2, "session_count": 61020, "published": "2026-11-11"},
     ],
 }
 
@@ -230,9 +230,19 @@ def test_poll_resolves_by_alias_and_effort_and_ignores_the_rest(db):
 
 def test_poll_uses_operator_alias_over_slug_spelling(db):
     boards = {"coding": [{"model_name": "Qwen3.8-27B", "organization": "alibaba",
-                          "rating": 1479.12, "rank": 2, "vote_count": 10}]}
+                          "rating": 1479.12, "rank": 2, "vote_count": 10,
+                          "published": "2026-11-11"}]}
     built = arena_poll.build_rows(db, boards)
     assert {r["model_slug"] for r in built["rows"]} == {"qwen3.8-27b-heretic"}
+
+
+def test_polled_rows_carry_the_board_publish_date(db):
+    """A value without its date is not reviewable — the diff shows both."""
+    built = arena_poll.build_rows(db, BOARDS)
+    assert {r["published"] for r in built["rows"]} == {"2026-11-11"}
+    mr.stage_poll(db, fetch=lambda: BOARDS)
+    rows = mr.staged_rows(db)
+    assert all(r["new_date"] == "2026-11-11" for r in rows)
 
 
 def test_stage_then_commit_changes_the_baseline_only_on_accept(db):
