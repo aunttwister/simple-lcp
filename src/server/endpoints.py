@@ -4107,6 +4107,17 @@ class DashboardEndpoints:
                     q = q.filter(ModelCapability.source == source_filter)
                 rows = q.all()
 
+            from ..api.seed_capabilities import GRADING_SOURCES
+
+            if not source_filter:
+                # The grading view. Drop non-grading sources BEFORE release
+                # resolution, for the same reason load_capability_matrix does: an
+                # arena row carries a newer release_label than the benchmark rows, so
+                # resolve_active_rows would select it as the model's active release
+                # and discard the real accuracy — leaving the pair ungraded. An
+                # explicit ?source=<x> opts out and returns that source as asked.
+                rows = [r for r in rows if r.source in GRADING_SOURCES]
+
             active_releases: dict[str, str] = {}
             if release_filter:
                 rows = [r for r in rows if r.release_label == release_filter or r.release_label is None]
@@ -4130,7 +4141,11 @@ class DashboardEndpoints:
             benchmarks: dict[str, dict[str, str]] = {}
             releases: dict[str, dict[str, str]] = {}
 
-            for r in rows:
+            # Rows are already restricted to grading sources above, so no
+            # percentile can reach the badge: it compares like with like.
+            graded = rows
+
+            for r in graded:
                 tasks.setdefault(r.task_type, {})[r.model] = r.score
                 sources.setdefault(r.task_type, {})[r.model] = r.source
                 if r.benchmark_category:
@@ -4152,7 +4167,7 @@ class DashboardEndpoints:
                 "releases": releases,
                 "active_releases": active_releases,
                 "subtasks": subtasks,
-                "count": len(rows),
+                "count": len(graded),
             })
         except Exception as e:
             self._send_json({"error": str(e)}, 500)

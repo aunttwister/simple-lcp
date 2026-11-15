@@ -237,6 +237,20 @@ def effective_releases(rows, registry: dict) -> dict[str, str]:
     return out
 
 
+# Sources that may GRADE a model, and their precedence.
+#
+# The rule is deliberately an allowlist, so an unknown source never grades: only an
+# ABSOLUTE measurement of the model can. An arena percentile is a RANK within a
+# field, not a measurement — it moves when other models move, and the leader is
+# always ~100 whatever its accuracy. Storing one in this column is what produced
+# a 9470.00% badge (a 0-100 percentile read as a 0-1 accuracy) and let an arena
+# row become a routing score on the 4 (model, task) pairs where it was the only
+# source. Arena/LMArena data is still ingested and queryable; it just never grades.
+GRADING_SOURCES: dict[str, int] = {
+    "gateway_yaml": 0, "manual": 1, "lcp_benchmark": 2, "livebench": 3,
+}
+
+
 def load_capability_matrix(db_path: str, release: Optional[str] = None) -> dict[str, dict[str, float]]:
     """Load the capability matrix from the DB for the ACTIVE release per model.
 
@@ -245,26 +259,37 @@ def load_capability_matrix(db_path: str, release: Optional[str] = None) -> dict[
     ``resolve_active_rows`` (``active_release`` pin → newest release).
 
     Returns {task_type: {model_name: score}}.
-    Sources priority: gateway_yaml > manual > lcp_benchmark > livebench > arena
+    Only :data:`GRADING_SOURCES` participate — see the note there for why a
+    percentile must not grade.
     """
     from src.api.models import ModelCapability
 
     session = _get_session(db_path)
-    SOURCE_PRIORITY = {"gateway_yaml": 0, "manual": 1, "lcp_benchmark": 2, "livebench": 3, "arena": 4}
 
     rows = session.query(ModelCapability).all()
     session.close()
 
-    registry = load_model_registry(db_path) if release is None else {}
-    candidate_rows = resolve_active_rows(rows, registry, release)
+    # Drop non-grading rows FIRST, before release resolution.
+    #
+    # This order matters. Arena rows carry a newer release_label than the
+    # benchmarks (an arena publish date vs a LiveBench release), so
+    # resolve_active_rows would select the arena row as the model's active release
+    # and DISCARD the real accuracy row for the same (model, task). Filtering after
+    # resolution is too late: the accuracy is already gone and the pair ends up
+    # ungraded. Measured on staging: filtering post-resolution dropped every
+    # accuracy grade that shared a task with arena data.
+    grading_rows = [r for r in rows if r.source in GRADING_SOURCES]
 
-    # Pick the best source per (model, task).
+    registry = load_model_registry(db_path) if release is None else {}
+    candidate_rows = resolve_active_rows(grading_rows, registry, release)
+
+    # Pick the best grading source per (model, task).
     best: dict[tuple[str, str], dict] = {}
     for row in candidate_rows:
         key = (row.task_type, row.model)
         existing = best.get(key)
-        new_prio = SOURCE_PRIORITY.get(row.source, 99)
-        if existing is not None and SOURCE_PRIORITY.get(existing["source"], 99) <= new_prio:
+        new_prio = GRADING_SOURCES[row.source]
+        if existing is not None and GRADING_SOURCES[existing["source"]] <= new_prio:
             continue
         best[key] = {"score": row.score, "source": row.source}
 
