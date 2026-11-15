@@ -13,6 +13,7 @@ Three behaviours land together and each can rot without raising:
 """
 
 import json
+import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -714,19 +715,28 @@ def test_conversation_detail_drops_the_usage_widget():
     assert "['Cost', ipFmt(a.cost)]" not in html, "the usage/cost cell came back"
 
 
-def test_unnamed_tool_resolves_the_name_from_the_calling_turn():
+def test_unnamed_tool_resolves_the_name_from_the_calling_turn(store):
     """A generic OpenAI tool result that carries only a tool_call_id is stored
     with the name of the call that produced it (from the assistant's tool_calls),
-    so transcripts stop showing '(unnamed)' for tools that have a name."""
-    msgs = [
+    so transcripts stop showing '(unnamed)' for tools that have a name.
+
+    Goes through ``capture_request`` — the function the request handler calls.
+    The earlier version of this test handed ``_prepare`` raw client dicts, a
+    shape the live path never passes, and stayed green while every real capture
+    stored a NULL name.
+    """
+    conv_store.capture_request("sess-tool-name", {"messages": [
+        {"role": "user", "content": "list the spark cards"},
         {"role": "assistant", "content": "",
          "tool_calls": [{"id": "call_1", "type": "function",
                          "function": {"name": "list_spark_cards", "arguments": "{}"}}]},
         {"role": "tool", "tool_call_id": "call_1", "content": "out"},
-    ]
-    prepped = [conv_store._prepare(m, conv_store._tool_name_lookup(msgs)) for m in msgs]
-    assert prepped[1]["tool_name"] == "list_spark_cards", \
-        "the tool result is still stored unnamed"
+    ]})
+    con = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+    name = con.execute("SELECT tool_name FROM conv_messages WHERE conversation_id=? "
+                       "AND role='tool'", ("sess-tool-name",)).fetchone()[0]
+    con.close()
+    assert name == "list_spark_cards", "the tool result is still stored unnamed"
 
 
 def test_tool_result_without_a_caller_stays_unnamed():

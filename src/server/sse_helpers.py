@@ -65,6 +65,70 @@ def extract_message_text(response_body) -> str:
     return content if isinstance(content, str) else ""
 
 
+def extract_sse_tool_calls(raw_bytes) -> list:
+    """Reassemble the assistant turn's tool calls out of an SSE response buffer.
+
+    OpenAI streams a tool call in fragments: the first delta for an ``index``
+    carries ``id``/``type`` and ``function.name``, and every later delta for that
+    index appends a slice of ``function.arguments``. Fragments are keyed by
+    ``index`` so parallel calls do not interleave into each other.
+
+    The conversation store needs the whole call, not the argument prose: a tool
+    RESULT carries only ``tool_call_id``, so the name can only come from the
+    assistant turn — and that turn is not in the request body, it exists only in
+    this stream.
+
+    Never raises — an unparseable stream yields ``[]``, because this feeds
+    bookkeeping rather than the response itself.
+    """
+    calls: dict[str, dict] = {}   # insertion-ordered: fragments arrive in call order
+    try:
+        text = raw_bytes.decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        return []
+    for line in text.split("\n"):
+        if not line.startswith("data:"):
+            continue
+        data_str = line[5:].strip()
+        if not data_str or data_str == "[DONE]":
+            continue
+        try:
+            payload = json.loads(data_str)
+        except (ValueError, TypeError):
+            continue
+        for choice in (payload.get("choices") or []):
+            for frag in ((choice.get("delta") or {}).get("tool_calls") or []):
+                if not isinstance(frag, dict):
+                    continue
+                idx = frag.get("index")
+                # Key by the stream's index; a fragment streamed WITHOUT one is
+                # still merged by its id, and a bare fragment starts a new call.
+                key = str(idx) if isinstance(idx, int) else str(frag.get("id") or len(calls))
+                call = calls.setdefault(key, {"id": None, "type": "function",
+                                              "function": {"name": None, "arguments": ""}})
+                if frag.get("id"):
+                    call["id"] = frag["id"]
+                if frag.get("type"):
+                    call["type"] = frag["type"]
+                fn = frag.get("function") or {}
+                if isinstance(fn, dict):
+                    if fn.get("name"):
+                        call["function"]["name"] = fn["name"]
+                    if fn.get("arguments"):
+                        call["function"]["arguments"] += fn["arguments"]
+    return [c for c in calls.values() if c.get("id") and c["function"].get("name")]
+
+
+def extract_message_tool_calls(response_body) -> list:
+    """The assistant message's ``tool_calls`` of a non-streamed completion."""
+    try:
+        message = (response_body.get("choices") or [{}])[0].get("message") or {}
+        calls = message.get("tool_calls")
+    except (AttributeError, IndexError, TypeError):  # noqa: BLE001
+        return []
+    return [c for c in calls if isinstance(c, dict)] if isinstance(calls, list) else []
+
+
 def estimate_cost_from_tokens(provider, model, cost_info, config):
     """Calculate cost from token counts using configured pricing or plugins.
 

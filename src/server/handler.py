@@ -44,7 +44,9 @@ from ..api.exceptions import (
     ProviderError,
     ToolBlockedError,
 )
-from .sse_helpers import extract_last_sse_chunk, extract_sse_text, extract_message_text
+from .sse_helpers import (extract_last_sse_chunk, extract_message_text,
+                          extract_message_tool_calls, extract_sse_text,
+                          extract_sse_tool_calls)
 from .endpoints import (
     HealthEndpoints,
     ProviderEndpoints,
@@ -830,11 +832,17 @@ class LCPHandler(
                 # Conversation capture. The assistant's words are not in the
                 # request body — they only exist in the stream this handler just
                 # wrote out — so the reply text is recovered from the SSE buffer.
-                # It stays bookkeeping: a failure stores nothing rather than
-                # corrupting a response the client already received.
+                # Its tool calls are recovered from the same buffer for the same
+                # reason: a client re-sends the calling turn only on its NEXT
+                # request, and by then the reply row is already stored, so the
+                # turn's tool_calls would be deduplicated away and every result
+                # of that call left with no caller to name it. It stays
+                # bookkeeping: a failure stores nothing rather than corrupting a
+                # response the client already received.
                 conv_store.capture_request(
                     conversation_id, body,
                     reply=extract_sse_text(full_sse),
+                    reply_tool_calls=extract_sse_tool_calls(full_sse),
                     profile=profile, model=model,
                     agent_generated=agent_generated,
                     agent_identity=agent_identity,
@@ -922,6 +930,7 @@ class LCPHandler(
             conv_store.capture_request(
                 conversation_id, body,
                 reply=extract_message_text(response_body),
+                reply_tool_calls=extract_message_tool_calls(response_body),
                 profile=profile, model=model,
                 agent_generated=agent_generated,
                 agent_identity=agent_identity,

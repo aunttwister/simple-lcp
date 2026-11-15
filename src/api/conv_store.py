@@ -28,6 +28,7 @@ showing a shortened body.
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from collections import Counter
 from datetime import datetime, timezone
@@ -169,12 +170,24 @@ def _tool_name_lookup(messages: Iterable[dict[str, Any]]) -> dict[str, str]:
     (under ``function.name``); the follow-up ``tool`` result carries only the
     ``tool_call_id``. Building the map once lets every tool row in the batch be
     named from the call that produced it, instead of storing NULL names.
+
+    ``tool_calls`` is read in BOTH shapes and both must keep working: a raw
+    client message carries a list, while a batch assembled for storage may
+    already hold the serialised form. Reading lists only made this map silently
+    empty on every live request — the unit test passed against raw dicts while
+    production stored a NULL name (measured on prod: 21,891 unnamed tool rows,
+    still arriving daily).
     """
     lookup: dict[str, str] = {}
     for m in messages:
         if not isinstance(m, dict):
             continue
         tcs = m.get("tool_calls")
+        if isinstance(tcs, str):
+            try:
+                tcs = json.loads(tcs)
+            except (ValueError, TypeError):
+                continue
         if not isinstance(tcs, list):
             continue
         for tc in tcs:
@@ -209,6 +222,12 @@ def _prepare(message: dict[str, Any],
     # user-tools with no caller still stay unnamed.)
     if not tool_name and tool_call_id and tool_names:
         tool_name = tool_names.get(tool_call_id)
+    # ``tool_calls`` is serialised HERE, and only here: it is the one place a row
+    # is built, so a caller may hand over the raw list (the reply recovered from
+    # the stream) or an already-serialised value, and both reach SQLite as TEXT.
+    tool_calls = message.get("tool_calls")
+    if not isinstance(tool_calls, str):
+        tool_calls = _dump(tool_calls) if tool_calls else None
     return {
         "role": role,
         "content": body,
@@ -216,7 +235,7 @@ def _prepare(message: dict[str, Any],
         "truncated": 1 if truncated else 0,
         "tool_name": tool_name,
         "tool_call_id": tool_call_id,
-        "tool_calls": message.get("tool_calls"),
+        "tool_calls": tool_calls or None,
         "reasoning": message.get("reasoning"),
         "ts": message.get("ts"),
         "active": int(message.get("active", 1) or 0),
@@ -631,9 +650,10 @@ def _extract_messages(body: dict[str, Any]) -> list[dict[str, Any]]:
             "content": content,
             "tool_name": m.get("name") or m.get("tool_name"),
             "tool_call_id": m.get("tool_call_id"),
-            "tool_calls": (
-                _dump(m.get("tool_calls")) if m.get("tool_calls") else None
-            ),
+            # Left RAW (a list) on purpose: ``_prepare`` is the single owner of
+            # serialisation, and serialising here as well silently broke the
+            # tool-name lookup, which then saw a string where it expected a list.
+            "tool_calls": m.get("tool_calls") or None,
         })
     return out
 
@@ -648,6 +668,7 @@ def _dump(value: Any) -> str:
 
 def capture_request(conversation_id: Optional[str], body: dict[str, Any],
                     reply: Optional[str] = None, *, ts: Optional[str] = None,
+                    reply_tool_calls: Optional[list] = None,
                     profile: Optional[str] = None,
                     model: Optional[str] = None,
                     agent_generated: Optional[bool] = None,
@@ -657,6 +678,13 @@ def capture_request(conversation_id: Optional[str], body: dict[str, Any],
     Appends the request's own messages (system excluded) and, when the reply is
     known, the assistant turn that answered it — so the live transcript is
     current rather than one request behind.
+
+    ``reply_tool_calls`` is the assistant turn's tool calls recovered from the
+    response (the client re-sends them in its NEXT request, but a turn that
+    carries prose as well as calls would then be deduplicated against the reply
+    row — the stored one wins, the tool_calls are lost, and every result of that
+    call is orphaned with no caller to name it). Passing them here stores the
+    caller once, on the turn that actually made it.
 
     Returns rows written; **0** when there is nothing to do, and it never raises:
     an unidentified or unstoreable request is a missing row, not a failed request.
@@ -671,8 +699,11 @@ def capture_request(conversation_id: Optional[str], body: dict[str, Any],
             ts = datetime.now(timezone.utc).isoformat()
         ensure_store()
         messages = _extract_messages(body)
-        if reply:
-            messages.append({"role": "assistant", "content": reply, "ts": ts})
+        if reply or reply_tool_calls:
+            turn: dict[str, Any] = {"role": "assistant", "content": reply or "", "ts": ts}
+            if reply_tool_calls:
+                turn["tool_calls"] = reply_tool_calls
+            messages.append(turn)
         for m in messages:
             m.setdefault("ts", ts)
         written = append_messages(conversation_id, messages, origin="capture")
