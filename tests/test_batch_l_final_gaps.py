@@ -183,9 +183,13 @@ class TestEndpointErrorBranches:
         assert payload["ok"] is True and "plan_id" not in payload
 
     def test_registry_api_500(self, temp_db):
-        # endpoints.py 2318-2319: query blows up → 500 error dict
+        # endpoints.py 2318-2319: a broken registry read → 500 error dict.
+        # The handler reads the registry through api.model_names (raw sqlite3),
+        # not the SQLAlchemy session, so the failure is provoked on the accessor
+        # it actually calls; the endpoint must convert it to a 500 error body
+        # rather than let the exception escape.
         h = _TH("/api/models/registry", engine=temp_db)
-        with patch("src.api.models.get_session",
+        with patch("src.api.model_names.registry_entries",
                    side_effect=RuntimeError("registry unreadable")):
             h._serve_registry_api()
         assert h._status() == 500

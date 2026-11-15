@@ -3,11 +3,13 @@ that were previously uncovered in src/server/endpoints.py."""
 
 import contextlib
 import json
+import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.server import LCPHandler
+from tests import _model_names_fixtures as mn
 
 
 class TestHandler(LCPHandler):
@@ -98,6 +100,19 @@ class TestCapabilityApi:
 # ── Registry API ────────────────────────────────────────────────────────────
 
 class TestRegistryApi:
+    """Registry API tests against the ``mi_sources`` / ``mi_model_names`` tables.
+
+    The retired ``model_registry`` table is gone, so ``Base.metadata.create_all``
+    no longer builds the name tables the registry endpoints read: they query
+    ``mi_models`` / ``mi_sources`` / ``mi_model_names`` directly through
+    ``api.model_names``. Mirror migration 034's schema onto each temp DB so the
+    endpoint has somewhere to read and write, exactly as a migrated prod DB does.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _mi_schema(self, temp_db):
+        mn.mi_schema(sqlite3.connect(temp_db[0])).close()
+
     def test_upsert_creates(self, temp_db):
         body = json.dumps({
             "logical_name": "new-model",
@@ -131,6 +146,20 @@ class TestRegistryApi:
         h.do_DELETE()
         assert _status(h) == 200
         assert _json_body(h)["deleted"] == "delme"
+        # DELETE now RETIRES the model instead of dropping its row (the retired
+        # ``model_registry`` deleted it). The routing effect is unchanged: the
+        # model keeps its capability history but stops resolving — its status is
+        # 'retired' and every spelling of it is gone from ``mi_model_names``.
+        con = sqlite3.connect(temp_db[0])
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT status FROM mi_models WHERE slug = 'delme'").fetchone()
+        names = con.execute(
+            "SELECT COUNT(*) FROM mi_model_names n JOIN mi_models m"
+            " ON m.model_id = n.model_id WHERE m.slug = 'delme'").fetchone()[0]
+        con.close()
+        assert row is not None and row["status"] == "retired"
+        assert names == 0
 
     def test_delete_missing(self, temp_db):
         h = TestHandler(path="/api/models/registry/nope", method="DELETE", engine=temp_db[1])
@@ -159,11 +188,13 @@ class TestRegistryApi:
                                          "provider_mappings": {"deepseek": "deepseek-v4-pro"}}))
         h.do_POST()
         assert _status(h) == 200
-        # model-b may not claim the same (provider, model) pair, even via a
-        # differently-cased / path-qualified spelling of the model ID.
+        # model-b may not claim the same (provider, provider-side name) pair.
+        # The new conflicts() compares provider-side names case-insensitively
+        # (strip + lower), so a differently-cased spelling of the SAME id is
+        # still recognised as the duplicate it is.
         h = TestHandler(path="/api/models/registry", method="POST", engine=temp_db[1],
                         body=json.dumps({"logical_name": "model-b", "benchmark_key": "model-b",
-                                         "provider_mappings": {"deepseek": "/models/DeepSeek-V4-Pro.gguf"}}))
+                                         "provider_mappings": {"deepseek": "DeepSeek-V4-Pro"}}))
         h.do_POST()
         assert _status(h) == 400
         assert "already maps" in _json_body(h)["error"]
