@@ -8,6 +8,7 @@ so a test can state a registry in one line per fact instead of hand-writing SQL.
 from __future__ import annotations
 
 import sqlite3
+from typing import Optional
 
 #: The exact DDL from migration 034, so a test schema matches production.
 _DDL = """
@@ -36,7 +37,10 @@ CREATE TABLE IF NOT EXISTS mi_deployments (
     deployment_id INTEGER PRIMARY KEY, endpoint_id INTEGER, model_id INTEGER,
     served_id TEXT, variant TEXT, quantisation TEXT, context_window INTEGER,
     status TEXT DEFAULT 'active', source TEXT, verified_at TEXT, first_seen TEXT,
-    last_seen TEXT, notes TEXT);
+    last_seen TEXT, notes TEXT, quant_id INTEGER REFERENCES mi_quants (quant_id));
+CREATE TABLE IF NOT EXISTS mi_quants (
+    quant_id INTEGER PRIMARY KEY, slug TEXT UNIQUE NOT NULL, label TEXT NOT NULL,
+    family TEXT, bits REAL, status TEXT NOT NULL DEFAULT 'active', created_at TEXT);
 CREATE TABLE IF NOT EXISTS mi_deployment_releases (
     id INTEGER PRIMARY KEY, deployment_id INTEGER, release_id INTEGER,
     effective_from TEXT, effective_to TEXT, source TEXT, confidence TEXT);
@@ -129,23 +133,46 @@ def add_name(con, model_id: int, source_slug: str, name: str, *, is_primary=0,
 
 
 def add_deployment(con, endpoint_slug: str, served_id: str, model_slug=None, *,
-                   status: str = "active", verified: bool = False) -> int:
-    """A (endpoint, served id) pair, optionally linked to a canonical model."""
+                   status: str = "active", verified: bool = False,
+                   quant: Optional[str] = None,
+                   observed_quant: Optional[str] = None) -> int:
+    """A (endpoint, served id) pair, optionally linked to a canonical model.
+
+    ``observed_quant`` is the engine's own report (free text, kept as evidence);
+    ``quant`` is the resolved quantisation entity it is linked to.
+    """
     model_id = None
     if model_slug:
         row = con.execute("SELECT model_id FROM mi_models WHERE slug = ?",
                           (model_slug,)).fetchone()
         model_id = int(row[0]) if row else None
+    quant_id = None
+    if quant:
+        add_quant(con, quant)
+        quant_id = int(con.execute("SELECT quant_id FROM mi_quants WHERE slug = ?",
+                                   (quant,)).fetchone()[0])
     con.execute(
         "INSERT INTO mi_deployments (endpoint_id, model_id, served_id, status, source,"
-        " first_seen, last_seen, verified_at) VALUES"
+        " first_seen, last_seen, verified_at, quantisation, quant_id) VALUES"
         " ((SELECT endpoint_id FROM mi_endpoints WHERE slug = ?),?,?,?,'fixture',"
-        " '2026-01-01','2026-01-01',?)",
+        " '2026-01-01','2026-01-01',?,?,?)",
         (endpoint_slug, model_id, served_id, status,
-         "2026-01-01" if verified else None))
+         "2026-01-01" if verified else None, observed_quant, quant_id))
     con.commit()
     return int(con.execute(
         "SELECT MAX(deployment_id) FROM mi_deployments").fetchone()[0])
+
+
+def add_quant(con, slug: str, *, label: Optional[str] = None,
+              family: Optional[str] = None, bits: Optional[float] = None) -> int:
+    """One quantisation entity. Idempotent, like the real ``ensure_quant``."""
+    con.execute(
+        "INSERT OR IGNORE INTO mi_quants (slug, label, family, bits, created_at)"
+        " VALUES (?,?,?,?,'2026-01-01')",
+        (slug.strip().lower(), label or slug.upper(), family, bits))
+    con.commit()
+    return int(con.execute("SELECT quant_id FROM mi_quants WHERE slug = ?",
+                           (slug.strip().lower(),)).fetchone()[0])
 
 
 def provider_mappings(con, model_slug: str) -> dict:
