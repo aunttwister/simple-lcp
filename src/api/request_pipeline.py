@@ -812,7 +812,30 @@ def forward_request(provider_cfg: dict, body: dict, config, session_id: str | No
         _budget = None
     _open_timeout = _budget if _budget else _read_timeout
     try:
-        resp = urllib.request.urlopen(req, timeout=_open_timeout)
+        try:
+            resp = urllib.request.urlopen(req, timeout=_open_timeout)
+        except TimeoutError as e:
+            # ``urlopen`` waited for the RESPONSE HEAD and got nothing, so no
+            # first byte has arrived at all. On a streaming step with a budget
+            # that is precisely the deep-queue / long-prefill case this budget
+            # exists for — the step is still WORKING, not faulty. Distinct from
+            # the mid-stream timeout inside ``chunk_reader``: nothing has been
+            # produced yet, so no generation is being killed mid-flight.
+            #
+            # Without this branch the TimeoutError escaped to the generic
+            # handler below and came back as a plain ProviderTimeoutError
+            # carrying the RELAY ceiling ("read timed out after 900s"), so the
+            # chain took the ordinary timeout path and recorded a provider
+            # FAILURE for a merely-busy lane, latching it degraded. Observed
+            # live on staging 2026-11-15 with a 5s budget: the request 502'd at
+            # 5.2s, the provider was marked failed, and no
+            # chain_skip_step_timeout was emitted.
+            if _budget:
+                raise ProviderFirstByteTimeoutError(
+                    f"Provider {provider_cfg['provider']} produced no first byte "
+                    f"within its {_budget:.0f}s step budget"
+                ) from e
+            raise
         if streaming:
             # Return a closure that yields chunks and closes the response when done.
             # This avoids buffering the entire SSE stream in memory.

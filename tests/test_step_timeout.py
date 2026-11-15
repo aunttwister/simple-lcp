@@ -266,3 +266,60 @@ class TestChainStepTimeout:
         with patch("src.api.request_pipeline.forward_request", side_effect=_forward):
             _, status, provider, _ = try_chain("p", prof, dict(BODY), cfg)
         assert provider == "local-sparks" and seen["local-sparks"] is None
+
+
+class TestStallBeforeTheResponseHead:
+    """The failure the live proof on staging exposed (2026-11-15).
+
+    The armed step ACCEPTED the TCP connection and then sent nothing at all, so
+    ``urlopen`` itself blocked on the response HEAD and raised TimeoutError —
+    ``chunk_reader`` was never reached. Every earlier test here fed in a response
+    object and made the READ time out, so this path was never exercised: the
+    TimeoutError escaped to the generic handler, came back as a plain
+    ProviderTimeoutError quoting the 900s relay ceiling, and the chain recorded a
+    FAILURE for a provider that was merely busy — the exact latch the per-step
+    budget exists to prevent. Symptom on staging: 502 at 5.2s, provider marked
+    failed, no chain_skip_step_timeout.
+    """
+
+    def test_urlopen_timeout_with_a_budget_is_a_first_byte_timeout(self):
+        with patch("src.api.request_pipeline.urllib.request.urlopen",
+                   side_effect=TimeoutError("timed out")):
+            with pytest.raises(ProviderFirstByteTimeoutError) as ei:
+                forward_request(
+                    {"provider": "blackhole", "base_url": "http://bh:9999/v1",
+                     "model": "stall", "first_byte_timeout": 5},
+                    _stream_body(), _cfg())
+        msg = str(ei.value)
+        assert "no first byte" in msg
+        assert "5s" in msg, msg
+        # must not carry the relay ceiling it used to be mislabelled with
+        assert "900" not in msg, msg
+
+    def test_urlopen_timeout_without_a_budget_keeps_the_old_behaviour(self):
+        """No budget configured anywhere: the historical path is untouched, so
+        the budget is inert until someone sets it (the fail-open requirement)."""
+        with patch("src.api.request_pipeline.urllib.request.urlopen",
+                   side_effect=TimeoutError("timed out")):
+            with pytest.raises(ProviderTimeoutError) as ei:
+                forward_request(
+                    {"provider": "local-sparks", "base_url": "http://spark:18300/v1",
+                     "model": "glm-5.3-flash"},
+                    _stream_body(), _cfg())
+        assert not isinstance(ei.value, ProviderFirstByteTimeoutError)
+
+    def test_non_streaming_request_never_gets_a_first_byte_budget(self):
+        """A non-streaming call has no separable first byte, so the budget must
+        not apply — otherwise it silently becomes a total-request timeout and
+        kills legitimately long generations."""
+        with patch("src.api.request_pipeline.urllib.request.urlopen",
+                   side_effect=TimeoutError("timed out")) as uo:
+            with pytest.raises(ProviderTimeoutError) as ei:
+                forward_request(
+                    {"provider": "local-sparks", "base_url": "http://spark:18300/v1",
+                     "model": "glm-5.3-flash", "first_byte_timeout": 5},
+                    {"messages": BODY["messages"], "stream": False,
+                     "model": "glm-5.3-flash"}, _cfg())
+        assert not isinstance(ei.value, ProviderFirstByteTimeoutError)
+        # and it waited on the ceiling, not the step budget
+        assert uo.call_args.kwargs.get("timeout") != 5
