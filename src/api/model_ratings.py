@@ -34,11 +34,14 @@ CUSTOM_PREFIX = "custom:"
 INF = math.inf
 NEG_INF = -math.inf
 
-VISIBLE_SQL = """
-    SELECT DISTINCT m.slug FROM mi_deployments d
-    JOIN mi_models m ON m.model_id = d.model_id
-    WHERE m.status = 'active'
-"""
+VISIBLE_PREDICATE = "m.status = 'active' AND d.status = 'active'"
+VISIBLE_FROM = "mi_deployments d JOIN mi_models m ON m.model_id = d.model_id"
+VISIBLE_SQL = f"SELECT DISTINCT m.slug FROM {VISIBLE_FROM} WHERE {VISIBLE_PREDICATE}"
+#: The same set as a subquery, so every READ path enforces registration too. A
+#: write gate alone is not enough: a model that was registered when its row was
+#: stored and is retired later must stop being DISPLAYED, and a poll row already
+#: staged for it must not be offered for acceptance.
+VISIBLE_IN = f"(SELECT DISTINCT m.slug FROM {VISIBLE_FROM} WHERE {VISIBLE_PREDICATE})"
 
 
 def _now() -> str:
@@ -46,7 +49,25 @@ def _now() -> str:
 
 
 def visible_models(con: sqlite3.Connection) -> set[str]:
-    """Slugs a provider registers AND that are not retired."""
+    """Slugs a provider CONFIRMS it serves, and that are not retired.
+
+    Both sides of the registration have to be live, and the deployment side is
+    the one that bites. `mi_deployments.status` has three values in this estate:
+
+      * ``active``  — a provider serves this. The identity contract's own notion
+        of registered (`model_identity` reads only ``active``).
+      * ``retired`` — it served it and stopped.
+      * ``new``     — the model-intel poll STAGED an unknown served id for
+        identity review. Nothing reads it, precisely because the registry
+        refuses to treat a poll's own output as a fact.
+
+    Reading every deployment row as "registered" therefore let the poll widen
+    its own eligibility window: it stages a ``new`` row for a name it does not
+    recognise, and the next poll then resolves that name as a registered model
+    and publishes its numbers. Three models reached the leaderboard that way
+    (gemini-3.6-flash, gpt-5.6-sol, grok-4.5) — the operator caught it on the
+    rendered page, which is what this filter is for.
+    """
     return {r[0] for r in con.execute(VISIBLE_SQL)}
 
 
@@ -116,9 +137,10 @@ def taxonomies(con: sqlite3.Connection) -> list[dict]:
 
     con = _rowify(con)
     counts: dict[str, dict] = {}
-    for r in con.execute("""
+    for r in con.execute(f"""
             SELECT taxonomy, unit, count(*) AS rows, max(updated_at) AS updated_at
-            FROM model_ratings GROUP BY taxonomy, unit"""):
+            FROM model_ratings WHERE model_slug IN {VISIBLE_IN}
+            GROUP BY taxonomy, unit"""):
         c = counts.setdefault(r["taxonomy"], {"rows": 0, "units": [], "updated_at": None})
         c["rows"] += r["rows"]
         c["units"].append(r["unit"])
@@ -209,13 +231,14 @@ def leaderboard(con: sqlite3.Connection, taxonomy: str) -> list[dict]:
     # Deterministic unit order: iterating a set made the two groups swap places
     # between two identical requests.
     units = sorted({r[0] for r in con.execute(
-        "SELECT DISTINCT unit FROM model_ratings WHERE taxonomy=?", (taxonomy,))},
+        f"SELECT DISTINCT unit FROM model_ratings WHERE taxonomy=? AND model_slug IN {VISIBLE_IN}",
+        (taxonomy,))},
         key=lambda u: ({"elo": 0, "net_improvement": 1}.get(u, 9), u))
     for unit in units:
-        rows = con.execute("""
+        rows = con.execute(f"""
             SELECT model_slug, value, unit, percentile, rank, lab, effort, board,
                    published, basis, source, updated_at
-            FROM model_ratings WHERE taxonomy=? AND unit=?
+            FROM model_ratings WHERE taxonomy=? AND unit=? AND model_slug IN {VISIBLE_IN}
             ORDER BY value DESC
         """, (taxonomy, unit)).fetchall()
         best: dict[str, dict] = {}
@@ -240,7 +263,8 @@ def diff(con: sqlite3.Connection, taxonomy: str, incoming: list[dict]) -> list[d
     """Old -> new for the poll panel. Shows BOTH dates and both values."""
     con = _rowify(con)
     current = {(r["model_slug"], r["unit"]): r for r in con.execute(
-        "SELECT model_slug, unit, value, published, updated_at FROM model_ratings WHERE taxonomy=?",
+        f"SELECT model_slug, unit, value, published, updated_at FROM model_ratings"
+        f" WHERE taxonomy=? AND model_slug IN {VISIBLE_IN}",
         (taxonomy,))}
     changes = []
     for r in incoming:
@@ -387,14 +411,20 @@ def stage_poll(con: sqlite3.Connection, *, fetch=None) -> dict:
 
 
 def staged_rows(con: sqlite3.Connection, taxonomy: Optional[str] = None) -> list[dict]:
-    """The poll panel's rows: old -> new, with BOTH dates."""
+    """The poll panel's rows: old -> new, with BOTH dates.
+
+    Only rows for models that are STILL registered are offered: accepting one for
+    a model that has since been retired would write a rating onto a board for
+    something no provider serves.
+    """
     con = _rowify(con)
     sql = ("SELECT model_slug, taxonomy, unit, value, old_value, percentile, rank, n,"
            " source, board, lab, effort, basis, published, old_published,"
-           " old_updated_at, polled_at FROM rating_poll_staging")
+           " old_updated_at, polled_at FROM rating_poll_staging"
+           f" WHERE model_slug IN {VISIBLE_IN}")
     params: tuple = ()
     if taxonomy:
-        sql += " WHERE taxonomy=?"
+        sql += " AND taxonomy=?"
         params = (taxonomy,)
     sql += " ORDER BY taxonomy, unit, rank IS NULL, rank, value DESC"
     out = []

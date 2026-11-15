@@ -59,8 +59,20 @@ MODELS = [
     (2, "claude-opus-5", "claude-opus", "active"),
     (3, "ox-alpha-free", "ox", "retired"),
     (4, "qwen3.8-27b-heretic", "qwen", "active"),
+    (5, "poll-staged-only", "vendored", "active"),      # only a poll 'new' row
+    (6, "provider-silent", "vendored", "active"),       # only a 'retired' deployment
 ]
-DEPLOYMENTS = [(1, 1), (2, 2), (3, 3), (4, 4)]   # every model has a served id...
+# (model_id, deployment_id, endpoint_id, served_id, status)
+DEPLOYMENTS = [
+    (1, 1, 1, "served-1", "active"),
+    (2, 2, 1, "served-2", "active"),
+    (3, 3, 1, "served-3", "active"),          # a RETIRED model with a live deployment
+    (4, 4, 1, "served-4", "active"),
+    (None, 5, 1, "staged-unknown", "new"),    # the poll staged a name it cannot place
+    (5, 6, 1, "served-5", "new"),             # ... and this model exists ONLY as staging
+    (6, 7, 1, "served-6", "retired"),         # the provider stopped serving it
+    (2, 8, 1, "served-2-legacy", "retired"),  # model 2 also carries an old retired row
+]
 NAMES = [
     # model_id, name — an operator-declared alias that must WIN over spelling
     (4, "Qwen3.8-27B"),
@@ -75,9 +87,9 @@ def db():
     for mid, slug, family, status in MODELS:
         con.execute("INSERT INTO mi_models (model_id, slug, family, status)"
                     " VALUES (?,?,?,?)", (mid, slug, family, status))
-    for mid, dep in DEPLOYMENTS:
-        con.execute("INSERT INTO mi_deployments (deployment_id, model_id, served_id)"
-                    " VALUES (?,?,?)", (dep, mid, f"served-{mid}"))
+    for mid, dep, ep, served, status in DEPLOYMENTS:
+        con.execute("INSERT INTO mi_deployments (deployment_id, model_id, endpoint_id,"
+                    " served_id, status) VALUES (?,?,?,?,?)", (dep, mid, ep, served, status))
     for mid, name in NAMES:
         con.execute("INSERT INTO mi_model_names (model_id, name) VALUES (?,?)",
                     (mid, name))
@@ -94,10 +106,78 @@ def test_retired_model_is_not_visible(db):
     assert {"glm-5.3-flash", "claude-opus-5"} <= visible
 
 
+def test_a_poll_staged_deployment_is_not_a_registration(db):
+    """The defect the operator caught on the rendered page.
+
+    `mi_deployments.status='new'` is the model-intel poll STAGING a served id it
+    does not recognise. The registry refuses to read it as a fact (model_identity
+    reads only 'active'), and the leaderboard must refuse too — otherwise the poll
+    widens its own eligibility window: it stages a name, and the next poll
+    publishes that name as one of our models.
+    """
+    assert "poll-staged-only" not in mr.visible_models(db)
+
+
+def test_a_deployment_the_provider_retired_is_not_a_registration(db):
+    """A model whose only deployment is retired is not served any more."""
+    assert "provider-silent" not in mr.visible_models(db)
+
+
+def test_a_confirmed_deployment_registers_even_with_old_retired_rows(db):
+    """A live row wins over the model's own retired history."""
+    assert "claude-opus-5" in mr.visible_models(db)
+
+
+def test_the_poll_cannot_publish_a_model_it_staged_itself(db):
+    """End to end: the staging row must not let an arena name through."""
+    visible = mr.visible_models(db)
+    out = arena_poll.build_rows(db, {"coding": [
+        {"model_name": "poll-staged-only", "rating": 1600.0, "rank": 1, "vote_count": 99,
+         "published": "2026-11-11"},
+        {"model_name": "glm-5.3-flash", "rating": 1500.0, "rank": 2, "vote_count": 90,
+         "published": "2026-11-11"}]}, visible=visible)
+    stored = {r["model_slug"] for r in out["rows"]}
+    assert stored == {"glm-5.3-flash"}
+    # the name resolved to a real slug — it is refused because that slug is not
+    # REGISTERED, not because the poll could not spell it
+    assert out["stats"]["coding"]["not_registered"] == 1
+    assert out["stats"]["coding"]["matched"] == 1
+
+
 def test_unregistered_model_is_rejected(db):
     out = mr.upsert_ratings(db, [dict(model_slug="nobody-home", taxonomy="coding",
                                       value=1500.0, unit="elo")])
     assert out == {"written": 0, "skipped_unregistered": 1, "rejected_namespace": 0}
+
+
+# ── the display guarantee: registration is enforced on READ too ──────────────
+
+def test_the_leaderboard_stops_displaying_a_model_whose_registration_went_away(db):
+    """A write gate is not enough — a stored row outlives the registration."""
+    mr.upsert_ratings(db, [dict(model_slug="glm-5.3-flash", taxonomy="code_generation",
+                                value=1500.0, unit="elo", board="coding", rank=1, n=1)])
+    assert [r["model_slug"] for r in mr.leaderboard(db, "code_generation")] == ["glm-5.3-flash"]
+    db.execute("UPDATE mi_deployments SET status='retired' WHERE model_id=1")
+    assert mr.leaderboard(db, "code_generation") == []
+
+
+def test_a_stored_row_for_a_poll_staged_model_is_never_displayed(db):
+    """The row can exist (an earlier poll wrote it); the page must not show it."""
+    db.execute("INSERT INTO model_ratings (model_slug, taxonomy, value, unit, source,"
+               " board, effort, updated_at) VALUES ('poll-staged-only','code_generation',"
+               "1700.0,'elo','arena','coding','','2026-11-15T00:00:00Z')")
+    assert mr.leaderboard(db, "code_generation") == []
+    assert all(t["rows"] == 0 for t in mr.taxonomies(db)
+               if t["taxonomy"] == "code_generation")
+
+
+def test_the_poll_panel_does_not_offer_a_row_for_an_unregistered_model(db):
+    """Accepting it would publish a rating for something no provider serves."""
+    db.execute("INSERT INTO rating_poll_staging (poll_id, model_slug, taxonomy, unit,"
+               " value, source, board, effort, polled_at) VALUES ('p','poll-staged-only',"
+               "'code_generation','elo',1700.0,'arena','coding','','2026-11-15T00:00:00Z')")
+    assert mr.staged_rows(db) == []
+    assert mr.commit_staged(db)["written"] == 0
 
 
 # ── the uniqueness the schema declares ──────────────────────────────────────
