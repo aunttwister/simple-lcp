@@ -183,28 +183,25 @@ class TestLiveRouteTable:
         assert live_table.count("POST") > 20
 
 
-def test_delete_dispatch_is_a_chain_that_covers_the_routed_delete():
-    """do_DELETE is a hand-written if/elif chain, NOT the routed table.
+def test_a_delete_lives_in_the_dispatch_chain_never_in_the_route_table():
+    """`do_DELETE` is a hand-written if/elif chain with its own `_admin_guard()`;
+    the route table is only consulted by `do_GET`/`do_POST`.
 
-    A DELETE route registered in the table alone never dispatches: the request
-    reaches do_DELETE and falls through to 404. That is exactly what happened to
-    `/api/model-ratings/map` (found live — the unmap button returned "not found"
-    while the route existed in the table). Pin the two halves together so the next
-    DELETE route cannot be added to only one of them.
+    So a DELETE route registered in the table is worse than useless: it never
+    dispatches (found live — the unmap button returned "not found" while the route
+    existed), and it makes `test_route_table_covers_no_put_delete` claim the
+    table-level guard invariant was broken when the guard was never in the table at
+    all. A new DELETE belongs in the chain, in `_admin_guard`'s shadow.
     """
     import re
     src = open(os.path.join(os.path.dirname(__file__), "..", "src", "server",
                             "handler.py")).read()
-    body = src.split("def do_DELETE(self)", 1)[1]
-    body = body.split("\n    def ", 1)[0]
-    routed = set(re.findall(r't\.delete\("([^"]+)"', src))
-    # every DELETE path the table routes must be reachable from the chain
-    handled = set(re.findall(r'self\.path\.split\("\?"\)\[0\] == "([^"]+)"', body))
-    prefixes = ["/api/providers/", "/api/keys/", "/api/profiles/", "/api/budgets/",
-                "/api/models/registry/"]
-    for name in routed:
-        path = {"api.model_ratings.unmap": "/api/model-ratings/map"}.get(name)
-        if not path:
-            continue
-        assert path in handled or any(path.startswith(p) for p in prefixes), (
-            f"route {name} ({path}) is in the table but unreachable in do_DELETE")
+    assert not re.search(r'\bt\.delete\(', src), (
+        "a DELETE was added to the route table; it will never dispatch — "
+        "add it to do_DELETE's chain instead")
+
+    body = src.split("def do_DELETE(self)", 1)[1].split("\n    def ", 1)[0]
+    assert "_admin_guard()" in body, "do_DELETE must guard before dispatching"
+    # and the mapping's removal must actually be reachable from that chain
+    assert 'self.path.split("?")[0] == "/api/model-ratings/map"' in body
+    assert body.index("_admin_guard()") < body.index("/api/model-ratings/map")
