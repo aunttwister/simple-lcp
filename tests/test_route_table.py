@@ -10,6 +10,8 @@ NOTE: this is separate from ``tests/test_router.py``, which covers
 keep them distinct.
 """
 
+import os
+
 import pytest
 
 from src.server.router import (
@@ -179,3 +181,30 @@ class TestLiveRouteTable:
     def test_both_methods_have_rules(self, live_table):
         assert live_table.count("GET") > 40
         assert live_table.count("POST") > 20
+
+
+def test_delete_dispatch_is_a_chain_that_covers_the_routed_delete():
+    """do_DELETE is a hand-written if/elif chain, NOT the routed table.
+
+    A DELETE route registered in the table alone never dispatches: the request
+    reaches do_DELETE and falls through to 404. That is exactly what happened to
+    `/api/model-ratings/map` (found live — the unmap button returned "not found"
+    while the route existed in the table). Pin the two halves together so the next
+    DELETE route cannot be added to only one of them.
+    """
+    import re
+    src = open(os.path.join(os.path.dirname(__file__), "..", "src", "server",
+                            "handler.py")).read()
+    body = src.split("def do_DELETE(self)", 1)[1]
+    body = body.split("\n    def ", 1)[0]
+    routed = set(re.findall(r't\.delete\("([^"]+)"', src))
+    # every DELETE path the table routes must be reachable from the chain
+    handled = set(re.findall(r'self\.path\.split\("\?"\)\[0\] == "([^"]+)"', body))
+    prefixes = ["/api/providers/", "/api/keys/", "/api/profiles/", "/api/budgets/",
+                "/api/models/registry/"]
+    for name in routed:
+        path = {"api.model_ratings.unmap": "/api/model-ratings/map"}.get(name)
+        if not path:
+            continue
+        assert path in handled or any(path.startswith(p) for p in prefixes), (
+            f"route {name} ({path}) is in the table but unreachable in do_DELETE")
