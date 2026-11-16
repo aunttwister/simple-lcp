@@ -377,9 +377,13 @@ function mpHide() {
 }
 
 function mpClose() {
-  if (!MP_DESKTOP.matches) { mpHide(); return; }
-  // Desktop: the lane is permanent, so "close" returns to the default pane.
-  mpShow('tax');
+  // ✕ CLOSES the lane on both breakpoints. It used to call mpShow('tax') on
+  // desktop — a no-op whenever taxonomy was already the open pane, which is the
+  // state this page now loads in, so the button read as broken. Closing is the
+  // honest meaning for a control shaped like a close button; the two buttons in
+  // column 2 bring the lane back, and a closed lane releases its reserved width
+  // (see the #modelsPanel rule in dashboard.css) so nothing is wasted.
+  mpHide();
 }
 
 // ── drag handle (file-explorer splitter), the shared lane mechanics ────────
@@ -719,7 +723,10 @@ document.addEventListener('keydown', ev => {
 // Viewport flip: the lane re-appears on desktop, the sheet closes on mobile.
 function mpSyncViewport(mq) {
   const panel = mpPanel();
-  if (mq.matches) mpShow((panel && panel.dataset.pane) || 'poll');
+  if (!panel) return;
+  // Growing to desktop must not force the lane open over an operator who closed
+  // it; it restores the lane only if the pane was already chosen.
+  if (mq.matches && panel.dataset.pane) mpShow(panel.dataset.pane);
   else mpHide();
 }
 MP_DESKTOP.addEventListener('change', mpSyncViewport);
