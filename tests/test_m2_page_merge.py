@@ -6,7 +6,8 @@ and became a page again, the nav lost its group labels and its usage widgets, an
 the workspace module stopped being a Setup module.
 
     Profiles   profiles + the API keys scoped to them + their cron jobs + their paths
-    Models     the capability matrix + where those models come from
+    Models     the leaderboard + where those models come from (the matrix left the
+               page on 2026-11-15: "leaderboard and percentile only")
     Activity   overview + every log realm
     Usage      spend and balances (its own page: a billing view, not a log)
     Alerts     unchanged, and deliberately not part of Activity (R10)
@@ -41,7 +42,7 @@ SECTION_TAB = {
     "sec_usage": "usage",
     "sec_logs": "logs",
     "sec_evidence": "evidence",
-    "sec_models": "matrix",
+    "sec_models": "leaderboard",
     "sec_providers": "providers",
     "sec_profiles": "profiles",
     "sec_keys": "keys",
@@ -179,7 +180,7 @@ MERGED = [
     ("/profiles?tab=keys", "profiles", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "keys"})),
     # (`?tab=config` was the work-sources editor; it left on 2026-10-25 with the
     # other agent-infrastructure tabs, so it now falls back to the directory.)
-    ("/models", "matrix", lambda c, e: _pages().render_models_page(c, e, {})),
+    ("/models", "leaderboard", lambda c, e: _pages().render_models_page(c, e, {})),
     ("/models?tab=providers", "providers", lambda c, e: _pages().render_models_page(c, e, {"tab": "providers"})),
     # CUR-330: the overview IS the homepage now; Activity defaults to logs.
     ("/", "overview", lambda c, e: _pages().render_home_page(c, e, {"Host": "test:8734"})),
@@ -283,6 +284,7 @@ def test_profiles_title_follows_the_tab(cfg, engine, params, title):
 @pytest.mark.parametrize("params,title", [
     ({}, "Models — LCP"),
     ({"tab": "providers"}, "Providers — LCP"),
+    ({"tab": "matrix"}, "Models — LCP"),   # the retired id still lands on the page
 ])
 def test_models_title_follows_the_tab(cfg, engine, params, title):
     from src.ui.pages import render_models_page
