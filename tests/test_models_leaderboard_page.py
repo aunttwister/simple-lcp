@@ -431,3 +431,42 @@ def test_the_two_panes_are_never_both_shown(cfg, engine):
     body = script.split("function mpShow(pane)", 1)[1].split("\n}", 1)[0]
     assert "pollPane').hidden = pane !== 'poll'" in body
     assert "taxPane').hidden = pane !== 'tax'" in body
+
+
+# ── 11. the two defects the operator reported on the shipped panel ─────────
+
+def test_a_styled_pane_still_honours_the_hidden_attribute(cfg, engine):
+    """\"Manage taxonomy is overlaying the poll latest data\".
+
+    `#pollPane { display: flex }` is author CSS on the element itself, and the UA's
+    `[hidden] { display: none }` is only a user-agent rule — so the attribute was
+    overridden and BOTH panes rendered stacked. Any element this stylesheet gives a
+    display to must restate [hidden], or `element.hidden = true` silently stops
+    working.
+    """
+    css = open(os.path.join(TEMPLATES, "static", "dashboard.css")).read()
+    assert "#pollPane[hidden], #taxPane[hidden] { display: none !important; }" in css
+    # and the rule that caused it is still there (the list needs the flex chain)
+    assert "#pollPane { display: flex;" in css
+
+
+def test_the_close_button_actually_closes(cfg, engine):
+    """\"the X in the top right corner of 3rd column is not working".
+
+    It called mpShow('tax'), a no-op whenever taxonomy was already the open pane —
+    which is the state the page now loads in. A close button must hide the lane.
+    """
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    body = script.split("function mpClose()", 1)[1].split("\n}", 1)[0]
+    assert "mpHide()" in body
+    # no mpShow( in the body itself (the comment above it may mention the old call)
+    code = "\n".join(l for l in body.splitlines() if not l.strip().startswith("//"))
+    assert "mpShow(" not in code, code
+
+
+def test_a_closed_lane_releases_its_reserved_width(cfg, engine):
+    """Closing must not leave a dead gutter where the panel was."""
+    css = open(os.path.join(TEMPLATES, "static", "dashboard.css")).read()
+    assert "body:has(#modelsPanel:not(.open)) .main-content" in css
+    block = css.split("body:has(#modelsPanel:not(.open)) .main-content", 1)[1].split("}", 1)[0]
+    assert "margin-right: 0" in block
