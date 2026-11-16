@@ -178,7 +178,7 @@ def test_the_strip_renders_a_more_affordance(cfg, engine):
     # the "…" button is created by the strip renderer, and its dropdown carries
     # the overflowed tabs; both must exist in the shipped script.
     script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
-    assert "STRIP_DESKTOP = 3" in script
+    assert "STRIP_DESKTOP = 4" in script
     assert "STRIP_MOBILE = 1" in script
     assert "ml-more-menu" in script
     assert "ml-more-item" in script
@@ -240,3 +240,121 @@ def test_the_stacked_phone_rows_are_wired_to_the_breakpoint(cfg, engine):
     block = css.split("@media (max-width: 640px) {", 1)[1]
     assert ".lb-table thead { display: none; }" in block
     assert "content: attr(data-label)" in block
+
+
+# ── 8. the polled set lives in the BROWSER, and only Poll again re-polls ────
+
+def test_the_polled_set_is_kept_in_session_storage(cfg, engine):
+    """Operator: "once we poll it we should keep it on frontend in memory in local
+    or session storage ... only by user's Poll again the repolling will happen"."""
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    assert "sessionStorage.setItem(POLL_KEY" in script
+    assert "sessionStorage.getItem(POLL_KEY)" in script
+    assert "sessionStorage.removeItem(POLL_KEY)" in script
+
+
+def test_loading_the_page_reads_the_stored_poll_and_never_re_polls(cfg, engine):
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    init = script.split("initLeaderboard", 1)[1]
+    assert "loadPoll()" in init
+    # the load path must not call the poll endpoint, and must not read the server's
+    # staging table either (that would show a set the operator did not ask for)
+    assert "API.boardPoll()" not in init
+    assert "API.boardStaged()" not in init
+
+
+def test_the_panel_stamps_when_the_data_was_polled(cfg, engine):
+    """A polled number without its poll time is not reviewable."""
+    html = page(cfg, engine)
+    assert 'id="pollAt"' in html
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    assert "Data polled at" in script
+    assert "polled_at" in script
+
+
+def test_a_poll_response_carries_its_timestamp(cfg, engine):
+    """Server side of the same fact: without `polled_at` the panel has no stamp."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "src", "api",
+                            "model_ratings.py")).read()
+    assert '"polled_at": now' in src
+
+
+def test_accepting_or_clearing_empties_the_stored_set(cfg, engine):
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    for fn in ("async function updatePoll()", "async function clearPoll()"):
+        body = script.split(fn, 1)[1].split("\n}\n", 1)[0]
+        assert "savePoll([], null)" in body, fn
+
+
+# ── 9. the poll panel shows ARENA boards only ──────────────────────────────
+
+def test_the_poll_panel_drops_custom_rows(cfg, engine):
+    """Operator: "why are we displaying custom taxonomy elo and rating in poll
+    latest data? ... in poll latest data we should only poll the data for lmarena
+    taxonomy that's present"."""
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    assert "function arenaRows(" in script
+    assert "const rows = arenaRows(STATE.pollRows);" in script
+    assert "savePoll(arenaRows(r.rows)" in script
+
+
+def test_the_server_side_staged_list_is_arena_only_too(cfg, engine):
+    """A render-side filter is not enough: the API must not offer a custom row at
+    all, or accepting one would publish a rating the poll cannot have read."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "src", "api",
+                            "model_ratings.py")).read()
+    body = src.split("def staged_rows(", 1)[1].split("\n    out = []", 1)[0]
+    assert "taxonomy NOT LIKE" in body and "CUSTOM_PREFIX" in body
+
+
+def test_the_panel_says_a_poll_is_arena_only(cfg, engine):
+    html = page(cfg, engine)
+    assert "Arena boards only" in html
+
+
+# ── 10. manage taxonomy is the default pane, and CSV is a FILE ─────────────
+
+def test_manage_taxonomy_opens_by_default(cfg, engine):
+    """Operator: "manage taxonomy should be the default opened in column 3"."""
+    html = page(cfg, engine)
+    assert 'id="mpTitle">Manage taxonomy<' in html
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    assert "mpShow('tax')" in script
+    # the desktop default at init, and what "close" resets to
+    init = script.split("initLeaderboard", 1)[1]
+    assert "if (MP_DESKTOP.matches) mpShow('tax');" in init
+
+
+def test_the_csv_control_is_a_file_input(cfg, engine):
+    """Operator: "import csv should be a file import, the necessary columns should
+    be shown below"."""
+    html = page(cfg, engine)
+    assert 'id="taxFile"' in html
+    assert 'type="file"' in html
+    assert 'id="taxCsv"' not in html          # the paste box is gone
+    assert "FileReader" in open(os.path.join(TEMPLATES, "sections",
+                                             "sec_models_script.html")).read()
+
+
+def test_the_columns_table_lists_what_a_file_may_carry(cfg, engine):
+    html = page(cfg, engine)
+    block = html.split('class="mp-cols"', 1)[1]
+    for col in ("model_slug", "value", "taxonomy", "lab"):
+        assert col in block, col
+    # required vs optional is stated, not implied
+    assert "<td>yes</td>" in block and "<td>no</td>" in block
+
+
+def test_the_import_can_use_the_selected_custom_board_as_its_fallback(cfg, engine):
+    """A file with no `taxonomy` column lands on the board being looked at —
+    but only when that board is one of the operator's own."""
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    assert "indexOf('custom:') === 0" in script
+    assert "taxonomy: fallback" in script
+
+
+def test_a_template_download_is_offered(cfg, engine):
+    html = page(cfg, engine)
+    assert 'id="taxTemplateBtn"' in html
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    assert "taxonomy-template.csv" in script
