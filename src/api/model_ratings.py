@@ -498,8 +498,21 @@ def commit_staged(con: sqlite3.Connection, keys: Optional[list[dict]] = None) ->
     con = _rowify(con)
     rows = staged_rows(con)
     if keys is not None:
-        wanted = {(k["model_slug"], k["taxonomy"], k["unit"], k.get("board"),
-                   k.get("effort")) for k in keys}
+        # The keys come off the wire. `pollKeys()` in the UI sends objects (it
+        # JSON.parses the data-key back into a dict), but nothing enforced that, and
+        # a string crashed the set comprehension with `TypeError: string indices
+        # must be integers` — the exception escaped the handler and the connection
+        # was dropped with no response at all. A malformed body is a 400, not a
+        # dead socket.
+        wanted = set()
+        for k in keys:
+            if not isinstance(k, dict):
+                raise ValueError("each key must be an object "
+                                 "{model_slug, taxonomy, unit, board, effort}")
+            if not k.get("model_slug") or not k.get("taxonomy"):
+                raise ValueError("each key needs model_slug and taxonomy")
+            wanted.add((k["model_slug"], k["taxonomy"], k["unit"],
+                        k.get("board"), k.get("effort")))
         rows = [r for r in rows
                 if (r["model_slug"], r["taxonomy"], r["unit"], r["board"],
                     r["effort"]) in wanted]

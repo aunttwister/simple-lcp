@@ -434,3 +434,23 @@ def test_line_key_drops_the_release_and_the_effort():
     assert arena_poll.line_key("Claude Opus 5.5 (High)") == "claude opus"
     assert arena_poll.line_key("claude-opus-5") == "claude opus"
     assert arena_poll.line_key("GLM-5.3-Flash") == "glm flash"
+
+
+def test_malformed_accept_keys_are_a_400_not_a_dropped_connection(db):
+    """The UI sends objects (`pollKeys()` parses the data-key back into a dict), but
+    nothing enforced it. A list of STRINGS raised TypeError inside the set
+    comprehension, which escaped the handler — the request died with no response at
+    all (curl reported `HTTP 000`). A bad body must be a 400.
+    """
+    mr.stage_poll(db, fetch=lambda: {"coding": [
+        {"model_name": "glm-5.3-flash", "organization": "zai", "rating": 1509.4,
+         "rank": 16, "vote_count": 10, "published": "2026-11-11"}]})
+    with pytest.raises(ValueError, match="must be an object"):
+        mr.commit_staged(db, ["glm-5.3-flash|code_generation|elo|coding|"])
+    with pytest.raises(ValueError, match="model_slug and taxonomy"):
+        mr.commit_staged(db, [{"model_slug": "glm-5.3-flash"}])
+    # and the proper shape still works
+    ok = mr.commit_staged(db, [{"model_slug": "glm-5.3-flash",
+                               "taxonomy": "code_generation", "unit": "elo",
+                               "board": "coding", "effort": ""}])
+    assert ok["written"] == 1
