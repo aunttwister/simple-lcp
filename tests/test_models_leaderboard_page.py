@@ -470,3 +470,23 @@ def test_a_closed_lane_releases_its_reserved_width(cfg, engine):
     assert "body:has(#modelsPanel:not(.open)) .main-content" in css
     block = css.split("body:has(#modelsPanel:not(.open)) .main-content", 1)[1].split("}", 1)[0]
     assert "margin-right: 0" in block
+
+
+def test_the_board_name_may_wrap_so_the_panel_cannot_overflow():
+    """`agent_bash_recovery_steps` is 24 chars of monospace, and the head also
+    carries two chips and a count — measured live at 437px of content in a 364px
+    body, which put a horizontal scrollbar on the drawer.
+
+    The name wraps; the count keeps one line and does not shrink. Pinned because a
+    long board name is normal data here, not an edge case: 7 of the 36 boards are
+    `agent_*` and the longest is 26 characters.
+    """
+    css = open("src/ui/templates/jinja/static/dashboard.css").read()
+    block = css.split(".mm-board {", 1)[1].split("}", 1)[0]
+    assert "overflow-wrap" in block or "word-break" in block
+    assert "min-width: 0" in block
+    count = css.split(".mm-count {", 1)[1].split("}", 1)[0]
+    assert "nowrap" in count
+    # and the list itself must be allowed to shrink inside the flex column
+    wrap = css.split(".mp-tax-map {", 1)[1].split("}", 1)[0]
+    assert "min-width: 0" in wrap
