@@ -212,3 +212,31 @@ def test_the_panel_says_a_custom_board_has_no_upstream(cfg, engine):
     assert "Elo" in html and "net improvement" in html
     # and what it will never do to his numbers
     assert "stages" in html.lower() and "Update" in html
+
+
+# ── 7. the phone layout: six columns cannot share 390px ────────────────────
+
+def test_every_board_cell_carries_its_label(cfg, engine):
+    """Below 640px each row becomes labelled blocks. A cell without a data-label
+    renders as an unlabelled number on a phone, so every one of them carries it —
+    the header row is display:none there and cannot label anything."""
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    for label in ('data-label="#"', 'data-label="Model"', 'data-label="Lab"',
+                  'data-label="Percentile"', 'data-label="Date"'):
+        assert label in script, label
+    # the value column's label is the UNIT (Elo / net improvement), not a word
+    assert 'data-label="${esc(unitLabel(unit))}"' in script
+
+
+def test_a_date_never_wraps(cfg, engine):
+    """At 390px the date broke into "2026-" / "11-11" — corrupt-looking data."""
+    css = open(os.path.join(TEMPLATES, "static", "dashboard.css")).read()
+    assert ".lb-when { white-space: nowrap; }" in css
+    assert '.lb-table td[data-label="Date"]' in css
+
+
+def test_the_stacked_phone_rows_are_wired_to_the_breakpoint(cfg, engine):
+    css = open(os.path.join(TEMPLATES, "static", "dashboard.css")).read()
+    block = css.split("@media (max-width: 640px) {", 1)[1]
+    assert ".lb-table thead { display: none; }" in block
+    assert "content: attr(data-label)" in block
