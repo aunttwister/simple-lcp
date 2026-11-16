@@ -4262,7 +4262,8 @@ tr.log-row-failed td.num { opacity: 0.55; }
 .mp-cols .form-help { margin-top: 0.5rem; line-height: 1.5; }
 
 /* ── the mapping list ───────────────────────────────────────────────────── */
-.mp-tax-map { display: flex; flex-direction: column; gap: 0.35rem; }
+.mp-tax-map { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.mp-tax-map > * { min-width: 0; }
 .mm-group {
   font-size: 0.625rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   color: hsl(var(--muted-foreground)); margin: 0.5rem 0 0.15rem;
@@ -4275,14 +4276,19 @@ tr.log-row-failed td.num { opacity: 0.55; }
    the information that makes the mapping decidable. */
 .mm-row.mm-unused { opacity: 0.72; }
 .mm-head { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
-.mm-board { font-size: 0.75rem; font-weight: 600; }
+/* `agent_bash_recovery_steps` is 24 characters of monospace and the head also
+   carries two chips and a count: without a break opportunity the row overflowed
+   the panel (437px of content in a 364px box — a horizontal scrollbar on the
+   drawer). The name wraps; the count keeps its own line rather than pushing. */
+.mm-board { font-size: 0.75rem; font-weight: 600; min-width: 0;
+  overflow-wrap: anywhere; word-break: break-word; flex: 1 1 auto; }
 .mm-fam, .mm-unit {
   font-size: 0.5625rem; letter-spacing: 0.04em; text-transform: uppercase;
   color: hsl(var(--muted-foreground)); border: 1px solid hsl(var(--card-border));
   border-radius: 999px; padding: 0 0.28rem;
 }
 .mm-count { margin-left: auto; font-size: 0.625rem; color: hsl(var(--muted-foreground));
-  font-variant-numeric: tabular-nums; }
+  font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; }
 .mm-sub { font-size: 0.625rem; color: hsl(var(--muted-foreground)); margin-top: 0.1rem; }
 .mm-map { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.3rem; }
 .mm-chip {
