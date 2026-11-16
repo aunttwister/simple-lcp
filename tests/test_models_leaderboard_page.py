@@ -358,3 +358,31 @@ def test_a_template_download_is_offered(cfg, engine):
     assert 'id="taxTemplateBtn"' in html
     script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
     assert "taxonomy-template.csv" in script
+
+
+def test_a_tick_survives_a_reload(cfg, engine):
+    """A stored set without the operator's ticks is a review he has to redo.
+
+    Proven live first: the rows persisted but every row reset to its default, so a
+    reload silently discarded which rows he had chosen. The tick map is stored with
+    the rows and written on every change (not on unload), so a killed tab keeps the
+    last deliberate click.
+    """
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    assert "function saveChecks()" in script
+    assert "STATE.pollChecks[raw] = box.checked" in script
+    assert "checks: STATE.pollChecks" in script
+    assert "STATE.pollChecks = d.checks || {};" in script
+    # the row renders from the stored state, falling back to the poll's default
+    assert "function checkStateFor(" in script
+    assert "${checkStateFor(r) ? 'checked' : ''}" in script
+    # a NEW poll starts from its own defaults
+    assert "STATE.pollChecks = {};   // a NEW poll starts from its own defaults" in script
+
+
+def test_the_row_identity_is_defined_once(cfg, engine):
+    """The DOM key and the stored tick key must be the same function, or a tick
+    lands on the wrong row."""
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    assert "function pollKeyOf(r)" in script
+    assert "const key = esc(pollKeyOf(r));" in script
