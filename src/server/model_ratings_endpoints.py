@@ -126,6 +126,9 @@ class ModelRatingsEndpoints:
         con = self._mr_connect()
         try:
             result = commit_staged(con, keys)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, 400)
+            return
         finally:
             con.close()
         self._audit("model_ratings.update", accepted=result.get("written"))
