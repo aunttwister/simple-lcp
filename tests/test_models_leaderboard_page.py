@@ -548,3 +548,12 @@ def test_the_multi_add_message_agrees_with_the_count():
     assert "boards.length === 1 ? 'board now measures' : 'boards now measure'" in js
     # and the old malformed string must be gone
     assert "board${boards.length === 1 ? '' : 's'} now measure" not in js
+
+
+def test_the_board_picker_names_the_measurement_not_the_family_twice():
+    """A board is literally named `agent`, so labelling by family produced
+    "agent · agent · 18 ours" — the same word twice, and never saying whether the
+    board carries Elo or net improvement (the two are never ranked together)."""
+    js = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    assert "unitLabel(o.unit)" in js
+    assert "${esc(o.board)} · ${famLabel(o.family)}" not in js
