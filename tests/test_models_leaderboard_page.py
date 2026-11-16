@@ -490,3 +490,52 @@ def test_the_board_name_may_wrap_so_the_panel_cannot_overflow():
     # and the list itself must be allowed to shrink inside the flex column
     wrap = css.split(".mp-tax-map {", 1)[1].split("}", 1)[0]
     assert "min-width: 0" in wrap
+
+
+# ── the mapping list is TAXONOMY-FIRST ─────────────────────────────────────
+# Measured complaint (2026-11-16): "right now the process is really complex and
+# repetitive". The old list rendered one row per BOARD — 36 rows, 36 dropdowns, 36
+# buttons, 88 targets, 5 screen-heights of scroll — to answer a question that is
+# always about ONE taxonomy. These pin the inversion.
+
+def test_the_mapping_list_is_one_entry_per_taxonomy_not_per_board():
+    html = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    # the row builder keys on taxonomy, and offers one add control per taxonomy
+    assert "function taxGroups()" in html
+    assert "byTax[r.taxonomy]" in html
+    assert 'data-tax="${esc(g.taxonomy)}"' in html
+    # the board-first builder must be gone
+    assert "const rowFor = (b, mapped)" not in html
+    assert "wrap.querySelectorAll('.mm-go').forEach(btn => {\n    btn.addEventListener('click', () => mapBoard(" not in html
+
+
+def test_one_action_can_add_several_boards_to_a_taxonomy():
+    """`reasoning_chain` is fed by math + expert + hard_prompts_english. Mapping
+    those one dropdown at a time is exactly the repetitiveness he named."""
+    html = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    assert "multiple size=" in html            # a real multi-select
+    assert "selectedOptions" in html
+    assert "async function mapBoards(tax, boards)" in html
+    # partial failure must be reported per board, not swallowed
+    assert "failed.push" in html
+    assert "failed.join" in html
+
+
+def test_the_22_unused_boards_are_collapsed_not_in_the_way():
+    """10 language slices + 8 industry slices + 4 overall/meta cuts. They are not
+    competing measurements, so they belong behind a disclosure."""
+    html = open("src/ui/templates/jinja/sections/sec_models.html").read()
+    assert '<details class="mm-unused-wrap"' in html
+    assert 'id="unusedBoards"' in html
+    # and it says WHY they are unused, rather than implying they are broken
+    assert "language slices, industry" in html
+    js = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    assert "function renderUnused()" in js
+    assert "Unused LMArena boards (" in js
+
+
+def test_a_taxonomy_with_only_languages_still_shows_its_chips():
+    js = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    assert "nothing measures this yet" in js
+    # the count is per taxonomy, and singular/plural is not faked
+    assert "board${g.boards.length === 1 ? '' : 's'}" in js
