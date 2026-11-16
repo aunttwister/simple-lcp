@@ -349,19 +349,28 @@ def render_alerts_page(config, engine=None) -> str:
 
 
 def render_models_page(config, engine=None, params=None) -> str:
-    """Render the Models page — the capability matrix, with providers as a tab (M2).
+    """Render the Models page — the leaderboard, with providers as a tab (M2).
 
-    A provider exists here only as *where a model comes from*, so Providers is a
-    tab of this page rather than a nav entry of its own.
+    The capability matrix left this page on 2026-11-15 (operator: "we are pushing
+    for leaderboard and percentile only"), so ``?tab=matrix`` is kept as an alias
+    for the default rather than 404-ing a bookmark. A provider exists here only as
+    *where a model comes from*, so Providers is a tab of this page rather than a
+    nav entry of its own.
     """
     from .render import render_page
-    tab = _tab(params, ("matrix", "providers"), "matrix")
+    p = dict(params or {})
+    # `matrix` was this tab's id until the matrix left the page; the ranking it
+    # now shows is the leaderboard, and an old bookmark must still land there.
+    if str(p.get("tab") or p.get("view") or "").strip().lower() == "matrix":
+        p.pop("view", None)
+        p["tab"] = "leaderboard"
+    tab = _tab(p, ("leaderboard", "providers"), "leaderboard")
     return render_page("pages/models.html", config, engine,
                        active_page="models",
                        tab=tab,
                        crumbs=_crumbs(("Models", "/models"),
-                                      ("Providers", None) if tab == "providers" else ("Capability matrix", None)),
-                       params=dict(params or {}))
+                                      ("Providers", None) if tab == "providers" else ("Leaderboard", None)),
+                       params=p)
 
 
 def _profile_config_payload(config, name, pcfg) -> dict:
