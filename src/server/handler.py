@@ -1038,6 +1038,12 @@ class LCPHandler(
         elif self.path.startswith("/api/models/registry/") and len(self.path.split("/")) == 5:
             logical = self.path.split("/")[4]
             self._serve_registry_delete_api(logical)
+        elif self.path.split("?")[0] == "/api/model-ratings/map":
+            # DELETE /api/model-ratings/map?taxonomy=&board= — remove one mapping.
+            # do_DELETE is a hand-written chain (not the routed table like do_GET /
+            # do_POST), so a new DELETE route has to be added HERE as well; the
+            # route-table entry alone dispatched to this 404.
+            self._serve_model_ratings_map_api()
         else:
             self._send_json({"error": "not found"}, 404)
 
