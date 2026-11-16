@@ -4220,6 +4220,9 @@ tr.log-row-failed td.num { opacity: 0.55; }
 .mp-tax-rows { font-size: 0.6875rem; color: hsl(var(--muted-foreground));
   font-variant-numeric: tabular-nums; }
 
+/* A date is one token: it never wraps mid-value at any width. */
+.lb-when { white-space: nowrap; }
+
 /* On a phone the two row actions stack full width: a 2-up row of buttons at
    390px leaves both too narrow to hit. */
 @media (max-width: 640px) {
@@ -4227,6 +4230,38 @@ tr.log-row-failed td.num { opacity: 0.55; }
   .lb-actions { width: 100%; }
   .lb-actions .btn { flex: 1 1 0; }
   .mp-rows { max-height: none; }
+
+  /* Six columns cannot share 390px: the date collapsed to "2026-" / "11-11"
+     and the model name to three lines, which reads as corrupt data rather than
+     as a narrow table. Below 640px each ROW becomes labelled blocks. */
+  .lb-table thead { display: none; }
+  .lb-table, .lb-table tbody, .lb-table tr, .lb-table td { display: block; width: auto; }
+  .lb-table tr {
+    border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
+    padding: 0.4rem 0.5rem; margin-bottom: 0.4rem;
+    background: hsl(var(--card) / 0.6);
+  }
+  .lb-table td {
+    border: none; padding: 0.1rem 0; display: flex; gap: 0.5rem;
+    align-items: baseline; text-align: left !important;
+  }
+  .lb-table td::before {
+    content: attr(data-label); flex: none; width: 5.5rem;
+    font-size: 0.625rem; letter-spacing: 0.04em; text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+  /* The row number and the model name are the row's identity, not fields: they
+     render as a header line instead of a labelled pair. */
+  .lb-table td[data-label="#"] {
+    float: right; color: hsl(var(--muted-foreground)); font-size: 0.6875rem;
+  }
+  .lb-table td[data-label="#"]::before { content: none; }
+  .lb-table td[data-label="Model"] {
+    font-size: 0.8125rem; font-weight: 600;
+  }
+  .lb-table td[data-label="Model"]::before { content: none; }
+  .lb-table td[data-label="Model"], .lb-table td[data-label="Lab"],
+  .lb-table td[data-label="Date"] { white-space: nowrap; }
 }
 
 /* A taxonomy section head inside the polled-results list, so 200+ rows read as

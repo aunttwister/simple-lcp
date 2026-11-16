@@ -258,14 +258,17 @@ function renderBoard(data) {
       // its whole field) rides in the percentile's title so the two scales are
       // never confused for one another.
       const rankNote = r.rank ? `arena rank ${r.rank}${r.n ? ' of ' + r.n : ''}` : '';
+      // data-label drives the ≤640px stacked layout: at 390px six columns in
+      // one row squeezed the date into "2026-" / "11-11", which reads as corrupt
+      // data. On a phone each row becomes labelled blocks instead.
       html.push('<tr>' +
-        `<td class="num">${i + 1}</td>` +
-        `<td class="mono">${esc(r.model_slug)}` +
+        `<td class="num" data-label="#">${i + 1}</td>` +
+        `<td class="mono" data-label="Model">${esc(r.model_slug)}` +
         (r.effort ? `<span class="lb-effort">${esc(r.effort)}</span>` : '') + '</td>' +
-        `<td>${esc(r.lab || '—')}</td>` +
-        `<td class="num" title="${title}">${fmtValue(r.value, r.unit)}</td>` +
-        `<td class="num"${rankNote ? ` title="${rankNote}"` : ''}>${r.percentile === null || r.percentile === undefined ? '—' : Number(r.percentile).toFixed(1)}</td>` +
-        `<td>${esc(fmtWhen(r.published))}</td>` +
+        `<td data-label="Lab">${esc(r.lab || '—')}</td>` +
+        `<td class="num" data-label="${esc(unitLabel(unit))}" title="${title}">${fmtValue(r.value, r.unit)}</td>` +
+        `<td class="num" data-label="Percentile"${rankNote ? ` title="${rankNote}"` : ''}>${r.percentile === null || r.percentile === undefined ? '—' : Number(r.percentile).toFixed(1)}</td>` +
+        `<td class="lb-when" data-label="Date">${esc(fmtWhen(r.published))}</td>` +
         '</tr>');
     });
     html.push('</tbody></table>');
