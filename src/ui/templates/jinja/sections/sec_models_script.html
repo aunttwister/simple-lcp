@@ -677,8 +677,12 @@ function renderTaxMap() {
     // once: `reasoning_chain` is fed by math + expert + hard_prompts_english, and
     // mapping those one dropdown at a time is the repetitiveness he named.
     const avail = opts.filter(o => !g.boards.some(b => b.board === o.board));
+    // Label by UNIT, not family: a board is literally named `agent`, so
+    // "agent · agent · 18 ours" said the same word twice and never told the operator
+    // which measurement he was adding (Elo vs net improvement).
     const selOpts = avail.map(o =>
-      `<option value="${esc(o.board)}">${esc(o.board)} · ${famLabel(o.family)} · ${o.models_matched} ours</option>`).join('');
+      `<option value="${esc(o.board)}">${esc(o.board)} · ${esc(unitLabel(o.unit))}` +
+      ` · ${o.models_matched} ours</option>`).join('');
     return `<div class="mm-tax">
       <div class="mm-tax-head">
         <span class="mm-tax-name mono">${esc(g.taxonomy)}</span>
