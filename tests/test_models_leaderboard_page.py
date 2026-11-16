@@ -386,3 +386,20 @@ def test_the_row_identity_is_defined_once(cfg, engine):
     script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
     assert "function pollKeyOf(r)" in script
     assert "const key = esc(pollKeyOf(r));" in script
+
+
+def test_the_polled_list_fills_the_lane(cfg, engine):
+    """Operator: "poll latest data can extend the list from top to bottom".
+
+    A fixed `max-height: 22rem` left half the lane empty under a short scrollbar,
+    which reads as a cut-off list rather than as a full results pane.
+    """
+    css = open(os.path.join(TEMPLATES, "static", "dashboard.css")).read()
+    block = css.split(".mp-rows {", 1)[1].split("}", 1)[0]
+    assert "flex: 1 1 auto" in block
+    assert "max-height: none" in block
+    assert "22rem" not in block
+    # the chain from the lane body down to the list must be a flex column,
+    # otherwise flex:1 has nothing to grow into
+    assert "#modelsPanel .dp-body { display: flex; flex-direction: column; }" in css
+    assert "#pollResults:not([hidden]) {" in css
