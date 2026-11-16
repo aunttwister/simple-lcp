@@ -1349,10 +1349,6 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_model_ratings_map_api())
     t.post("api.model_ratings.map", exact("/api/model-ratings/map"),
            lambda h, p: h._serve_model_ratings_map_api())
-    # A name may carry at most two methods in this route table (a read and a
-    # write), so the removal is its own name: `map` is GET+POST, `unmap` is DELETE.
-    t.delete("api.model_ratings.unmap", exact("/api/model-ratings/map"),
-             lambda h, p: h._serve_model_ratings_map_api())
     # ── Work layer ──
     # The cron and sources APIs are gone (2026-10-25): their only caller was the
     # Cron and Config tabs, both decommissioned. The host-side collector reads and
