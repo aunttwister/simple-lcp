@@ -32,9 +32,18 @@ PARQUET_BASE = ("https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/
                 "resolve/main")
 PARQUET = PARQUET_BASE + "/{config}/latest-00000-of-00001.parquet"
 
-# Board -> gateway axes. One board can inform several axes (the operator's rule):
-# the `coding` tournament is the same measurement for code_generation, debugging
-# and unit_tests.
+# Board -> gateway axes. **This is now a SEED, not the source of truth.**
+#
+# The operator rejected the hardcoded shape (2026-11-15): "you need to enable user
+# to map taxonomies". `arena_taxonomy.taxonomy_map` owns which board feeds which
+# axis; the 14 pairs below are inserted as `is_default = 1` on the first poll, so
+# the page looks identical the moment the mapping lands and the operator takes
+# ownership by editing. Nothing reads these dicts to publish ratings any more —
+# they only classify a fetched board (text = Elo, agent = net improvement) and
+# supply the seed.
+#
+# The board FAMILY still has to be known here because it decides the value column
+# and the unit: a text board publishes `rating` (Elo), an agent board `score`.
 TEXT_BOARDS = {
     "coding": ["code_generation", "debugging", "unit_tests"],
     "math": ["reasoning_chain"],
@@ -79,7 +88,13 @@ def split_effort(name: str) -> tuple[str, str | None]:
 
 
 def fetch_text_boards() -> dict[str, list[dict]]:
-    """All text categories in one parquet read, keyed by LMArena category."""
+    """EVERY text category in one parquet read, keyed by LMArena category.
+
+    All 29, not the 7 an axis happens to use. The file arrives in one read, so
+    keeping the other 22 costs nothing — and discarding them here is what made the
+    mapping impossible: the operator's board rows have to exist before he can map
+    them (see `arena_taxonomy.store_boards`).
+    """
     import duckdb
 
     con = duckdb.connect()
@@ -151,6 +166,30 @@ def percentile(rank, n) -> float | None:
     return round(100.0 * (1 - (rank - 1) / (n - 1)), 1)
 
 
+def _axis_map(con) -> tuple[dict[str, list[str]], bool]:
+    """(board -> [axis], whether any mapping exists at all).
+
+    The map is the source of truth. When it is EMPTY (a fresh install, before the
+    first poll seeds it) this falls back to the seed pairs so the very first poll
+    still produces something — but once a single row exists, the operator's map
+    alone decides, so deleting a default really removes it.
+    """
+    ax: dict[str, list[str]] = {}
+    try:
+        for board, tax in con.execute("SELECT board, taxonomy FROM taxonomy_map"):
+            ax.setdefault(board, []).append(tax)
+    except Exception:  # noqa: BLE001 — pre-040 database / unit fixture without the table
+        ax = {}
+    if ax:
+        return ax, True
+    seed: dict[str, list[str]] = {}
+    for board, axes in TEXT_BOARDS.items():
+        seed[board] = list(axes)
+    for board, axes in AGENT_BOARDS.items():
+        seed[board] = list(axes)
+    return seed, False
+
+
 def build_rows(con, boards: dict[str, list[dict]], *, visible=None) -> dict:
     """Turn fetched boards into rating rows.
 
@@ -162,6 +201,8 @@ def build_rows(con, boards: dict[str, list[dict]], *, visible=None) -> dict:
     if visible is None:
         visible = visible_models(con)
     alias, known = load_resolvers(con)
+    # WHICH board feeds which axis is the operator's mapping, not a constant here.
+    ax_by_board, mapped = _axis_map(con)
     rows: list[dict] = []
     stats: dict[str, dict] = {}
     unmatched: dict[str, set] = {}
@@ -182,25 +223,29 @@ def build_rows(con, boards: dict[str, list[dict]], *, visible=None) -> dict:
                              source="arena", board=board, lab=lab, effort=effort,
                              basis=basis, published=published))
             stats[board]["rows"] += 1
+        # `matched` counts models we could PLACE on this board (registered and
+        # resolvable), independent of whether an axis claims it. That is what makes
+        # "this board scores 11 of yours, map it" visible in Manage taxonomy.
         stats[board]["matched"] += 1
 
     for board, members in boards.items():
-        if board not in TEXT_BOARDS and board not in AGENT_BOARDS:
-            continue    # a language/industry category the mapping does not use
+        # EVERY board is classified and counted. Which of them reach a taxonomy is
+        # the MAPPING's decision now, so nothing is skipped here on the strength of
+        # a hardcoded axis table.
         stats[board] = {"fetched": len(members), "matched": 0, "unmatched": 0,
                         "not_registered": 0, "rows": 0}
-        if board in TEXT_BOARDS:
-            n = len(members)
-            for r in members:
-                _add(board, TEXT_BOARDS[board], r.get("model_name") or "",
-                     r.get("rating"), r.get("rank"), n, r.get("organization"),
-                     "elo", "arena-elo", r.get("published"))
-        elif board in AGENT_BOARDS:
-            n = len(members)
-            for r in members:
-                _add(board, AGENT_BOARDS[board], r.get("model_name") or "",
-                     r.get("score"), r.get("rank"), n, r.get("organization"),
-                     "net_improvement", "arena-net-improvement", r.get("published"))
+        axes = ax_by_board.get(board, [])
+        unit = "net_improvement" if board in AGENT_BOARDS else "elo"
+        value_key = "score" if board in AGENT_BOARDS else "rating"
+        basis = "arena-net-improvement" if board in AGENT_BOARDS else "arena-elo"
+        n = len(members)
+        for r in members:
+            # `axes` may be EMPTY (one of the 22 boards nothing maps to yet) — the
+            # name still has to be counted and matched, because the row is stored
+            # for the catalogue and only reaches a board once it is mapped.
+            _add(board, axes, r.get("model_name") or "", r.get(value_key),
+                 r.get("rank"), n, r.get("organization"), unit, basis,
+                 r.get("published"))
 
     # Keep the newest-effort row when a model appears at several efforts on ONE
     # board (R2=C): the highest effort is what the operator would route to.

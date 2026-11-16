@@ -144,6 +144,76 @@ class ModelRatingsEndpoints:
         self._audit("model_ratings.clear", cleared=result.get("cleared"))
         self._send_json({"ok": True, **result})
 
+    # ── the mapping: which LMArena board feeds which taxonomy ──
+    def _serve_model_ratings_catalogue_api(self):
+        """GET /api/model-ratings/catalogue — every board LMArena publishes.
+
+        Split into `mapped` (feeding at least one of the operator's taxonomies) and
+        `unmapped` (visible but unused, with row counts), because "this board scores
+        11 of yours and nothing maps it" is the information that makes the mapping
+        decidable.
+        """
+        from ..api.arena_taxonomy import catalogue, mapping
+
+        con = self._mr_connect()
+        try:
+            self._send_json({**catalogue(con), "mapping": mapping(con)})
+        finally:
+            con.close()
+
+    def _serve_model_ratings_map_api(self):
+        """GET/POST/DELETE /api/model-ratings/map — the operator's mapping.
+
+        POST {taxonomy, board, note?} maps one board onto one taxonomy AND publishes
+        it immediately from the stored catalogue (no re-poll — that is the point of
+        persisting every board first).
+        DELETE ?taxonomy=&board= unmaps and removes the rows it produced.
+        """
+        from urllib.parse import parse_qs, urlparse
+        from ..api.arena_taxonomy import catalogue, map_board, mapping, unmap_board
+
+        if self.command == "GET":
+            con = self._mr_connect()
+            try:
+                self._send_json({"mapping": mapping(con), **catalogue(con)})
+            finally:
+                con.close()
+            return
+
+        con = self._mr_connect()
+        try:
+            if self.command == "DELETE":
+                qs = parse_qs(urlparse(self.path).query)
+                tax = (qs.get("taxonomy") or [""])[0].strip()
+                board = (qs.get("board") or [""])[0].strip()
+                if not tax or not board:
+                    self._send_json({"error": "taxonomy and board are required"}, 400)
+                    return
+                out = unmap_board(con, tax, board)
+                code = 200
+            else:
+                body = self._read_body()
+                tax = (body.get("taxonomy") or "").strip()
+                board = (body.get("board") or "").strip()
+                out = map_board(con, tax, board, note=body.get("note"))
+                code = 200
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, 400)
+            return
+        finally:
+            con.close()
+        self._audit(f"model_ratings.map.{self.command.lower()}",
+                    taxonomy=locals().get("tax"), board=locals().get("board"))
+        self._send_json({"ok": True, **out, "tabs": self._mr_tabs()}, code)
+
+    def _mr_tabs(self):
+        from ..api.model_ratings import taxonomies
+        con = self._mr_connect()
+        try:
+            return taxonomies(con)
+        finally:
+            con.close()
+
     # ── manage taxonomies (column 3) ──
     def _serve_model_ratings_taxonomy_api(self):
         """GET /api/model-ratings/taxonomy — the tabs, with their kind and row counts.

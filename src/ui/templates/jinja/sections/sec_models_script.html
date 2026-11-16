@@ -34,6 +34,22 @@ const API = {
     const r = await fetch('/api/model-ratings/clear', {method: 'POST'});
     return r.json();
   },
+  async catalogue() {
+    const r = await fetch('/api/model-ratings/catalogue');
+    return r.json();
+  },
+  async map(body) {
+    const r = await fetch('/api/model-ratings/map', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    return r.json();
+  },
+  async unmap(taxonomy, board) {
+    const r = await fetch('/api/model-ratings/map?taxonomy=' + encodeURIComponent(taxonomy) +
+      '&board=' + encodeURIComponent(board), {method: 'DELETE'});
+    return r.json();
+  },
   async taxonomy(body) {
     const r = await fetch('/api/model-ratings/taxonomy', body ? {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -44,7 +60,7 @@ const API = {
 };
 
 let STATE = {tax: null, tabs: [], lb: {rows: [], eligible: []},
-             pollRows: [], polledAt: null, pollChecks: {}};
+             pollRows: [], polledAt: null, pollChecks: {}, catalogue: null};
 
 // ── polled data lives in the BROWSER, not on the server ────────────────────
 // Operator, 2026-11-15: "once we poll it we should keep it on frontend in
@@ -549,6 +565,7 @@ async function runPoll() {
   renderPollPanel();
   renderTabs();
   renderTaxList();
+  loadCatalogue();      // the poll just stored every board — the map is decidable now
   pollMsg('');
   if (STATE.tax) loadBoard(STATE.tax);
 }
@@ -593,6 +610,116 @@ function renderTaxList() {
   wrap.querySelectorAll('.mp-tax-row').forEach(el => {
     el.addEventListener('click', () => selectTab(el.dataset.tax));
   });
+}
+
+// ── the mapping: LMArena board -> your taxonomy ────────────────────────────
+// The board catalogue was persisted by the last poll (all 36 boards, whether or not
+// anything maps them), so this renders from stored data and a new mapping publishes
+// immediately — no re-poll. Operator's shape, 2026-11-15.
+function famLabel(fam) { return fam === 'agent' ? 'agent' : 'text'; }
+
+function renderTaxMap() {
+  const wrap = document.getElementById('taxMap');
+  if (!wrap) return;
+  const cat = STATE.catalogue;
+  if (!cat || (!cat.mapped && !cat.unmapped)) {
+    wrap.innerHTML = '<div class="muted">No board catalogue yet — poll once and every ' +
+      'LMArena board is stored here for mapping.</div>';
+    return;
+  }
+
+  const taxes = (STATE.tabs || []).filter(t => t.kind !== 'custom');
+  const opts = t => taxes.map(x =>
+    `<option value="${esc(x.taxonomy)}">${esc(x.label || x.taxonomy)}</option>`).join('');
+
+  const rowFor = (b, mapped) => {
+    const chips = b.taxonomies.length
+      ? b.taxonomies.map(t => `<span class="mm-chip">${esc(t)}
+          <button class="mm-chip-x" data-tax="${esc(t)}" data-board="${esc(b.board)}"
+            title="Unmap ${esc(t)} from ${esc(b.board)}" aria-label="Unmap">×</button></span>`).join('')
+      : '<span class="muted">not used by any taxonomy</span>';
+    // A board with stored rows is immediately usable; one whose rows we never
+    // stored says so, so the operator is not surprised by an empty tab.
+    const stored = b.stored_rows
+      ? `${b.stored_rows} stored`
+      : 'no rows stored yet';
+    return `<div class="mm-row${mapped ? '' : ' mm-unused'}">
+      <div class="mm-head">
+        <span class="mono mm-board">${esc(b.board)}</span>
+        <span class="mm-fam">${famLabel(b.family)}</span>
+        <span class="mm-unit">${esc(unitLabel(b.unit))}</span>
+        <span class="mm-count" title="${b.rows} models scored on this board">
+          ${b.models_matched} of ours</span>
+      </div>
+      <div class="mm-sub">${stored}${b.published ? ' · ' + esc(fmtWhen(b.published)) : ''}</div>
+      <div class="mm-map">${chips}</div>
+      <div class="mm-add">
+        <select class="form-input mm-sel" data-board="${esc(b.board)}">
+          <option value="">map to…</option>${opts(b)}
+        </select>
+        <button class="btn btn-outline btn-sm mm-go" data-board="${esc(b.board)}">Map</button>
+      </div>
+    </div>`;
+  };
+
+  wrap.innerHTML =
+    `<div class="mm-group">In use (${cat.mapped_count})</div>` +
+    cat.mapped.map(b => rowFor(b, true)).join('') +
+    `<div class="mm-group">Not used by any taxonomy (${cat.unmapped_count})</div>` +
+    cat.unmapped.map(b => rowFor(b, false)).join('');
+
+  wrap.querySelectorAll('.mm-go').forEach(btn => {
+    btn.addEventListener('click', () => mapBoard(btn.dataset.board));
+  });
+  wrap.querySelectorAll('.mm-chip-x').forEach(btn => {
+    btn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      unmapBoard(btn.dataset.tax, btn.dataset.board);
+    });
+  });
+}
+
+async function mapBoard(board) {
+  const sel = document.querySelector(`.mm-sel[data-board="${CSS.escape(board)}"]`);
+  const tax = sel && sel.value;
+  if (!tax) { mapMsg('Pick the taxonomy to map ' + board + ' onto.', 'warn'); return; }
+  mapMsg('Mapping ' + board + ' → ' + tax + '…');
+  const r = await API.map({taxonomy: tax, board: board});
+  if (r.error) { mapMsg('Map failed: ' + r.error, 'bad'); return; }
+  mapMsg(`${board} → ${tax}: ${r.published && r.published.written ? r.published.written + ' rows published' : 'no stored rows for this board yet'}.`, 'ok');
+  await refreshAfterMap(r.tabs);
+}
+
+async function unmapBoard(tax, board) {
+  mapMsg('Unmapping ' + board + ' from ' + tax + '…');
+  const r = await API.unmap(tax, board);
+  if (r.error) { mapMsg('Unmap failed: ' + r.error, 'bad'); return; }
+  mapMsg(`${board} removed from ${tax}${r.removed ? ' — ' + r.removed + ' rows removed' : ''}.`, 'ok');
+  await refreshAfterMap(r.tabs);
+}
+
+async function refreshAfterMap(tabs) {
+  if (tabs) STATE.tabs = tabs;
+  await loadCatalogue();
+  renderTabs();
+  renderTaxList();
+  if (STATE.tax) loadBoard(STATE.tax);
+}
+
+async function loadCatalogue() {
+  try {
+    STATE.catalogue = await API.catalogue();
+  } catch (e) {
+    STATE.catalogue = null;
+  }
+  renderTaxMap();
+}
+
+function mapMsg(text, tone) {
+  const el = document.getElementById('mapMsg');
+  if (!el) return;
+  el.textContent = text || '';
+  el.dataset.tone = tone || '';
 }
 
 function taxMsg(text, tone) {
@@ -748,6 +875,7 @@ if (!MP_DESKTOP.matches) mpHide();
     // server-side set nobody asked for would re-poll behind his back.
     loadPoll();
     renderPollPanel();
+    await loadCatalogue();
     if (STATE.tax) await loadBoard(STATE.tax);
     else renderBoard({taxonomy: '', rows: [], eligible: t.eligible || []});
   } catch (e) {
