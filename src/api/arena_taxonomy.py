@@ -33,6 +33,11 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
+# One definition of the percentile formula, in arena_poll. It was duplicated here as
+# `_percentile` — same three lines, two names, and a change to one would have
+# silently disagreed with the other.
+from .arena_poll import percentile as _percentile
+
 CUSTOM_PREFIX = "custom:"
 
 #: The 14 mappings that were hardcoded, seeded as `is_default = 1` on the first
@@ -301,13 +306,6 @@ def publish_all(con: sqlite3.Connection) -> dict:
     con = _row(con)
     taxes = sorted({r[0] for r in con.execute("SELECT DISTINCT taxonomy FROM taxonomy_map")})
     return {tax: publish_taxonomy(con, tax) for tax in taxes}
-
-
-def _percentile(rank, n) -> Optional[float]:
-    """100 x (1 - (rank-1)/(n-1)) — the board's own standing, expressed as %."""
-    if not rank or not n or n < 2:
-        return None
-    return round(100.0 * (1 - (rank - 1) / (n - 1)), 1)
 
 
 # ── what Manage taxonomy shows ──────────────────────────────────────────────

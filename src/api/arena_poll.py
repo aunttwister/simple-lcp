@@ -264,23 +264,6 @@ def build_rows(con, boards: dict[str, list[dict]], *, visible=None) -> dict:
             "fetched_at": _now()}
 
 
-def poll(con, *, fetch=default_fetch, dry_run: bool = True) -> dict:
-    """Fetch + resolve + (optionally) write. Never touches ``model_capabilities``."""
-    from .model_ratings import upsert_ratings, register_arena_taxonomies
-
-    boards = fetch()
-    built = build_rows(con, boards)
-    out = {"polled_at": built["fetched_at"], "boards": built["stats"],
-           "rows": built["rows"], "unmatched": built["unmatched"],
-           "dry_run": dry_run}
-    if dry_run:
-        out["written"] = 0
-        return out
-    register_arena_taxonomies(con, sorted({r["taxonomy"] for r in built["rows"]}))
-    out.update(upsert_ratings(con, built["rows"]))
-    return out
-
-
 # ── release watcher ─────────────────────────────────────────────────────────
 # "we're behind, and that's the real answer" — the operator asked for this to be
 # tracked. It is a REPORT, never an automatic registry write: registering a model
