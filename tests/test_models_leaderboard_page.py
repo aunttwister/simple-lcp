@@ -403,3 +403,31 @@ def test_the_polled_list_fills_the_lane(cfg, engine):
     # otherwise flex:1 has nothing to grow into
     assert "#modelsPanel .dp-body { display: flex; flex-direction: column; }" in css
     assert "#pollResults:not([hidden]) {" in css
+
+
+def test_only_the_panes_own_button_polls(cfg, engine):
+    """Operator: "only by user's 'Poll again' the repolling will happen".
+
+    The page-header button SHOWS the pane. If it also polled, opening the panel
+    would silently replace a stored review with a fresh fetch — the exact thing he
+    ruled out.
+    """
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    line = [l for l in script.splitlines()
+            if "getElementById('pollRunBtn').addEventListener" in l][0]
+    assert "mpShow('poll')" in line
+    assert "runPoll" not in line, line
+    # and runPoll must not disable it: a button that only shows a pane stays usable
+    run = script.split("async function runPoll()", 1)[1].split("\n}\n", 1)[0]
+    assert "pollRunBtn'" not in run
+    # and exactly ONE control runs the poll: the pane's own button (+ Poll again)
+    assert script.count("addEventListener('click', runPoll)") == 2
+
+
+def test_the_two_panes_are_never_both_shown(cfg, engine):
+    """mpShow hides the other pane; a screenshot of both at once is a harness
+    artifact, but the code has to make it impossible."""
+    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    body = script.split("function mpShow(pane)", 1)[1].split("\n}", 1)[0]
+    assert "pollPane').hidden = pane !== 'poll'" in body
+    assert "taxPane').hidden = pane !== 'tax'" in body

@@ -518,22 +518,20 @@ function pollMsg(text, tone) {
 }
 
 async function runPoll() {
+  // One trigger aborts a poll: the pane's own button. The header button only
+  // shows the pane, so it must not be disabled by this — it stays usable.
   const btn = document.getElementById('pollRunBtn2');
-  const topBtn = document.getElementById('pollRunBtn');
   if (btn) btn.disabled = true;
-  if (topBtn) topBtn.disabled = true;
   pollMsg('Polling the LMArena boards…');
   let r;
   try {
     r = await API.boardPoll();
   } catch (e) {
     if (btn) btn.disabled = false;
-    if (topBtn) topBtn.disabled = false;
     pollMsg('Poll request failed: ' + e + ' — nothing was changed.', 'bad');
     return;
   }
   if (btn) btn.disabled = false;
-  if (topBtn) topBtn.disabled = false;
   if (r.error) {
     pollMsg('Poll failed upstream: ' + r.error + ' — nothing was changed. Try again.', 'bad');
     return;
@@ -677,9 +675,12 @@ async function importTaxonomyCsv() {
   if (!input || !label) return;
   input.addEventListener('change', () => {
     const f = input.files && input.files[0];
-    if (!f) { label.textContent = 'No file chosen.'; return; }
+    // The native control already prints "No file chosen", so the helper line only
+    // appears once there is a file — and then it carries the size too.
+    if (!f) { label.hidden = true; label.textContent = ''; return; }
     const kb = f.size ? ` (${Math.max(1, Math.round(f.size / 1024))} KB)` : '';
-    label.textContent = f.name + kb;
+    label.textContent = 'Selected: ' + f.name + kb;
+    label.hidden = false;
   });
 })();
 
@@ -698,7 +699,10 @@ document.getElementById('taxTemplateBtn').addEventListener('click', () => {
 });
 
 // ── wiring ─────────────────────────────────────────────────────────────────
-document.getElementById('pollRunBtn').addEventListener('click', () => { mpShow('poll'); runPoll(); });
+// Top button SHOWS the pane; it does not poll. Operator: "only by user's 'Poll
+// again' the repolling will happen" — so a stored set is displayed as-is and a
+// fresh fetch needs the pane's own button.
+document.getElementById('pollRunBtn').addEventListener('click', () => mpShow('poll'));
 document.getElementById('taxOpenBtn').addEventListener('click', () => mpShow('tax'));
 document.getElementById('mpClose').addEventListener('click', mpClose);
 document.getElementById('mpBackdrop').addEventListener('click', mpHide);
