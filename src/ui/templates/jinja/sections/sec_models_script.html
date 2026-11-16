@@ -43,7 +43,8 @@ const API = {
   }
 };
 
-let STATE = {tax: null, tabs: [], lb: {rows: [], eligible: []}, pollRows: [], polledAt: null};
+let STATE = {tax: null, tabs: [], lb: {rows: [], eligible: []},
+             pollRows: [], polledAt: null, pollChecks: {}};
 
 // ── polled data lives in the BROWSER, not on the server ────────────────────
 // Operator, 2026-11-15: "once we poll it we should keep it on frontend in
@@ -57,15 +58,24 @@ let STATE = {tax: null, tabs: [], lb: {rows: [], eligible: []}, pollRows: [], po
 // a reload, which is the case that was destroying his selections.
 const POLL_KEY = 'lcp.lb.poll.v1';
 
+// The row's identity, as a string. One definition, used as the React-style key
+// for both the DOM and the stored tick map, so a tick can never land on the
+// wrong row after a reload.
+function pollKeyOf(r) {
+  return JSON.stringify([r.model_slug, r.taxonomy, r.unit, r.board, r.effort]);
+}
+
 function savePoll(rows, polledAt) {
   STATE.pollRows = rows || [];
   STATE.polledAt = polledAt || null;
   try {
     if (STATE.pollRows.length) {
-      sessionStorage.setItem(POLL_KEY, JSON.stringify({v: 1, at: STATE.polledAt,
-                                                       rows: STATE.pollRows}));
+      sessionStorage.setItem(POLL_KEY, JSON.stringify({
+        v: 1, at: STATE.polledAt, rows: STATE.pollRows, checks: STATE.pollChecks || {}
+      }));
     } else {
       sessionStorage.removeItem(POLL_KEY);
+      STATE.pollChecks = {};
     }
   } catch (e) { /* private mode: the panel still works for this page view */ }
 }
@@ -78,8 +88,27 @@ function loadPoll() {
     if (!d || d.v !== 1 || !Array.isArray(d.rows)) return false;
     STATE.pollRows = d.rows;
     STATE.polledAt = d.at || null;
+    STATE.pollChecks = d.checks || {};
     return STATE.pollRows.length > 0;
   } catch (e) { return false; }
+}
+
+// Persist the ticks as they are made, so a reload resumes the SAME review rather
+// than resetting every row to its default. Writing on change (not on unload) means
+// a crash or a killed tab keeps the last deliberate click.
+function saveChecks() {
+  if (!STATE.pollRows || !STATE.pollRows.length) return;
+  try {
+    sessionStorage.setItem(POLL_KEY, JSON.stringify({
+      v: 1, at: STATE.polledAt, rows: STATE.pollRows, checks: STATE.pollChecks || {}
+    }));
+  } catch (e) { /* private mode */ }
+}
+
+function checkStateFor(r) {
+  const k = pollKeyOf(r);
+  const stored = (STATE.pollChecks || {})[k];
+  return typeof stored === 'boolean' ? stored : !!r.changed;
 }
 
 // A poll reads the ARENA boards. A `custom:` board is a rating the operator
@@ -441,12 +470,12 @@ function renderPollPanel() {
     const when = isMoved
       ? `${esc(fmtWhen(r.old_date))} → ${esc(fmtWhen(r.new_date))}`
       : esc(fmtWhen(r.new_date || r.old_date));
-    const key = esc(JSON.stringify([r.model_slug, r.taxonomy, r.unit, r.board, r.effort]));
+    const key = esc(pollKeyOf(r));
     const head = r.taxonomy !== lastTax
       ? `<div class="mp-group">${esc(r.taxonomy)}</div>` : '';
     lastTax = r.taxonomy;
     return `${head}<label class="mp-row">
-      <input type="checkbox" class="mp-check" data-key="${key}" ${isMoved ? 'checked' : ''}>
+      <input type="checkbox" class="mp-check" data-key="${key}" ${checkStateFor(r) ? 'checked' : ''}>
       <span class="mp-row-main">
         <span class="mp-row-model mono">${esc(r.model_slug)}</span>
         <span class="mp-row-tax">${esc(r.taxonomy)}${r.effort ? ' · ' + esc(r.effort) : ''}</span>
@@ -455,6 +484,19 @@ function renderPollPanel() {
       </span>
     </label>`;
   }).join('');
+  // Every tick is remembered immediately (see saveChecks): a reload must resume
+  // the review in the state he left it, not reset to the defaults.
+  wrap.querySelectorAll('.mp-check').forEach(box => {
+    box.addEventListener('change', () => {
+      const k = box.dataset.key;
+      STATE.pollChecks = STATE.pollChecks || {};
+      // The stored key is the ESCAPED json; re-parse it so it matches pollKeyOf.
+      let raw = k;
+      try { raw = JSON.stringify(JSON.parse(k)); } catch (e) { /* keep k */ }
+      STATE.pollChecks[raw] = box.checked;
+      saveChecks();
+    });
+  });
 }
 
 function pollKeys() {
@@ -498,6 +540,7 @@ async function runPoll() {
   }
   // Only the arena half is kept, and it is kept in the BROWSER: a reload shows
   // the same reviewable set with its poll time instead of starting over.
+  STATE.pollChecks = {};   // a NEW poll starts from its own defaults
   savePoll(arenaRows(r.rows), r.polled_at || new Date().toISOString());
   if (r.taxonomies) STATE.tabs = r.taxonomies;
   if (!STATE.tax && STATE.tabs.length) STATE.tax = STATE.tabs[0].taxonomy;
