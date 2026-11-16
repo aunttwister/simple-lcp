@@ -4195,9 +4195,28 @@ tr.log-row-failed td.num { opacity: 0.55; }
    (operator: "poll latest data can extend the list from top to bottom"). It used
    to cap at 22rem, which left half a panel of dead space below a scrollbar. */
 #modelsPanel .dp-body { display: flex; flex-direction: column; }
+/* CRITICAL: a `display:` rule on the element itself DEFEATS the UA `[hidden]`
+   rule (which is only `display:none` at user-agent specificity), so both panes
+   rendered stacked — "Manage taxonomy is overlaying the poll latest data". Every
+   element this stylesheet gives a display to must restate [hidden]. */
 #pollPane { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+#pollPane[hidden], #taxPane[hidden] { display: none !important; }
+#taxPane { min-height: 0; flex: 1 1 auto; }
 #pollResults:not([hidden]) {
   display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+}
+/* The leaderboard's lane can be CLOSED (its ✕ used to be a no-op). A closed lane
+   must also release the reserved width, or the page keeps a dead gutter where the
+   panel used to be — so the margin is conditioned on THIS panel being open, not
+   merely present. Scoped by #modelsPanel so the overview's and conversations'
+   permanently-reserved lanes are untouched. */
+@media (min-width: 1100px) {
+  body:has(#modelsPanel:not(.open)) .main-content {
+    margin-right: 0;
+  }
+  body:has(#modelsPanel:not(.open)) .header-plugin-badge.global {
+    right: 0.75rem;
+  }
 }
 .mp-rows {
   flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto;
