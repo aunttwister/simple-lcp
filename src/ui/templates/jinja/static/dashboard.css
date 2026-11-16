@@ -4305,6 +4305,39 @@ tr.log-row-failed td.num { opacity: 0.55; }
 .mm-sel { flex: 1 1 auto; min-width: 0; font-size: 0.6875rem; padding: 0.2rem 0.3rem; }
 .mm-go { flex: none; }
 
+/* ── the mapping, TAXONOMY-FIRST ───────────────────────────────────────────
+   One card per taxonomy (8 of them), not one row per board (36). Each card holds
+   its boards as chips and ONE multi-select, so "math + expert +
+   hard_prompts_english all measure reasoning_chain" is one action instead of three
+   trips through three different dropdowns in a 5-screen scroll. */
+.mm-tax {
+  border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
+  padding: 0.45rem 0.5rem; background: hsl(var(--card) / 0.5);
+}
+.mm-tax-head { display: flex; align-items: baseline; gap: 0.4rem; }
+.mm-tax-name { font-size: 0.75rem; font-weight: 600; overflow-wrap: anywhere; }
+.mm-tax-count { margin-left: auto; font-size: 0.625rem; white-space: nowrap;
+  color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
+.mm-tax .mm-add { align-items: flex-start; }
+/* The multi-select is a picker, not a form field: three visible rows so the
+   operator can see several boards at once and ctrl-click them together. */
+.mm-tax .mm-sel { padding: 0.15rem; }
+.mm-tax .mm-sel option { padding: 0.1rem 0.25rem; font-size: 0.6875rem; }
+
+/* The 22 boards nothing maps: 10 languages, 8 industries, 4 overall/meta cuts.
+   Collapsed, because scrolling past them is what made the list feel repetitive. */
+.mm-unused-wrap { margin-top: 0.6rem; }
+.mm-unused-wrap > summary {
+  cursor: pointer; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: hsl(var(--muted-foreground)); padding: 0.2rem 0;
+}
+.mm-unused-wrap > summary:hover { color: hsl(var(--foreground)); }
+.mm-unused-note { font-size: 0.625rem; color: hsl(var(--muted-foreground));
+  margin: 0.15rem 0 0.35rem; line-height: 1.45; }
+.mm-unused-row { display: flex; gap: 0.4rem; align-items: baseline; flex-wrap: wrap;
+  font-size: 0.6875rem; padding: 0.15rem 0.1rem; min-width: 0; }
+.mm-unused-row .mono { overflow-wrap: anywhere; }
+
 .mp-tax-list { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; }
 .mp-tax-row { display: flex; align-items: baseline; gap: 0.4rem; font-size: 0.75rem;
   padding: 0.25rem 0.4rem; border: 1px solid transparent; border-radius: var(--radius);
