@@ -4261,6 +4261,44 @@ tr.log-row-failed td.num { opacity: 0.55; }
 .mp-cols .dp-table td:nth-child(2) { color: hsl(var(--muted-foreground)); width: 1%; white-space: nowrap; }
 .mp-cols .form-help { margin-top: 0.5rem; line-height: 1.5; }
 
+/* ── the mapping list ───────────────────────────────────────────────────── */
+.mp-tax-map { display: flex; flex-direction: column; gap: 0.35rem; }
+.mm-group {
+  font-size: 0.625rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); margin: 0.5rem 0 0.15rem;
+}
+.mm-row {
+  border: 1px solid hsl(var(--card-border)); border-radius: var(--radius);
+  padding: 0.4rem 0.5rem; background: hsl(var(--card) / 0.5);
+}
+/* An unused board is dimmer but never hidden: "this board scores 11 of yours" is
+   the information that makes the mapping decidable. */
+.mm-row.mm-unused { opacity: 0.72; }
+.mm-head { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
+.mm-board { font-size: 0.75rem; font-weight: 600; }
+.mm-fam, .mm-unit {
+  font-size: 0.5625rem; letter-spacing: 0.04em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); border: 1px solid hsl(var(--card-border));
+  border-radius: 999px; padding: 0 0.28rem;
+}
+.mm-count { margin-left: auto; font-size: 0.625rem; color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums; }
+.mm-sub { font-size: 0.625rem; color: hsl(var(--muted-foreground)); margin-top: 0.1rem; }
+.mm-map { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.3rem; }
+.mm-chip {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  font-size: 0.625rem; background: hsl(var(--secondary)); border-radius: 999px;
+  padding: 0.05rem 0.2rem 0.05rem 0.4rem; max-width: 100%;
+}
+.mm-chip-x {
+  border: none; background: transparent; cursor: pointer; color: hsl(var(--muted-foreground));
+  font-size: 0.75rem; line-height: 1; padding: 0 0.1rem; border-radius: 999px;
+}
+.mm-chip-x:hover { color: hsl(var(--red-fg)); }
+.mm-add { display: flex; gap: 0.3rem; margin-top: 0.3rem; }
+.mm-sel { flex: 1 1 auto; min-width: 0; font-size: 0.6875rem; padding: 0.2rem 0.3rem; }
+.mm-go { flex: none; }
+
 .mp-tax-list { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; }
 .mp-tax-row { display: flex; align-items: baseline; gap: 0.4rem; font-size: 0.75rem;
   padding: 0.25rem 0.4rem; border: 1px solid transparent; border-radius: var(--radius);
