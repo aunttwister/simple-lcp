@@ -43,7 +43,50 @@ const API = {
   }
 };
 
-let STATE = {tax: null, tabs: [], lb: {rows: [], eligible: []}, pollRows: []};
+let STATE = {tax: null, tabs: [], lb: {rows: [], eligible: []}, pollRows: [], polledAt: null};
+
+// ── polled data lives in the BROWSER, not on the server ────────────────────
+// Operator, 2026-11-15: "once we poll it we should keep it on frontend in
+// memory in local or session storage ... only by user's Poll again the
+// repolling will happen". So a page load READS what this tab polled and shows
+// it with the time it was taken; nothing re-polls behind his back, and a reload
+// does not throw away which rows he had ticked.
+//
+// session storage, not local: the polled set is a review in progress, and a new
+// tab should not inherit a stale one from yesterday. Within this tab it survives
+// a reload, which is the case that was destroying his selections.
+const POLL_KEY = 'lcp.lb.poll.v1';
+
+function savePoll(rows, polledAt) {
+  STATE.pollRows = rows || [];
+  STATE.polledAt = polledAt || null;
+  try {
+    if (STATE.pollRows.length) {
+      sessionStorage.setItem(POLL_KEY, JSON.stringify({v: 1, at: STATE.polledAt,
+                                                       rows: STATE.pollRows}));
+    } else {
+      sessionStorage.removeItem(POLL_KEY);
+    }
+  } catch (e) { /* private mode: the panel still works for this page view */ }
+}
+
+function loadPoll() {
+  try {
+    const raw = sessionStorage.getItem(POLL_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (!d || d.v !== 1 || !Array.isArray(d.rows)) return false;
+    STATE.pollRows = d.rows;
+    STATE.polledAt = d.at || null;
+    return STATE.pollRows.length > 0;
+  } catch (e) { return false; }
+}
+
+// A poll reads the ARENA boards. A `custom:` board is a rating the operator
+// entered and has no upstream, so it must never appear in the polled set even if
+// a stored blob or a hand-made row carries one.
+function isArena(tax) { return String(tax || '').indexOf('custom:') !== 0; }
+function arenaRows(rows) { return (rows || []).filter(r => isArena(r.taxonomy)); }
 
 // ── formatting ──────────────────────────────────────────────────────────────
 function esc(s) {
@@ -69,7 +112,7 @@ function fmtWhen(s) {
 // The LEADING tabs never move; the last visible slot carries the active tab when
 // the active one would otherwise be overflowed, so "where am I" is always on
 // screen without reordering the strip under the operator's finger.
-const STRIP_DESKTOP = 3;
+const STRIP_DESKTOP = 4;
 const STRIP_MOBILE = 1;
 const STRIP_MQ = window.matchMedia('(min-width: 768px)');
 
@@ -306,8 +349,8 @@ function mpHide() {
 
 function mpClose() {
   if (!MP_DESKTOP.matches) { mpHide(); return; }
-  // Desktop: the lane is permanent, so "close" returns to the explanation.
-  mpShow('poll');
+  // Desktop: the lane is permanent, so "close" returns to the default pane.
+  mpShow('tax');
 }
 
 // ── drag handle (file-explorer splitter), the shared lane mechanics ────────
@@ -355,10 +398,20 @@ function mpClose() {
 })();
 
 // ── poll: staged diff, then accept or discard ───────────────────────────────
+function fmtStamp(iso) {
+  // Trail stamps carry the year and are UTC-labelled: they span months.
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso).slice(0, 16).replace('T', ' ');
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
+    `${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC`;
+}
+
 function renderPollPanel() {
   const intro = document.getElementById('pollIntro');
   const results = document.getElementById('pollResults');
-  const rows = STATE.pollRows || [];
+  const rows = arenaRows(STATE.pollRows);
   if (!intro || !results) return;
   const showResults = rows.length > 0;
   intro.hidden = showResults;
@@ -367,6 +420,12 @@ function renderPollPanel() {
   if (!showResults) return;
   const moved = rows.filter(r => r.changed);
   document.getElementById('pollCount').textContent = String(rows.length);
+  const at = document.getElementById('pollAt');
+  if (at) {
+    at.textContent = STATE.polledAt
+      ? `Data polled at ${fmtStamp(STATE.polledAt)} — kept in this tab, not re-polled.`
+      : '';
+  }
   document.getElementById('pollMoved').textContent =
     `${moved.length} moved, ${rows.length - moved.length} unchanged`;
   const wrap = document.getElementById('pollRows');
@@ -437,7 +496,9 @@ async function runPoll() {
     pollMsg('Poll failed upstream: ' + r.error + ' — nothing was changed. Try again.', 'bad');
     return;
   }
-  STATE.pollRows = r.rows || [];
+  // Only the arena half is kept, and it is kept in the BROWSER: a reload shows
+  // the same reviewable set with its poll time instead of starting over.
+  savePoll(arenaRows(r.rows), r.polled_at || new Date().toISOString());
   if (r.taxonomies) STATE.tabs = r.taxonomies;
   if (!STATE.tax && STATE.tabs.length) STATE.tax = STATE.tabs[0].taxonomy;
   renderPollPanel();
@@ -454,7 +515,7 @@ async function updatePoll() {
   const r = await API.boardUpdate(keys);
   if (r.error) { pollMsg('Update failed: ' + r.error, 'bad'); return; }
   pollMsg(`Published ${r.written} rows. The board beside this panel has been re-rendered.`, 'ok');
-  STATE.pollRows = [];
+  savePoll([], null);
   if (r.taxonomies) STATE.tabs = r.taxonomies;
   renderTabs();
   renderPollPanel();
@@ -467,6 +528,7 @@ async function clearPoll() {
   if (r.error) { pollMsg('Clear failed: ' + r.error, 'bad'); return; }
   STATE.pollRows = [];
   pollMsg(`Discarded ${r.cleared} polled rows. The published leaderboard was not changed.`, 'ok');
+  savePoll([], null);
   renderPollPanel();
 }
 
@@ -488,9 +550,11 @@ function renderTaxList() {
   });
 }
 
-function taxMsg(text) {
+function taxMsg(text, tone) {
   const el = document.getElementById('taxMsg');
-  if (el) el.textContent = text || '';
+  if (!el) return;
+  el.textContent = text || '';
+  el.dataset.tone = tone || '';
 }
 
 async function defineTaxonomy() {
@@ -506,23 +570,89 @@ async function defineTaxonomy() {
   taxMsg('Defined ' + r.taxonomy + '. Open its tab to add ratings.');
 }
 
+// ── CSV import: a real file chooser, not a paste box ───────────────────────
+// Operator, 2026-11-15: "import csv should be a file import, the necessary
+// columns should be shown below". The template carries the columns beside the
+// chooser; this only reads the file and posts its text.
+function readFileText(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.onerror = () => reject(fr.error || new Error('could not read the file'));
+    fr.readAsText(file);
+  });
+}
+
 async function importTaxonomyCsv() {
-  const csv = document.getElementById('taxCsv').value || '';
-  if (!csv.trim()) { taxMsg('Paste a CSV first — a header row and at least one model.'); return; }
-  const r = await API.taxonomy({action: 'import', csv});
-  if (r.error) { taxMsg('Error: ' + r.error); return; }
+  const input = document.getElementById('taxFile');
+  const file = input && input.files && input.files[0];
+  if (!file) { taxMsg('Choose a CSV file first.'); return; }
+  let csv;
+  try {
+    csv = await readFileText(file);
+  } catch (e) {
+    taxMsg('Could not read ' + file.name + ': ' + e);
+    return;
+  }
+  if (!csv.trim()) { taxMsg(file.name + ' is empty.'); return; }
+
+  const btn = document.getElementById('taxImportBtn');
+  if (btn) btn.disabled = true;
+  taxMsg('Importing ' + file.name + '…');
+
+  // The board selected in the tab strip is sent as the fallback taxonomy, so a
+  // file whose rows carry no `taxonomy` column lands where the operator is
+  // looking — but only when that board is one of his own.
+  const fallback = (STATE.tax && String(STATE.tax).indexOf('custom:') === 0)
+    ? STATE.tax.split(':', 2)[1] : null;
+  const r = await API.taxonomy({action: 'import', csv: csv, taxonomy: fallback});
+  if (btn) btn.disabled = false;
+  if (r.error) { taxMsg('Import failed: ' + r.error); return; }
+
   const tabs = await API.taxonomy();
   STATE.tabs = tabs.tabs || [];
   renderTabs();
   renderTaxList();
-  let msg = `Imported ${r.written} ratings.`;
-  if (r.skipped_unregistered) msg += ` Skipped ${r.skipped_unregistered} (not registered here).`;
+  let msg = `Imported ${r.written} ratings from ${file.name}.`;
+  if (r.skipped_unregistered) msg += ` Skipped ${r.skipped_unregistered} row(s) — that model is not served here.`;
   if (r.errors && r.errors.length) {
     msg += ` ${r.errors.length} line(s) rejected: ` +
       r.errors.slice(0, 3).map(e => 'line ' + e.line + ' ' + e.error).join('; ');
   }
-  taxMsg(msg);
+  taxMsg(msg, r.written ? 'ok' : 'warn');
+  if (r.written && r.taxonomy) {
+    // Show what was just written rather than leaving him on a stale board.
+    const want = r.taxonomy;
+    if ((STATE.tabs || []).some(t => t.taxonomy === want)) selectTab(want);
+  }
 }
+
+// The chosen file's name, so the control reports what it will import.
+(function taxFileLabel() {
+  const input = document.getElementById('taxFile');
+  const label = document.getElementById('taxFileName');
+  if (!input || !label) return;
+  input.addEventListener('change', () => {
+    const f = input.files && input.files[0];
+    if (!f) { label.textContent = 'No file chosen.'; return; }
+    const kb = f.size ? ` (${Math.max(1, Math.round(f.size / 1024))} KB)` : '';
+    label.textContent = f.name + kb;
+  });
+})();
+
+// A template with the exact header, so nobody has to remember the column names.
+document.getElementById('taxTemplateBtn').addEventListener('click', () => {
+  const csv = 'model_slug,value,taxonomy,lab\n' +
+    'glm-5.3-flash,1520,local-served,zai\n' +
+    'kimi-k3,1508,local-served,moonshot\n';
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'taxonomy-template.csv';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+});
 
 // ── wiring ─────────────────────────────────────────────────────────────────
 document.getElementById('pollRunBtn').addEventListener('click', () => { mpShow('poll'); runPoll(); });
@@ -558,8 +688,11 @@ if (!MP_DESKTOP.matches) mpHide();
     if (STATE.tabs.length) STATE.tax = STATE.tabs[0].taxonomy;
     renderTabs();
     renderTaxList();
-    const staged = await API.boardStaged();
-    STATE.pollRows = staged.rows || [];
+    // The polled set is what THIS tab polled — read it from sessionStorage.
+    // The server's staging table is not consulted on load: an operator who
+    // reloaded the page must see the same review he was in the middle of, and a
+    // server-side set nobody asked for would re-poll behind his back.
+    loadPoll();
     renderPollPanel();
     if (STATE.tax) await loadBoard(STATE.tax);
     else renderBoard({taxonomy: '', rows: [], eligible: t.eligible || []});
@@ -567,10 +700,12 @@ if (!MP_DESKTOP.matches) mpHide();
     const note = document.getElementById('lbNote');
     if (note) note.textContent = 'Leaderboard unavailable: ' + e;
   }
-  // Desktop default: the lane shows the poll explanation on arrival; mobile
-  // waits for a tap (covering the board on load is the modal behaviour the
-  // overview and conversations both rejected).
-  if (MP_DESKTOP.matches) mpShow('poll');
+  // Desktop default pane: MANAGE TAXONOMY (operator, 2026-11-15). The poll pane
+  // is where you go when you intend to poll; the taxonomy manager is the part you
+  // read and curate, so it is what the lane opens on. Mobile waits for a tap —
+  // covering the board on load is the modal behaviour overview/conversations
+  // both rejected.
+  if (MP_DESKTOP.matches) mpShow('tax');
 })();
 </script>
 {% endif %}

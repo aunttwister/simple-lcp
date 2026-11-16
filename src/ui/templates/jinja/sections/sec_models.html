@@ -37,7 +37,7 @@
   <div class="dp-resizer" id="mpResizer" title="Drag to resize — double-click to reset"
        aria-hidden="true"></div>
   <div class="dp-header">
-    <span class="dp-title" id="mpTitle">Poll latest data</span>
+    <span class="dp-title" id="mpTitle">Manage taxonomy</span>
     <button class="modal-close dialog-close" id="mpClose" type="button"
             aria-label="Clear this panel">✕</button>
   </div>
@@ -70,6 +70,11 @@
           <strong>What is ignored.</strong> Every arena name that does not resolve to a
           model a provider here serves — nothing is guessed at or invented.
         </p>
+        <p class="dp-note">
+          <strong>Arena boards only.</strong> A poll reads the LMArena boards and nothing
+          else. Your <code>custom:</code> boards are not in it, are never staged here and
+          can never be written by it — they change only through Manage taxonomy.
+        </p>
         <p class="mp-eligible" id="pollEligible"></p>
         <button class="btn btn-primary btn-sm" id="pollRunBtn2">Poll latest data</button>
         <div class="mp-msg" id="pollMsg"></div>
@@ -79,6 +84,7 @@
         <div class="mp-poll-head">
           <div>
             <div class="mp-poll-title">Polled <span id="pollCount">0</span> rows</div>
+            <div class="mp-poll-sub" id="pollAt"></div>
             <div class="mp-poll-sub" id="pollMoved"></div>
           </div>
           <button class="btn btn-outline btn-sm" id="pollAgainBtn">Poll again</button>
@@ -105,16 +111,38 @@
         <input class="form-input" id="taxName" type="text" placeholder="e.g. local-served quality">
       </div>
       <button class="btn btn-outline btn-sm" id="taxDefineBtn">Define taxonomy</button>
+
       <div class="mp-field">
-        <label class="form-label" for="taxCsv">CSV import</label>
-        <textarea class="form-input mp-csv" id="taxCsv" rows="3"
-          placeholder="model_slug,value,taxonomy,lab&#10;glm-5.3-flash,1520,local-served,zai"></textarea>
-        <div class="form-help">Header row required. <code>model_slug</code> and
-          <code>value</code> are required; <code>taxonomy</code> and <code>lab</code> are
-          optional. Values are ratings you set yourself.</div>
+        <label class="form-label" for="taxFile">Import a CSV file</label>
+        <input class="form-input mp-file" id="taxFile" type="file" accept=".csv,text/csv">
+        <div class="form-help" id="taxFileName">No file chosen.</div>
       </div>
-      <button class="btn btn-outline btn-sm" id="taxImportBtn">Import CSV</button>
+      <div class="mp-actions">
+        <button class="btn btn-primary btn-sm" id="taxImportBtn">Import CSV</button>
+        <button class="btn btn-outline btn-sm" id="taxTemplateBtn">Download template</button>
+      </div>
       <div class="mp-msg" id="taxMsg"></div>
+
+      <div class="mp-cols">
+        <div class="mp-cols-title">Columns the file may carry</div>
+        <table class="dp-table">
+          <thead><tr><th scope="col">column</th><th scope="col">required</th>
+            <th scope="col">example</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">model_slug</td><td>yes</td><td class="mono">glm-5.3-flash</td></tr>
+            <tr><td class="mono">value</td><td>yes</td><td class="mono">1520</td></tr>
+            <tr><td class="mono">taxonomy</td><td>no</td><td class="mono">local-served</td></tr>
+            <tr><td class="mono">lab</td><td>no</td><td class="mono">zai</td></tr>
+          </tbody>
+        </table>
+        <div class="form-help">
+          A header row is required; column order is free. Any additional column is
+          ignored. Only a model a provider here actually serves is written — every other
+          row is skipped and counted in the result.
+          <code>taxonomy</code> is optional: leave it out and the file lands on the board
+          selected on the right when that board is one of yours.
+        </div>
+      </div>
     </div>
 
   </div>

@@ -400,9 +400,9 @@ def stage_poll(con: sqlite3.Connection, *, fetch=None) -> dict:
     # into an axis arena does not score at all).
     register_arena_taxonomies(con, sorted({r["taxonomy"] for r in built["rows"]}))
     con.commit()
-    out = {"poll_id": poll_id, "staged": staged, "boards": built["stats"],
-           "unmatched": built["unmatched"], "taxonomies": taxonomies(con),
-           "rows": staged_rows(con)}
+    out = {"poll_id": poll_id, "staged": staged, "polled_at": now,
+           "boards": built["stats"], "unmatched": built["unmatched"],
+           "taxonomies": taxonomies(con), "rows": staged_rows(con)}
     try:
         out["release"] = arena_poll.release_candidates(con, boards)
     except Exception as exc:  # noqa: BLE001 — the diff is the deliverable; this is a bonus
@@ -413,15 +413,23 @@ def stage_poll(con: sqlite3.Connection, *, fetch=None) -> dict:
 def staged_rows(con: sqlite3.Connection, taxonomy: Optional[str] = None) -> list[dict]:
     """The poll panel's rows: old -> new, with BOTH dates.
 
-    Only rows for models that are STILL registered are offered: accepting one for
-    a model that has since been retired would write a rating onto a board for
-    something no provider serves.
+    Two filters beyond "what the poll wrote", both load-bearing:
+
+    * only models that are STILL registered — accepting a row for a model that has
+      since been retired would write a rating onto a board for something no
+      provider serves;
+    * **arena boards only.** A `custom:` board is a rating the operator entered
+      and has no upstream, so a poll has nothing to fetch for it. A custom row
+      reaching this list would be a poll claiming to have re-read something it
+      cannot read (operator, 2026-11-15: "why are we displaying custom taxonomy
+      elo and rating in poll latest data?").
     """
     con = _rowify(con)
     sql = ("SELECT model_slug, taxonomy, unit, value, old_value, percentile, rank, n,"
            " source, board, lab, effort, basis, published, old_published,"
            " old_updated_at, polled_at FROM rating_poll_staging"
-           f" WHERE model_slug IN {VISIBLE_IN}")
+           f" WHERE model_slug IN {VISIBLE_IN}"
+           f" AND taxonomy NOT LIKE '{CUSTOM_PREFIX}%'")
     params: tuple = ()
     if taxonomy:
         sql += " AND taxonomy=?"
