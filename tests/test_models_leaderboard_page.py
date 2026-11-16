@@ -539,3 +539,12 @@ def test_a_taxonomy_with_only_languages_still_shows_its_chips():
     assert "nothing measures this yet" in js
     # the count is per taxonomy, and singular/plural is not faked
     assert "board${g.boards.length === 1 ? '' : 's'}" in js
+
+
+def test_the_multi_add_message_agrees_with_the_count():
+    """Caught live: adding ONE board said "1 board now measure reasoning_chain".
+    The noun, the verb and the number come from the same variable."""
+    js = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    assert "boards.length === 1 ? 'board now measures' : 'boards now measure'" in js
+    # and the old malformed string must be gone
+    assert "board${boards.length === 1 ? '' : 's'} now measure" not in js
