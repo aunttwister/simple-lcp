@@ -43,6 +43,20 @@ CREATE TABLE model_ratings (
 CREATE TABLE rating_taxonomies (
     taxonomy TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT, unit TEXT,
     note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE arena_boards (
+    board TEXT PRIMARY KEY, family TEXT NOT NULL, unit TEXT NOT NULL,
+    rows INTEGER NOT NULL DEFAULT 0, models_matched INTEGER NOT NULL DEFAULT 0,
+    published TEXT, first_seen TEXT NOT NULL, last_polled_at TEXT NOT NULL);
+CREATE TABLE arena_board_rows (
+    id INTEGER PRIMARY KEY, board TEXT NOT NULL, model_slug TEXT NOT NULL,
+    value REAL NOT NULL, unit TEXT NOT NULL, rank INTEGER, n INTEGER, lab TEXT,
+    effort TEXT NOT NULL DEFAULT '', published TEXT, polled_at TEXT NOT NULL,
+    UNIQUE (board, model_slug, effort));
+CREATE TABLE taxonomy_map (
+    id INTEGER PRIMARY KEY, taxonomy TEXT NOT NULL, board TEXT NOT NULL,
+    note TEXT, is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    UNIQUE (taxonomy, board));
 CREATE TABLE rating_poll_staging (
     id INTEGER PRIMARY KEY, poll_id TEXT NOT NULL, model_slug TEXT NOT NULL,
     taxonomy TEXT NOT NULL, unit TEXT NOT NULL, value REAL NOT NULL,
