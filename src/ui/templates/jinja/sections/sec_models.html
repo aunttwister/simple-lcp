@@ -106,6 +106,14 @@
         never mixed into an arena ranking. A poll has nothing to fetch for these.
       </p>
       <div id="taxList" class="mp-tax-list"></div>
+
+      <!-- ── The mapping: which LMArena board feeds which of your taxonomies ──
+           Persisted first, mapped second: every board the last poll read is here,
+           with its row counts, whether or not anything uses it. -->
+      <div class="mp-cols-title" style="margin-top:0.875rem">LMArena boards — map to a taxonomy</div>
+      <div class="mp-tax-map" id="taxMap"></div>
+      <div class="mp-msg" id="mapMsg"></div>
+
       <div class="mp-field">
         <label class="form-label" for="taxName">New taxonomy</label>
         <input class="form-input" id="taxName" type="text" placeholder="e.g. local-served quality">

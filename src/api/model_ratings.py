@@ -44,6 +44,40 @@ VISIBLE_SQL = f"SELECT DISTINCT m.slug FROM {VISIBLE_FROM} WHERE {VISIBLE_PREDIC
 VISIBLE_IN = f"(SELECT DISTINCT m.slug FROM {VISIBLE_FROM} WHERE {VISIBLE_PREDICATE})"
 
 
+def mapped_in(con: sqlite3.Connection) -> Optional[str]:
+    """A SQL fragment restricting arena rows to boards the operator still maps.
+
+    The leaderboard is a JOIN against the mapping, so deleting a mapping has to
+    change what a tab shows — otherwise the row would linger from the last publish
+    and the map would not be the source of truth. `custom:` rows are exempt: they
+    are the operator's own ratings with no mapping and no upstream.
+
+    `None` when the mapping table is empty (a fresh install, or a unit fixture
+    without one): an empty map must not make a leaderboard unreadable while the
+    seed has not run yet.
+    """
+    try:
+        pairs = con.execute("SELECT taxonomy, board FROM taxonomy_map").fetchall()
+        catalogued = con.execute("SELECT COUNT(*) FROM arena_boards").fetchone()[0]
+    except sqlite3.OperationalError:
+        return None            # pre-040 database / a fixture without the tables
+    if not catalogued:
+        # No poll has ever stored a board, so there is nothing to map and the map
+        # cannot be the authority. Rows written by hand or by an older build stay
+        # readable — otherwise upgrading would blank the page until a poll ran.
+        return None
+    if not pairs:
+        # A catalogue EXISTS and the operator has unmapped everything. That is a
+        # decision, not a missing seed: no arena row may show. (Only `custom:` rows
+        # and rows carrying no board survive — they never came from a mapping.)
+        return "(source = 'custom' OR board = '')"
+    allow = " OR ".join(
+        f"(taxonomy = '{t.replace(chr(39), chr(39) * 2)}' AND board = "
+        f"'{b.replace(chr(39), chr(39) * 2)}')" for t, b in
+        {(r[0], r[1]) for r in pairs})
+    return f"(source = 'custom' OR board = '' OR ({allow}))"
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -228,17 +262,19 @@ def leaderboard(con: sqlite3.Connection, taxonomy: str) -> list[dict]:
     """
     con = _rowify(con)
     out = []
+    keep = mapped_in(con)
+    keep_sql = f" AND {keep}" if keep else ""
     # Deterministic unit order: iterating a set made the two groups swap places
     # between two identical requests.
     units = sorted({r[0] for r in con.execute(
-        f"SELECT DISTINCT unit FROM model_ratings WHERE taxonomy=? AND model_slug IN {VISIBLE_IN}",
+        f"SELECT DISTINCT unit FROM model_ratings WHERE taxonomy=? AND model_slug IN {VISIBLE_IN}{keep_sql}",
         (taxonomy,))},
         key=lambda u: ({"elo": 0, "net_improvement": 1}.get(u, 9), u))
     for unit in units:
         rows = con.execute(f"""
             SELECT model_slug, value, unit, percentile, rank, lab, effort, board,
                    published, basis, source, updated_at
-            FROM model_ratings WHERE taxonomy=? AND unit=? AND model_slug IN {VISIBLE_IN}
+            FROM model_ratings WHERE taxonomy=? AND unit=? AND model_slug IN {VISIBLE_IN}{keep_sql}
             ORDER BY value DESC
         """, (taxonomy, unit)).fetchall()
         best: dict[str, dict] = {}
@@ -368,9 +404,20 @@ def stage_poll(con: sqlite3.Connection, *, fetch=None) -> dict:
 
     con = _rowify(con)
     boards = (fetch or arena_poll.default_fetch)()
+
+    # 1. PERSIST EVERYTHING FIRST. The operator's rule (2026-11-15): "on the first
+    #    poll latest data persist all lmarena taxonomies in sqlite. Then enable the
+    #    user to map their taxonomy". So the catalogue (all 36 boards and every row
+    #    for a model we serve) is written before any mapping is consulted — which
+    #    is what lets a newly added mapping show a table immediately, with no
+    #    re-poll.
+    from . import arena_taxonomy
+    stored = arena_taxonomy.store_boards(con, boards)
+    seeded = arena_taxonomy.seed_default_map(con)
+
     built = arena_poll.build_rows(con, boards)
     poll_id = uuid.uuid4().hex[:12]
-    now = _now()
+    now = stored["polled_at"]
     baseline = {}
     for r in con.execute("SELECT model_slug, taxonomy, unit, board, effort, value,"
                          " published, updated_at FROM model_ratings"):
@@ -402,7 +449,8 @@ def stage_poll(con: sqlite3.Connection, *, fetch=None) -> dict:
     con.commit()
     out = {"poll_id": poll_id, "staged": staged, "polled_at": now,
            "boards": built["stats"], "unmatched": built["unmatched"],
-           "taxonomies": taxonomies(con), "rows": staged_rows(con)}
+           "taxonomies": taxonomies(con), "rows": staged_rows(con),
+           "catalogue": stored, "mapping_seeded": seeded.get("seeded", 0)}
     try:
         out["release"] = arena_poll.release_candidates(con, boards)
     except Exception as exc:  # noqa: BLE001 — the diff is the deliverable; this is a bonus
@@ -462,6 +510,11 @@ def commit_staged(con: sqlite3.Connection, keys: Optional[list[dict]] = None) ->
                        AND unit=? AND board IS ? AND effort IS ?""",
                     (r["model_slug"], r["taxonomy"], r["unit"], r["board"], r["effort"]))
     con.commit()
+    # NOT republished from the catalogue here. Accepting a TICKED SUBSET has to
+    # mean something: republishing every mapped board would overwrite the rows the
+    # operator just declined. The accept writes exactly what it was asked to.
+    # (`arena_taxonomy.map_board` IS what publishes a whole taxonomy, and it runs
+    # when a mapping changes — which is the moment new rows are wanted.)
     result["remaining"] = len(staged_rows(con))
     result["taxonomies"] = taxonomies(con)
     return result
