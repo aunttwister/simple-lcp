@@ -740,7 +740,8 @@ async function mapBoards(tax, boards) {
   if (failed.length) {
     mapMsg(`Mapped, but ${failed.length} failed — ${failed.join('; ')}`, 'bad');
   } else {
-    mapMsg(`${boards.length} board${boards.length === 1 ? '' : 's'} now measure ${tax}` +
+    const noun = boards.length === 1 ? 'board now measures' : 'boards now measure';
+    mapMsg(`${boards.length} ${noun} ${tax}` +
       (written ? ` — ${written} rows published.` : ' — no stored rows yet.'), 'ok');
   }
   await refreshAfterMap(STATE.tabs);
