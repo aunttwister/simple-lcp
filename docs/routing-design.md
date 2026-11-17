@@ -3,14 +3,13 @@
 ## Metadata
 
 - **Author:** aunttwister (maintained with homelab-expert L2)
-- **Status:** design APPROVED 2026-11-17. §15 records the three decided questions; §16
-  is a pre-build gap and edge-case analysis, every number probed live. Nothing in §4
-  onwards is built.
+- **Status:** APPROVED 2026-11-17. The Arena tier is IMPLEMENTED, deployed to staging and
+  verified live (§17). The `Routing definitions` authoring page is not built (§17.5).
 - **Created:** 2026-11-16 · **Revised:** 2026-11-17 — (1) a score is keyed
   `(portfolio, release, quantisation)`; (2) the intent model is described as its real
   two-step process; (3) §7's rank-correlation derivation measured as non-discriminating
-  and RETIRED; (4) two label spaces decided, auto-map-then-create registration,
-  label-plus-evidence; (5) §16 gap analysis added.
+  and RETIRED; (4) two label spaces decided; (5) §16 gap and edge-case analysis; (6) §17
+  implementation status with live evidence.
 - **URL:** `docs/routing-design.md` in github.com/aunttwister/lcp
 - **Mirrored:** LeafWiki `okf-homelab-documentation/local-ai/routing-design`
 
@@ -537,11 +536,11 @@ queue.
 | 4 | CSV import into tab 1 | no |
 | 5 | Release-aware matrix (one row per release × quant), with inherited-quant marking | no |
 | 6 | Unmapped resolution in column 3: map / create portfolio / leave unmapped | no |
-| 7 | **Board exemplars** — one exemplar set per board, so the judge can label with boards | no |
-| 8 | Arena routing type = the same classifier with the board label space | no |
-| 9 | Routing type selector on the profile Routing tab (+ label-space validation) | no |
-| 10 | Record `base_intent` / `base_scores` / `base_margin` / `arena_board` / `quant_id` | additive |
-| 11 | Wire Arena as a score source in `get_model_score()` | **yes, additive** |
+| 7 | **Board exemplars** — one exemplar set per board, so the judge can label with boards | no | **DONE 2026-11-17** |
+| 8 | Arena routing type = the same classifier with the board label space | no | **DONE 2026-11-17** |
+| 9 | Routing type selector on the profile Routing tab (+ label-space validation) | no | **selector DONE; label-space validation still open** |
+| 10 | Record `base_intent` / `base_scores` / `base_margin` / `arena_board` / `quant_id` | additive | **DONE for `base_intent`/`arena_board`/`base_scores` (alembic 041); `quant_id` derivable via `to_deployment_id`** |
+| 11 | Wire Arena as a score source in `get_model_score()` | **yes, additive** | **DONE 2026-11-17** |
 | 12 | Read-only view over `routing_decisions.semantic_json` (data already stored) | no |
 | 13 | Delete `Manage taxonomy` from Models and the custom taxonomies | no |
 
@@ -675,10 +674,11 @@ probed against the live staging database, not recalled.
 | Layer | State |
 |---|---|
 | Leaderboard (36 boards, 438 rows) | **built, live on staging** (:8735, alembic 040) |
+| **Arena routing tier** (board label space, walk, hard rules, score source) | **built + verified live on staging, alembic 041** — §17 |
 | Persist-then-map taxonomy mapping (14 seeds) | **built, live on staging** |
 | Registration fixes (active-only, release normalisation) | **built, live on staging** |
 | Design doc (this document) | **approved** — all 3 questions decided |
-| Routing types, Arena routing, board exemplars, recording columns | **not started** |
+| Routing types, Arena routing, board exemplars, recording columns | **DONE** (§17); the `Routing definitions` AUTHORING page (steps 3–6, 12) is not started |
 | Prod (:8734) | **alembic 029** — none of the above is visible in prod |
 
 The prod gap is deliberate (no deploy GO), but it means the entire leaderboard feature
@@ -776,3 +776,89 @@ Nothing moves. Three things are added to the steps they belong to:
 - step 8 (Arena routing type) gains: E2 effort policy, E3 tiebreak, E4 fallback,
   E7 keyword guard, E6/E9 hysteresis;
 - step 5 (matrix) gains: E8 visible "unscored" terminal state.
+
+---
+
+## 17. Implementation status — 2026-11-17
+
+Built test-first, deployed to staging, and verified against the live staging estate.
+Prod is untouched (alembic 029, container up 8 h, restarts 0).
+
+### 17.1 What shipped
+
+| Piece | File | What it does |
+|---|---|---|
+| The label space | `src/api/board_labels.py` | 23 curated boards; the 4 meta and 9 language boards are excluded (§16 E1) |
+| Board exemplars | `src/api/board_exemplars.py` | 4 authored exemplars per curated board — the judge cannot assign a label it has no text for |
+| The engine | `src/api/arena_routing.py` | `curated_boards`, `pick_board`, `walk`, `score`, `effort_group` |
+| The third tier | `src/api/router.py` `_select_step_arena` | breaker gate → per-message classification → hard rules → board walk → build the chain; every fallback records why |
+| The vocabulary | `src/api/cost_cache.py`, `src/server/endpoints.py` | `routing_route_by` = static \| intent \| arena; `rules` stays the legacy spelling of `static` |
+| The selector | `sec_prouting.html` | three tiers by name: Static / Intent / Arena |
+| The recording | `alembic/versions/041_…`, `models.py`, `router.py` | `base_intent` + `arena_board`, named in the constructor AND projected in `recent_decisions()` |
+| The score source | `router.get_model_score` → `_arena_score_for` | a board answers when the matrix has nothing for that task; never a fabricated value |
+
+### 17.2 Verified live on staging, not asserted
+
+Real config, real database, real embedder (`bge-small-en-v1.5`), profile `l2`, pool of
+four `model:provider` pairs:
+
+```
+"refactor this python function …"   → board coding                            → glm-5.3-flash (rank 16)
+"explain the tradeoffs between …"   → board expert                            → glm-5.3-flash (rank 20)
+"summarise this incident postmortem…" → board industry_software_and_it_services → glm-5.3-flash (rank 18)
+
+hard rule: block glm-5.3-flash → the walk moved on to deepseek-v4-pro (rank 72)
+```
+
+Each row persisted with `path='arena'`, `arena_board`, `base_intent`, and a note naming
+the board and the rank used. Three messages, three boards, one conversation — the
+per-message decision the operator asked for.
+
+### 17.3 The defect the deploy found (and the test that missed it)
+
+The first version of migration 041 executed raw SQL with a plain string, because that is
+what a `sqlite3.Connection` needs — and that is what my test passed. Alembic runs
+migrations at container startup with a **SQLAlchemy** Connection, which raises
+`ObjectNotExecutableError` on a plain string. Staging went into a crash loop on the
+first deploy attempt. Nothing was corrupted and the rollback was a rebuild, but the
+lesson is recorded: **a migration must be tested through the connection type it actually
+runs on.** `_execute()` now dispatches on the connection, and
+`test_migration_041_works_through_an_alembic_style_connection` drives the SQLAlchemy
+path so it cannot come back.
+
+### 17.4 A tag was contaminated, and repaired
+
+While deploying, a `docker compose build` run from the staging directory used that
+directory's prod-shaped `docker-compose.yml`, and rebuilt the image tag
+`simple-lcp-lcp:latest` from **staging** code. The subsequent `up -d` was refused by the
+container-name conflict (`lcp` already in use), so the prod container never restarted —
+verified after the fact: `started=08:39:37Z restarts=0`, health 200. The tag itself was
+repaired by rebuilding from the prod repo and re-tagging, then verified by inspecting
+the image: neither prod tag contains `src/api/arena_routing.py`.
+
+**Standing hazard, worth a decision:** the staging repo carries a prod-shaped
+`docker-compose.yml` beside its `docker-compose.staging.yml`, so a bare
+`docker compose up -d` in that directory targets prod. Every staging deploy from now on
+must pass `-f docker-compose.staging.yml`.
+
+### 17.5 Not built (deliberately listed, not implied)
+
+- The `Routing definitions` authoring page and its tabs (steps 3–6): the matrix editor,
+  CSV import, the release-aware matrix, the three-way unmapped resolution.
+- Label-space validation on the tier selector (§15 Q1's last consequence): selecting
+  Arena with no boards stored is currently a silent fallback to the static chain rather
+  than a refusal.
+- The read-only view over `routing_decisions.semantic_json` (step 12).
+- `quant_id` on decisions: derivable through `to_deployment_id` today, so it was not
+  duplicated into a column.
+- Deleting the `custom:` taxonomies (step 13) — it would leave `qwen3.8-27b-heretic` with
+  no scores at all (§16.2 gap 5), so it waits for the matrix cell that replaces them.
+
+### 17.6 Rollback
+
+- **Code:** staging is at `c2e9d3b`; the previous staging build was `f499b59`.
+- **Schema:** 041 adds two nullable columns. Reverting the code leaves them in place
+  and harmless; `alembic downgrade 040` drops them.
+- **Database:** full pre-migration dump at
+  `/your/data/app/lcp-staging/db-backups/costs.db.pre-041-20261117T163704Z`
+  (1.02 GB, `integrity_check ok`, alembic 040, 28,668 decisions).
