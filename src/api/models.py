@@ -341,6 +341,15 @@ class RoutingDecision(Base):
     to_deployment_id = Column(Integer, nullable=True)
     registry_version = Column(Integer, nullable=True)
 
+    # ── Label space (alembic 041) ───────────────────────────────────────────
+    # Which label space decided this row, and where the request landed in it. Under
+    # Arena routing the board IS the intent, and it is not derivable from `task`
+    # afterwards: the task taxonomy and the board label space are different
+    # vocabularies, and a historical pick has to be explainable by the label space that
+    # was in force when it was made.
+    base_intent = Column(String, nullable=True)   # assigned label (board under Arena)
+    arena_board = Column(String, nullable=True)   # the board walked, when Arena decided
+
     # ── Dynamic per-user taxonomy (alembic 028) ─────────────────────────────
     # Which taxonomy (label space) produced this decision. Recorded because a decision logged under
     # one label space is otherwise indistinguishable from the same decision under another, so the

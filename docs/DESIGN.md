@@ -416,6 +416,7 @@ Every `.md` file in this repo and what it contributes to the design:
 | `CHANGELOG.md` | Release history; v0.4.0 → v0.5.0 delta |
 | `docs/component-runtime.md` | Component runtime contract, graph, boot, request path (reference for the shipped code) |
 | `docs/semantic-routing.md` | Semantic classifier + context-aware routing (module install, taxonomy, config) |
+| `docs/routing-design.md` | **Routing definitions design (2026-11-16)**: the three tiers (Static/Arena/Intent), pools, capability matrix, model portfolios with releases and dimensions, derived board assignment, and the fields recorded for future classifier training |
 | `docs/release-notes-v0.5.0.md` | First public release notes |
 | `SECURITY.md` | Security policy, in/out of scope, supported versions |
 | `features/intelligent-routing.md` | Dynamic router, Council (Tier 2), Harness (Tier 3) — Tier 1 shipped |

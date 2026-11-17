@@ -152,6 +152,12 @@ class ClassifyResult:
     # can always be explained by the label space that was in force when it was made.
     taxonomy_id: str = "builtin-v0"
     taxonomy_version: Optional[int] = None
+    # The assigned label and, when the Arena tier decided, the board whose ranking was
+    # walked. Under Arena the board IS the intent — `task` carries it too, but these two
+    # survive a later change of the task taxonomy, which is what makes an old decision
+    # explainable rather than merely historical (alembic 041).
+    base_intent: Optional[str] = None
+    arena_board: Optional[str] = None
 
 
 def _profile_intents(config: Any, profile: Optional[str]) -> list:
@@ -873,6 +879,11 @@ class CapabilityRouter:
             # space is indistinguishable from the same decision under another.
             "taxonomy_id": getattr(detail, "taxonomy_id", "builtin-v0"),
             "taxonomy_version": getattr(detail, "taxonomy_version", None),
+            # The label that was assigned and, for Arena, the board that was walked.
+            # Named in this dict AND in the RoutingDecision constructor below: adding it
+            # here alone does not reach the table.
+            "base_intent": getattr(detail, "base_intent", None) or detail.task or None,
+            "arena_board": getattr(detail, "arena_board", None),
         }
 
     @staticmethod
@@ -942,6 +953,8 @@ class CapabilityRouter:
                     # reaches the table.
                     taxonomy_id=decision.get("taxonomy_id"),
                     taxonomy_version=decision.get("taxonomy_version"),
+                    base_intent=decision.get("base_intent"),
+                    arena_board=decision.get("arena_board"),
                 ))
                 session.commit()
         except Exception:  # noqa: BLE001 — persistence must never break routing
@@ -979,10 +992,41 @@ class CapabilityRouter:
                         "semantic_json": r.semantic_json,
                         "min_score": r.min_score, "sem_available": r.sem_available,
                         "l4": _json.loads(r.l4_json) if r.l4_json else None,
+                        # The label space, projected like every other column: a field
+                        # stored but not read here is a field nobody can see.
+                        "base_intent": r.base_intent, "arena_board": r.arena_board,
+                        "taxonomy_id": r.taxonomy_id,
+                        "taxonomy_version": r.taxonomy_version,
                     } for r in rows]
         except Exception:  # noqa: BLE001 — fall back to in-memory
             pass
         return list(self._decisions[-limit:])
+
+    def _arena_score_for(self, model: str, board: str) -> Optional[float]:
+        """The model's standing on *board* (0–1), or None when the board never ranked it.
+
+        None is the whole point: the caller falls through to the ordinary default, so an
+        unmeasured model gets the same treatment it always did rather than a fabricated
+        arena number. Best-effort — a board lookup must never break scoring.
+        """
+        try:
+            from . import arena_routing as arena
+            con = self._arena_connection()
+            if con is None:
+                return None
+            try:
+                try:
+                    logical = logical_model_name(model, self.db_path)
+                except Exception:  # noqa: BLE001 — an unmigrated registry must not
+                    logical = model   # disable the score source; try the raw name too
+                got = arena.score(con, board, logical)
+                if got is None and logical != model:
+                    got = arena.score(con, board, model)
+                return got
+            finally:
+                con.close()
+        except Exception:  # noqa: BLE001 — scoring must never break on a board lookup
+            return None
 
     def get_model_score(self, model: str, task: str,
                         provider: Optional[str] = None) -> float:
@@ -1004,6 +1048,17 @@ class CapabilityRouter:
                     _p4_bump("capability_registry")
                     return task_scores[key]
             _p4_bump("capability_legacy")
+
+        # Arena as a score source (design §4 Tier 3): when the task names a board the
+        # capability matrix has never heard of — which is every LMArena board, since the
+        # two vocabularies share no names — answer from that board's standing instead.
+        # Deliberately AFTER the matrix lookup and BEFORE the default, and only when the
+        # board actually ranked this model: an unranked model must not read as a number
+        # it never earned (§16 E8).
+        if task not in matrix:
+            arena_value = self._arena_score_for(model, task)
+            if arena_value is not None:
+                return arena_value
 
         logical = logical_model_name(model, self.db_path)
         benchmark = benchmark_model_name(logical, self.db_path)
@@ -1852,25 +1907,40 @@ class CapabilityRouter:
             from .cost_cache import get_settings
             s = get_settings()
             if s is not None:
-                v = s.get_route_by(profile=profile)
-                if v in ("intent", "rules"):
-                    return v
+                norm = self._normalize_route_by(s.get_route_by(profile=profile))
+                if norm is not None:
+                    return norm
         except Exception:  # noqa: BLE001
             pass
         return "intent"
 
+    @staticmethod
+    def _normalize_route_by(value: Optional[str]) -> Optional[str]:
+        """Tier name for a stored route_by value, or None when unknown.
+
+        ``rules`` is the old spelling of the static tier and still normalises to
+        ``static`` — renaming a stored value out from under an estate is how a
+        configured install silently starts routing differently.
+        """
+        from .cost_cache import SettingsStore
+        return SettingsStore.normalize_route_by(value)
+
     def _select_step_rules_only(self, chain, messages, profile, config, policy):
-        """Route-by=rules: static order, rules still act, no intent call.
+        """The STATIC tier: static order, rules still act, no intent call.
+
+        Kept under its old method name because that name describes what it does —
+        the chain order, with rules as the only thing that acts — while the TIER it
+        implements is now called `static` (design doc §4).
 
         The circuit breaker and the request pipeline still gate providers;
         block and prefer rules whose scope does not require a task ('*')
         still fire. No capability scoring, no intent-model call, no margin
         gate — that machinery needs a classified task, which this mode
-        deliberately does not produce. Decisions are stamped ``path=rules_only``
-        so they are distinguishable in the log from unclassified defaults.
+        deliberately does not produce. Decisions are stamped ``path=static`` so they
+        are distinguishable in the log from unclassified defaults.
         """
-        detail = ClassifyResult(task="", path="rules_only",
-                                intent_meta={"route_by": "rules"})
+        detail = ClassifyResult(task="", path="static",
+                                intent_meta={"route_by": "static"})
         chain = [s for s in chain if self._provider_available(s, profile, config)]
         if not chain:
             return None
@@ -1884,7 +1954,7 @@ class CapabilityRouter:
         if target_model is None and not preferred_provider:
             self._record_decision({
                 **self._decision_base(detail, messages, profile, policy,
-                                      "route_by=rules — static chain order",
+                                      "route_by=static — chain order, rules only",
                                       fired_desc),
                 "action": "keep_default", "model": chain[0]["model"],
                 "provider": chain[0]["provider"], "score": 0.0,
@@ -1904,7 +1974,7 @@ class CapabilityRouter:
         if not result:
             self._record_decision({
                 **self._decision_base(detail, messages, profile, policy,
-                                      "route_by=rules — prefer target unbuildable",
+                                      "route_by=static — prefer target unbuildable",
                                       fired_desc),
                 "action": "keep_default", "model": chain[0]["model"],
                 "provider": chain[0]["provider"], "score": 0.0,
@@ -1916,6 +1986,179 @@ class CapabilityRouter:
                                   "route_by=rules", fired_desc),
             "action": "prefer", "model": head["model"],
             "provider": head["provider"], "score": 0.0,
+            "from_model": chain[0]["model"], "from_provider": chain[0]["provider"],
+        })
+        return result
+
+    # ── Arena tier (design doc §4 Tier 2, §15 Q1 decided 2026-11-17) ─────────
+    # "Board names for Arena routing" — the judge labels the message with a LMArena
+    # board, and that board's ranking is walked, filtered to the pool. Nothing is
+    # configured: the pool is the only input, which is what makes this the zero-effort
+    # tier. Decided PER MESSAGE ("On every message"), so a conversation that drifts
+    # from coding to prose can change model.
+
+    def _arena_connection(self):
+        """A read connection to the registry DB, or None if it cannot be opened."""
+        try:
+            import sqlite3 as _sqlite3
+            con = _sqlite3.connect(self.db_path)
+            con.row_factory = _sqlite3.Row
+            return con
+        except Exception:  # noqa: BLE001 — routing must never break on this
+            return None
+
+    @staticmethod
+    def _arena_text(messages) -> str:
+        """The newest genuine user instruction — what the board is judged from."""
+        try:
+            for m in reversed(list(messages or [])):
+                if not isinstance(m, dict):
+                    continue
+                if m.get("role") != "user":
+                    continue
+                content = m.get("content")
+                if isinstance(content, list):
+                    content = " ".join(
+                        p.get("text", "") for p in content if isinstance(p, dict))
+                text = (content or "").strip()
+                if text:
+                    return text
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
+    def _select_step_arena(self, chain, messages, profile, config, policy):
+        """route_by=arena: classify to a board, walk it, honour the hard rules.
+
+        Order of authority, highest first — the same as every other tier:
+
+          1. the circuit breaker (a dead provider is not a candidate);
+          2. ``block`` rules, per profile;
+          3. ``prefer`` rules, per profile — a win by rule is a win;
+          4. the board's ranking, filtered to the pool;
+          5. the static chain, when nothing survives.
+
+        Returns None when the static chain should stand — which is the honest answer
+        for "no board", "no embedder", "nothing servable on this board", or "the margin
+        gate vetoed the change". Never raises a routing error into the request path.
+        """
+        from . import arena_routing as arena
+        from .board_exemplars import BOARD_LABEL_SPACE_ID
+
+        detail = ClassifyResult(task="", path="arena",
+                                intent_meta={"route_by": "arena"},
+                                taxonomy_id=BOARD_LABEL_SPACE_ID)
+
+        # 1. breaker gate — identical to the intent tier.
+        chain = [s for s in chain if self._provider_available(s, profile, config)]
+        if not chain:
+            return None
+
+        text = self._arena_text(messages)
+        board, scored = arena.pick_board(text) if text else (None, [])
+        detail.intent_text = text
+        detail.semantic = list(scored) or None
+        detail.sem_available = bool(scored)
+
+        if board is None:
+            # §16 E7: no board means the static chain, never a keyword guess at a
+            # board. The note distinguishes "no embedder" from "below the gate",
+            # because the fixes for those two are different.
+            note = ("arena: no board — embedder unavailable, static chain stands"
+                    if not scored else
+                    "arena: no board above the gate, static chain stands")
+            self._record_decision({
+                **self._decision_base(detail, messages, profile, policy, note, []),
+                "action": "keep_default", "model": chain[0]["model"],
+                "provider": chain[0]["provider"], "score": 0.0,
+            })
+            return None
+
+        detail.task = board
+        detail.base_intent = board
+        detail.arena_board = board
+
+        # 2. hard rules — the profile's own list, exactly as the intent tier reads it.
+        chain, fired_blocks, blocked_providers, blocked_models = self._apply_blocks(
+            chain, board, profile, config)
+        if not chain:
+            self._record_decision({
+                **self._decision_base(
+                    detail, messages, profile, policy,
+                    "arena: every pool member blocked by a rule", []),
+                "action": "keep_default", "model": "",
+                "provider": "", "score": 0.0,
+            })
+            return None
+        target_model, preferred_provider, fired_prefer = self._resolve_prefer(
+            chain, board, profile, config)
+        fired_desc = [f["action"] for f in fired_blocks] + [f["action"] for f in fired_prefer]
+
+        # 3. the profile's margin gate still applies: an uncertain classification must
+        #    not move a request off the chain the operator configured.
+        gate = self._intent_margin_gate(config, profile)
+        margin = None
+        if gate > 0.0 and len(scored) >= 2:
+            margin = round(scored[0][1] - scored[1][1], 6)
+        gate_fired = bool(gate > 0.0 and margin is not None and margin < gate)
+
+        con = self._arena_connection()
+        if con is None:
+            return None
+        try:
+            if target_model is None and not preferred_provider:
+                if gate_fired:
+                    note = (f"arena: margin {margin:.3f} < gate {gate:g} "
+                            f"({scored[0][0]} vs {scored[1][0]}), static chain stands")
+                    self._record_decision({
+                        **self._decision_base(detail, messages, profile, policy,
+                                              note, fired_desc),
+                        "action": "keep_default", "model": chain[0]["model"],
+                        "provider": chain[0]["provider"], "score": 0.0,
+                    })
+                    return None
+                # 4. the walk: the board's order, filtered to what this profile may serve.
+                candidates = {
+                    logical_model_name(step["model"], self.db_path)
+                    for step in chain
+                } - set(blocked_models or ())
+                pick, rank, effort = arena.walk(con, board, candidates)
+                if pick is None:
+                    note = (f"arena: board {board!r} ranks nothing in this pool "
+                            f"({len(candidates)} candidate(s)), static chain stands")
+                    self._record_decision({
+                        **self._decision_base(detail, messages, profile, policy,
+                                              note, fired_desc),
+                        "action": "keep_default", "model": chain[0]["model"],
+                        "provider": chain[0]["provider"], "score": 0.0,
+                    })
+                    return None
+                target_model = pick
+                note = (f"arena: board {board!r} rank {rank}"
+                        f"{' (effort ' + effort + ')' if effort else ''}")
+                l4_scores = None
+            else:
+                note = "arena: prefer rule overrides the board ranking"
+
+            result = self._build_chain_for_model(
+                chain, target_model, preferred_provider, profile, config,
+                task=board)
+            if not result:
+                return None
+            head = result[0]
+        finally:
+            try:
+                con.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+        head_unchanged = (head["provider"] == chain[0]["provider"]
+                          and head["model"] == chain[0]["model"])
+        self._record_decision({
+            **self._decision_base(detail, messages, profile, policy, note, fired_desc),
+            "action": "prefer" if fired_prefer else (
+                "keep_default" if head_unchanged else "reorder"),
+            "model": head["model"], "provider": head["provider"], "score": 0.0,
             "from_model": chain[0]["model"], "from_provider": chain[0]["provider"],
         })
         return result
@@ -1966,8 +2209,12 @@ class CapabilityRouter:
         # classification (default) or on explicit rules only. In rules-only
         # mode no intent-model call is made and no capability scoring runs —
         # the static chain order stands; scope-'*' prefer/block rules still act.
-        if self._route_by(profile, config) == "rules":
+        tier = self._route_by(profile, config)
+        if tier == "static":
             return self._select_step_rules_only(
+                chain, messages, profile or "", config, policy)
+        if tier == "arena":
+            return self._select_step_arena(
                 chain, messages, profile or "", config, policy)
         # The profile is passed through so the governing taxonomy is the PROFILE's, not the estate
         # default: that is the entire point of a per-user label space.
