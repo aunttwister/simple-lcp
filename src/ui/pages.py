@@ -395,7 +395,8 @@ def render_routing_definitions_page(config, engine=None, params=None) -> str:
     return render_page("pages/routingdefs.html", config, engine,
                        active_page="routingdefs",
                        tab=tab,
-                       crumbs=(("Routing definitions", "/routing-definitions"), (label, None)))
+                       crumbs=_crumbs(("Routing definitions", "/routing-definitions"),
+                                      (label, None)))
 
 
 def _profile_config_payload(config, name, pcfg) -> dict:
