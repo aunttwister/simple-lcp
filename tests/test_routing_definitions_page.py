@@ -124,6 +124,18 @@ def test_the_boards_tab_says_where_the_poll_is(cfg, engine):
     assert "Models" in html and "Poll" in html
 
 
+def test_the_page_has_a_breadcrumb(cfg, engine):
+    """`_crumbs()` builds {label, href} dicts; passing raw tuples renders nothing —
+    which is a silent blank in the header, not an error, so it needs a test."""
+    for tab in ("matrix", "boards", "unmapped"):
+        html = _render(cfg, engine, tab)
+        assert "Routing definitions" in html
+        # the terminus crumb differs per tab, so the trail proves the dicts arrived
+        label = {"matrix": "Capability matrix", "boards": "Arena boards",
+                 "unmapped": "Unmapped"}[tab]
+        assert f">{label}<" in html, f"breadcrumb terminus missing on {tab}"
+
+
 # ── tab 3: the unmapped resolution queue ──────────────────────────────────────
 
 def test_unmapped_tab_renders_its_own_surface(cfg, engine):
