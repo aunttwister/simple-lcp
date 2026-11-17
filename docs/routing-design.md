@@ -3,11 +3,13 @@
 ## Metadata
 
 - **Author:** aunttwister (maintained with homelab-expert L2)
-- **Status:** design for review, 2026-11-16. Nothing in §4 onwards is built.
+- **Status:** design for review, 2026-11-16 (rev. 2). Nothing in §4 onwards is built.
   Supersedes the earlier draft that proposed a `task → board` configuration table;
   that table is gone (§7), because the board is derived from agreement between
   independent rankings rather than configured.
-- **Created:** 2026-11-16
+- **Created:** 2026-11-16 · **Revised:** 2026-11-17 — a score is keyed
+  `(portfolio, release, quantisation)`, not `(portfolio, release)`; the intent model is
+  described as its real two-step process (score, then assign).
 - **URL:** `docs/routing-design.md` in github.com/aunttwister/lcp
 - **Mirrored:** LeafWiki `okf-homelab-documentation/local-ai/routing-design`
 
@@ -153,16 +155,26 @@ dimensions, all already present in the schema:
 | Dimension | Where | Example values | Why it matters |
 |---|---|---|---|
 | **portfolio** | `mi_models.slug` | `deepseek-flash` | the identity everything joins on |
-| **release** | `mi_releases.label` | `v4.1-ga`, `1017` | scores are per release |
+| **release** | `mi_releases.label` | `v4.1-ga`, `1017` | scores are per release (with the quant) |
 | **variant** | `mi_deployments.variant` | `fast` | a provider's sped-up serving of the same release |
-| **quantisation** | `mi_deployments.quantisation` | `exl3`, `exl3-eaqv1-2.9bpw`, `q4_k_m` | a local build is not the same model |
+| **quantisation** | `mi_quants` + `mi_deployments.quant_id` | `exl3`, `exl3-eaqv1-2.9bpw`, `q4_k_m` | **a quant is its own score subject** |
 | **effort** | `arena_board_rows.effort` | `low`, `medium`, `high`, `xhigh`, `max` | a dial, not a model — 301 arena rows carry it |
 
 **Rules that follow:**
 
-- a score belongs to `(portfolio, release)` — not to a variant, not to a quantisation
-- a **quantised local build is a different serving of the same release** and must be
-  distinguishable in the pool, because it may score differently
+- **A score belongs to `(portfolio, release, quantisation)`.** Quantisation is a real
+  score subject, not a footnote: `DeepSeek-V4.1-Flash-1017` at
+  `exl3-eaqv1-2.9bpw` on the Sparks *is not* the same model as the unquantised API
+  release, and it may well score differently. A variant (`fast`) is a serving mode of
+  the same weights and does **not** get its own score.
+- **A quant with no score of its own inherits the base score**, and the inheritance is
+  *visible* — stored with the row that carries it, so the matrix can render
+  `0.62 (inherited from base)` rather than implying a measurement nobody took. This is
+  what keeps the system honest on a fresh install: a local build routes immediately
+  using the base grade, and earns its own once something measures it.
+- Where the catalogue stands today: 3 quants (`exl3`, `exl3-eaqv1-2.9bpw`, `q4_k_m`),
+  3 deployments carrying one — a Spark build, a retired Spark build, and a llama.cpp
+  GGUF. So this is not hypothetical; it is the current estate.
 - **effort is a dial, not a model.** `claude-opus-5-5 (max)` and `(high)` are two rows on
   one board, not two models. The poll keeps the highest effort per model by default.
 
@@ -250,13 +262,18 @@ for training the next intent models.
 | Field | Example | Status |
 |---|---|---|
 | `intent_text` | the user message | exists |
-| `base_intent` | `code_generation` — independent of any taxonomy | **to add** |
-| `base_scores` | `[{code_generation:0.62},{unit_tests:0.21},…]` — full ranked vector | fits `semantic_json` (empty on 100% of rows today) |
-| `base_margin` | `0.41` — gap between #1 and #2 | same column |
+| `base_scores` | `[{code_generation:0.62},{unit_tests:0.21},…]` — **step 1** output, the full ranked vector | fits `semantic_json` (empty on 100% of rows today) |
+| `base_intent` | `code_generation` — **step 2** output, independent of any taxonomy | **to add** |
+| `base_margin` | `0.41` — gap between #1 and #2, i.e. how close step 2 was | same column |
 | `taxonomy_id` / `taxonomy_version` | which taxonomy was in force | exists |
 | `our_taxonomy_label` | `refactor_python` | **to add** |
 | `arena_board` | `coding` — where it landed in LMArena's taxonomy | **to add** |
 | `arena_rank_used` | `2` — we picked #2 on that board | **to add** |
+| `quant_id` | `exl3-eaqv1-2.9bpw` — which build served it | **to add** |
+
+`quant_id` is here because a score belongs to `(portfolio, release, quantisation)`:
+without recording which build actually served the request, the outcome corpus cannot be
+attributed to the thing it is supposed to describe.
 
 `top_scores(text, k)` already returns the ranked vector, so the classifier side is
 buildable today.
@@ -282,20 +299,41 @@ Both recorded; only the second changes when the taxonomy changes.
 
 ### The two stages, explicitly
 
-**Stage 1 — precision.** Score the message against every label; a probability per label.
+The intent model is a **two-step process**, and it is worth being precise about which
+step is which — the current code does both in one call, which is why the second step
+was invisible in the first draft of this document.
 
-**Stage 2 — confidence.** How settled is the winner? Is the gap between #1 and #2 wide,
-or a coin toss?
+**Step 1 — score.** The intent model scores the message against **every label in the
+label space**, producing a ranked probability per label (`top_scores(text, k)`). This
+step does not decide anything; it is a measurement across the whole space.
 
-Recorded as `base_scores` (the whole vector) and `base_margin` (the gap). The margin is
-the useful half: a wide margin is a settled request, a narrow one is where the taxonomy
-is missing a distinction. Cluster the narrow-margin messages and they become the
-suggested exemplars for a new label — so the system proposes intents from its own
-uncertainty rather than asking the user to invent them from nothing.
+**Step 2 — assign.** From those scores, the **most appropriate intent is assigned** —
+the winner above the gate (`classify()` is exactly `top_scores(text, 1)` plus the
+`min_score` gate). This is a decision, and it is the only thing routing consumes.
+
+The distinction matters because the two steps fail differently:
+
+| Step | Fails when | Symptom |
+|---|---|---|
+| score | the embedder is unavailable, or the label space has no exemplars | no scores at all — falls back to keyword heuristics |
+| assign | the top score is below the gate, or two labels are close | scores exist but no intent is assigned |
+
+Recording them separately is what makes the corpus useful: **`base_scores` is step 1's
+output, `base_intent` is step 2's output, `base_margin` is how close step 2 was.**
+A request with scores but no assignment, or an assignment with a narrow margin, is the
+traffic that tells you the label space is wrong — and that is the revision data you
+wanted to keep.
 
 `scores_like` follows from this: it is a **cold-start hint the system offers**, never a
-mapping the user maintains. When a suggested label is accepted, the base intent already
-says roughly which existing scores apply to it.
+mapping the user maintains. When a suggested label is accepted, the base intent from
+step 2 already says roughly which existing scores apply to it.
+
+**One consequence for §7 worth flagging.** Because step 1 scores against *whatever label
+space it is given*, the label space can be the LMArena board names instead of our 8 task
+names. If so, step 2 assigns a **board** directly and no derivation is needed at all —
+which would make §7 simpler, not more complex. That is a question for you when you read
+§7, not a change to it: both routes can coexist (board labels for Arena routing, task
+labels for Intent routing), and which one is authoritative is the open decision.
 
 ---
 
@@ -443,7 +481,7 @@ profile. A walk that ignored breaker state would pick a dead provider every time
 | 2 | Fix model identity so benchmark keys and arena slugs join on portfolio | no |
 | 3 | `Routing definitions` page; move prod's matrix editor into tab 1 | no |
 | 4 | CSV import into tab 1 | no |
-| 5 | Release-aware matrix (one row per release) + release-history panel | no |
+| 5 | Release-aware matrix (one row per release × quant) + release-history panel | no |
 | 6 | Unmapped resolution in column 3 | no |
 | 7 | Arena boards tab + derived correlation per intent | no |
 | 8 | Routing type selector on the profile Routing tab | no |
