@@ -3,17 +3,20 @@
 ## Metadata
 
 - **Author:** aunttwister (maintained with homelab-expert L2)
-- **Status:** design for review, 2026-11-16 (rev. 2). Nothing in §4 onwards is built.
-  Supersedes the earlier draft that proposed a `task → board` configuration table;
+- **Status:** design for review, 2026-11-16 (rev. 3). Nothing in §4 onwards is built.
+  Supersedes the earlier draft that proposed a `task -> board` configuration table;
   that table is gone (§7), because the board is derived from agreement between
-  independent rankings rather than configured.
-- **Created:** 2026-11-16 · **Revised:** 2026-11-17 — a score is keyed
-  `(portfolio, release, quantisation)`, not `(portfolio, release)`; the intent model is
-  described as its real two-step process (score, then assign).
+  independent rankings — although that derivation is now measured as NOT WORKING at
+  the current model overlap, and a simpler alternative is recommended in its place.
+- **Created:** 2026-11-16 · **Revised:** 2026-11-17 — (1) a score is keyed
+  `(portfolio, release, quantisation)`, not `(portfolio, release)`; (2) the intent model
+  is described as its real two-step process (score, then assign); (3) §7's
+  rank-correlation bootstrap is measured and found non-discriminating, with the
+  "label the classifier with board names" alternative recommended instead.
 - **URL:** `docs/routing-design.md` in github.com/aunttwister/lcp
 - **Mirrored:** LeafWiki `okf-homelab-documentation/local-ai/routing-design`
 
-> **Read §1–3 first.** Most of the confusion in this area has been several different
+> **Read §1-3 first.** Most of the confusion in this area has been several different
 > things sharing one name; the vocabulary is defined before the design.
 
 ---
@@ -228,20 +231,64 @@ request text
    └─► walk that board's ranking (pool-filtered) → highest servable model
 ```
 
-### Bootstrapping it without traffic
+### Bootstrapping it without traffic — what this section means, and why it does not work yet
 
-The correlation is computable **today**, from data on disk — **once the identities
-join** (§6.3).
+**The problem it is trying to solve.** Arena routing needs to answer: *given intent
+X, which board judges it?* Two ways to get that answer:
 
-A first attempt appeared to confirm `reasoning_chain → math` at ρ=1.00. **That was
-circular**: those intent scores came *from* the `math` board, so the correlation
-compared LMArena with itself.
+- **from traffic** — record which board we used and whether the request succeeded, then
+  count how often each board's pick actually worked. Slow: needs real requests first.
+  This is what "without traffic" refers to — the aim was to have *something* before
+  any requests have been routed.
+- **without traffic** — compare two rankings that already exist on disk. Our intent
+  scores put the models in some order; a board puts them in some order. If both order
+  them the same way, that board plausibly measures that intent. No requests needed.
 
-The honest version correlates a **genuinely independent** benchmark (LiveBench) against
-LMArena boards. That currently returns nothing, because only 4 model keys overlap.
+**Measured, and it does not discriminate.** Tested live against the only models scored
+by both sources (4 of them: `deepseek-v4-pro`, `kimi-k3`, `qwen3.8-max`, `minimax-m3`):
 
-**So the bootstrap order is forced:** portfolio identity → then correlation → then Arena
-routing has a defensible board assignment with zero traffic.
+```
+code_generation → coding       ρ = +0.80
+code_generation → german       ρ = +0.80      ← same score, unrelated board
+code_generation → japanese     ρ = +0.80
+code_generation → instruction_following  ρ = +0.80
+code_generation → math         ρ = +0.40
+```
+
+Every board lands on the same handful of values, because **4 models cannot produce a
+meaningful rank correlation** — there are only 24 possible orderings, and the ordering
+of four models is nearly the same on every board. The method cannot tell `coding` from
+`japanese`, so it cannot answer the question it exists to answer.
+
+Two things could rescue it, and neither is guaranteed:
+
+1. **More overlapping models.** Joining the identities (§6.3) takes the overlap from 4
+   to ~16, which is enough to discriminate. This is the strongest argument for fixing
+   identity first — but it is untested until identity is fixed.
+2. **A different question.** Correlating LiveBench with LMArena asks "do these two
+   benchmarks agree?" — which is interesting, but not the same as "which board judges
+   this intent".
+
+**The earlier claim in this document was also wrong in a worse way.** A first attempt
+appeared to confirm `reasoning_chain → math` at ρ=1.00. That was **circular**: those
+intent scores came *from* the `math` board, so the correlation compared LMArena with
+itself. Any high correlation between an intent and the board it was imported from is a
+tautology, not evidence.
+
+### What to do instead — the simpler answer
+
+Since the intent model can score against **any label space** (§8), the label space for
+Arena routing can simply **be the board names**. Then:
+
+- the judge assigns a **board** directly, as its most probable label
+- no derivation, no correlation, no traffic, no table
+
+That is strictly simpler than §7's derivation and removes the bootstrap problem
+entirely. The only cost: the classifier needs exemplars per board, which is a one-time
+authoring task (and every board the operator does not care about can be left out).
+
+**This is the recommendation.** Recorded here as the alternative to §7, pending the
+operator's read of §7.
 
 ### Learning from outcomes — later
 
@@ -251,6 +298,8 @@ but not used yet:
 > for a given intent, how often did the chosen board's pick actually succeed
 
 It needs `arena_board` and a per-decision success link, which do not exist yet (§8).
+Unlike the correlation, this one is sound — it measures what actually happened, on our
+own traffic, which is exactly what the operator asked to collect and train on later.
 
 ---
 
