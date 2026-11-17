@@ -25,14 +25,33 @@ _TABLE = "routing_decisions"
 _COLUMNS = ("base_intent", "arena_board")
 
 
-def _existing(conn) -> set:
-    """Columns already on the table.
+def _raw_sqlite(conn) -> bool:
+    """True when *conn* is a bare sqlite3 connection rather than an alembic one.
 
-    The SQL is a plain string, not ``sa.text(...)``: this function is exercised both
-    through alembic's Connection and, in tests, through a bare ``sqlite3.Connection``,
-    and only the former understands a TextClause.
+    Both are real: alembic runs this at container startup with a SQLAlchemy Connection
+    (which REQUIRES ``sa.text(...)`` for raw SQL and raises
+    ObjectNotExecutableError on a plain string), and the test suite runs it against a
+    ``sqlite3.Connection`` (which requires a plain string and cannot take a TextClause).
+    Supporting only one of them is a crash loop on startup, which is exactly what the
+    first version of this file did. Measured 2026-11-17.
     """
-    rows = conn.execute(f"PRAGMA table_info({_TABLE})").fetchall()
+    try:
+        import sqlite3
+        return isinstance(conn, sqlite3.Connection)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _execute(conn, sql, params=()):
+    """Execute raw SQL on either connection type."""
+    if _raw_sqlite(conn):
+        return conn.execute(sql, params)
+    return conn.execute(sa.text(sql), params)
+
+
+def _existing(conn) -> set:
+    """Columns already on the table."""
+    rows = _execute(conn, f"PRAGMA table_info({_TABLE})").fetchall()
     return {r[1] for r in rows}
 
 
@@ -42,7 +61,7 @@ def upgrade(conn=None):
     have = _existing(conn)
     for col in _COLUMNS:
         if col not in have:
-            conn.execute(f"ALTER TABLE {_TABLE} ADD COLUMN {col} VARCHAR")
+            _execute(conn, f"ALTER TABLE {_TABLE} ADD COLUMN {col} VARCHAR")
 
 
 def downgrade(conn=None):
@@ -50,4 +69,4 @@ def downgrade(conn=None):
     have = _existing(conn)
     for col in _COLUMNS:
         if col in have:
-            conn.execute(f"ALTER TABLE {_TABLE} DROP COLUMN {col}")
+            _execute(conn, f"ALTER TABLE {_TABLE} DROP COLUMN {col}")
