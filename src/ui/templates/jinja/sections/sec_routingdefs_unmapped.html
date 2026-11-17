@@ -1,0 +1,43 @@
+{#-
+  Routing definitions → Unmapped: registered model:provider pairs with no portfolio.
+
+  These are names a provider serves that the registry has not yet decided what they
+  are. Until one is resolved it has no scores, so no routing tier can choose it —
+  only an explicit static-chain entry can reach it (design doc §15 Q2).
+
+  Three ways out, per the operator's decision:
+    * map it onto an existing portfolio
+    * create a new portfolio for it
+    * leave it unmapped (a decision, not an oversight)
+
+  Both writes go through the registry endpoint the matrix editor already uses, so
+  there is one write path for identity, not two.
+-#}
+{% if tab == 'unmapped' %}
+<p class="subtitle">
+  Model IDs your providers serve that are not tied to a portfolio yet. They have no
+  scores, so routing cannot pick them — only an explicit static-chain entry reaches them.
+  <span id="unmappedNote" class="seed-status"></span>
+</p>
+
+<div class="table-wrap">
+  <table class="dp-table" id="unmappedTable">
+    <thead>
+      <tr>
+        <th>Model ID (as served)</th>
+        <th>Provider</th>
+        <th>Assign to portfolio</th>
+        <th>Or create a new one</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="unmappedList"></tbody>
+  </table>
+</div>
+
+<div class="dp-note" style="margin-top:12px">
+  <strong>What happens on assign.</strong> The provider mapping is written to the
+  registry, which is what makes this model ID resolvable to a portfolio. The existing
+  deployment rows pick the new identity up on the next poll; nothing is rescored here.
+</div>
+{% endif %}

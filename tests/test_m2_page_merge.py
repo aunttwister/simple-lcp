@@ -46,6 +46,17 @@ SECTION_TAB = {
     "sec_providers": "providers",
     "sec_profiles": "profiles",
     "sec_keys": "keys",
+    # 2026-11-17: Routing definitions — the page that holds the routing vocabulary.
+    # It exists because Models became the leaderboard and took the capability editor
+    # with it, leaving the editor reachable nowhere in the UI. Tab 1 is that editor,
+    # lifted verbatim; tab 2 is the board catalogue; tab 3 resolves model IDs that are
+    # not tied to a portfolio yet.
+    "sec_routingdefs_matrix": "matrix",
+    "sec_routingdefs_matrix_script": "matrix",
+    "sec_routingdefs_boards": "boards",
+    "sec_routingdefs_boards_script": "boards",
+    "sec_routingdefs_unmapped": "unmapped",
+    "sec_routingdefs_unmapped_script": "unmapped",
     # M2d: level-3 only — the routing controls and the model pool act on one
     # profile, which is what the level-3 page is.
     "sec_prouting": "routing",
@@ -61,8 +72,12 @@ SECTION_TAB = {
 # CUR-330: Overview (the homepage) is the first entry, and the brand links to it.
 # CUR-329 added the Settings entry at the end (see _sidebar.html's comment for
 # why it is last).
-NAV = ["/", "/profiles", "/models", "/activity", "/conversations", "/usage",
-       "/alerts", "/settings"]
+# 2026-11-17: Routing definitions joined the nav between Profiles and Models. It is
+# where routing is DEFINED (the capability matrix, the Arena board catalogue, the
+# unmapped queue), which reads before Models — where the models are RANKED. The
+# operator asked for this entry after finding the capability editor unreachable.
+NAV = ["/", "/profiles", "/routing-definitions", "/models", "/activity",
+       "/conversations", "/usage", "/alerts", "/settings"]
 
 
 @pytest.fixture
@@ -123,7 +138,7 @@ def _nav(html):
 # ── the nav ──────────────────────────────────────────────────────────────────
 
 def test_nav_is_flat_and_ordered_with_profiles_first(cfg):
-    """Eight entries, no group labels: the label only made the reader classify."""
+    """Nine entries, no group labels: the label only made the reader classify."""
     from src.ui.render import render_page
     html = render_page("pages/models.html", cfg)
     nav = _nav(html)

@@ -1,0 +1,38 @@
+{#-
+  Routing definitions → Arena boards: the catalogue of boards the poll stored.
+
+  Read: GET /api/model-ratings/catalogue -> {mapped[], unmapped[], counts, mapping}
+
+  Read-only on purpose. Mapping a board onto an axis and running the poll both still
+  live on the Models page, where they work; moving them is a separate piece of work
+  because that page's leaderboard, poll and taxonomy map share ONE script block whose
+  first-paint calls back into the leaderboard's tab strip and board loader. Splitting
+  those shared helpers cleanly is its own task — doing it as a side effect of building
+  this page would have risked the poll the operator already uses.
+-#}
+{% if tab == 'boards' %}
+<p class="subtitle">
+  Every board the poll stored, and whether your leaderboard uses it.
+  <span id="boardCatNote" class="seed-status"></span>
+</p>
+
+<div class="table-wrap">
+  <table class="dp-table" id="boardCatTable">
+    <thead>
+      <tr>
+        <th>Board</th>
+        <th>Kind</th>
+        <th>Uses it</th>
+        <th>Ours / stored</th>
+        <th>Published</th>
+      </tr>
+    </thead>
+    <tbody id="boardCatList"></tbody>
+  </table>
+</div>
+
+<div class="dp-note" style="margin-top:12px">
+  <strong>Polling is on Models.</strong> "Poll latest data" and "Manage taxonomy" still live
+  on the Models page for now. This tab is the read-only view of what those produced.
+</div>
+{% endif %}

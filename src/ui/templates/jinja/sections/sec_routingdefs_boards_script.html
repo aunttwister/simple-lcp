@@ -1,0 +1,70 @@
+{#-
+  Arena boards tab — the catalogue, read-only (see sec_routingdefs_boards.html).
+
+  Self-contained by design: no dependency on the leaderboard's script block, so this
+  tab cannot be broken by, or break, the page that runs the poll.
+-#}
+{% if tab == 'boards' %}
+<script>
+(function () {
+  const listEl = document.getElementById('boardCatList');
+  if (!listEl) return;
+  const NOTE = document.getElementById('boardCatNote');
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+  function note(t, tone) {
+    if (NOTE) { NOTE.textContent = t; NOTE.className = 'seed-status' + (tone ? ' ' + tone : ''); }
+  }
+  function kind(fam) { return fam === 'agent' ? 'agent' : 'text'; }
+
+  async function load() {
+    note('loading…');
+    try {
+      const r = await fetch('/api/model-ratings/catalogue', { credentials: 'same-origin' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const rows = [].concat(d.mapped || [], d.unmapped || []);
+      // in-use first, then alphabetically — the boards you curate should not be
+      // buried under twenty you have never mapped.
+      rows.sort(function (a, b) {
+        const au = (a.taxonomies && a.taxonomies.length) ? 0 : 1;
+        const bu = (b.taxonomies && b.taxonomies.length) ? 0 : 1;
+        return au - bu || String(a.board).localeCompare(String(b.board));
+      });
+
+      if (!rows.length) {
+        listEl.innerHTML = '<tr><td colspan="5" class="empty">No boards stored yet — run a poll on the Models page.</td></tr>';
+        note('nothing stored');
+        return;
+      }
+
+      listEl.innerHTML = rows.map(function (b) {
+        const used = (b.taxonomies && b.taxonomies.length)
+          ? b.taxonomies.map(esc).join(', ')
+          : '<span class="muted">— not used</span>';
+        const n = (b.stored_rows != null ? b.stored_rows : '?') + ' / ' + (b.models_matched != null ? b.models_matched : '?');
+        const when = b.published ? String(b.published).slice(0, 10) : '—';
+        return '<tr>' +
+          '<td><code>' + esc(b.board) + '</code></td>' +
+          '<td>' + kind(b.family) + '</td>' +
+          '<td>' + used + '</td>' +
+          '<td>' + n + '</td>' +
+          '<td>' + when + '</td>' +
+        '</tr>';
+      }).join('');
+
+      note((d.mapped_count || 0) + ' in use, ' + (d.unmapped_count || 0) + ' not used');
+    } catch (e) {
+      note('could not load: ' + e.message, 'error');
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load);
+  else load();
+})();
+</script>
+{% endif %}

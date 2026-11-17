@@ -1,0 +1,153 @@
+{#-
+  Unmapped tab — the resolution queue (design doc §9 / §15 Q2).
+
+  Read:  /api/model-intel/settings  -> `staged` (status='new' deployments, model_id null)
+         /api/models/registry       -> the portfolios to map onto
+  Write: POST /api/models/registry  -> the SAME endpoint the matrix editor uses.
+         One write path for identity, so a mapping made here is indistinguishable
+         from one made by hand in the editor — which is the point.
+-#}
+{% if tab == 'unmapped' %}
+<script>
+(function () {
+  const listEl = document.getElementById('unmappedList');
+  if (!listEl) return;
+
+  const NOTE = document.getElementById('unmappedNote');
+  let portfolios = [];
+  let staged = [];
+  let endpoints = {};
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+  function note(text, tone) {
+    if (!NOTE) return;
+    NOTE.textContent = text || '';
+    NOTE.className = 'seed-status' + (tone ? ' ' + tone : '');
+  }
+
+  async function getJSON(url) {
+    const r = await fetch(url, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(url + ' -> HTTP ' + r.status);
+    return r.json();
+  }
+
+  async function load() {
+    note('loading…');
+    try {
+      const [settings, reg] = await Promise.all([
+        getJSON('/api/model-intel/settings'),
+        getJSON('/api/models/registry'),
+      ]);
+      staged = (settings.staged || []).filter(r => !r.model_id);
+      endpoints = {};
+      (settings.endpoints || []).forEach(e => {
+        const slug = e.slug || e.endpoint || e.name;
+        if (slug) endpoints[e.endpoint_id] = slug;
+      });
+      portfolios = (reg.registry || []).map(r => r.logical_name).sort();
+      render();
+      note(staged.length
+        ? staged.length + ' unresolved model ID(s)' + (staged.length >= 50 ? ' (showing the 50 newest)' : '')
+        : 'nothing unresolved');
+    } catch (e) {
+      note('could not load: ' + e.message, 'error');
+    }
+  }
+
+  function optionsHTML() {
+    return '<option value="">— choose —</option>' +
+      portfolios.map(p => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join('');
+  }
+
+  function render() {
+    if (!staged.length) {
+      listEl.innerHTML = '<tr><td colspan="5" class="empty">Every registered model ID is tied to a portfolio.</td></tr>';
+      return;
+    }
+    listEl.innerHTML = staged.map(function (r) {
+      const ep = endpoints[r.endpoint_id] || ('endpoint ' + r.endpoint_id);
+      const id = 'u-' + r.deployment_id;
+      return '<tr id="' + id + '">' +
+        '<td><code>' + esc(r.served_id) + '</code></td>' +
+        '<td>' + esc(ep) + '</td>' +
+        '<td><select class="form-input" id="' + id + '-sel">' + optionsHTML() + '</select></td>' +
+        '<td><input class="form-input" type="text" id="' + id + '-new" placeholder="new-portfolio-slug"></td>' +
+        '<td class="nowrap">' +
+          '<button class="btn btn-primary btn-sm" type="button" ' +
+            'onclick="unmappedAssign(' + r.deployment_id + ', ' + r.endpoint_id + ', \'' +
+            esc(r.served_id).replace(/'/g, "\\'") + '\', false)">Assign</button> ' +
+          '<button class="btn btn-outline btn-sm" type="button" ' +
+            'onclick="unmappedAssign(' + r.deployment_id + ', ' + r.endpoint_id + ', \'' +
+            esc(r.served_id).replace(/'/g, "\\'") + '\', true)">Create</button>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  // `createNew` false -> map onto the selected existing portfolio.
+  // `createNew` true  -> the typed slug becomes the new portfolio.
+  window.unmappedAssign = async function (deploymentId, endpointId, servedId, createNew) {
+    const row = document.getElementById('u-' + deploymentId);
+    const slug = createNew
+      ? (document.getElementById('u-' + deploymentId + '-new') || {}).value
+      : (document.getElementById('u-' + deploymentId + '-sel') || {}).value;
+    const logical = (slug || '').trim();
+    if (!logical) {
+      note(createNew ? 'type a name for the new portfolio first' : 'choose a portfolio first', 'error');
+      return;
+    }
+    const epSlug = endpoints[endpointId] || '';
+    if (!epSlug) { note('unknown provider for this row', 'error'); return; }
+
+    // Look the target portfolio up FIRST: mapping onto an existing one must carry its
+    // current provider mappings and benchmark key forward. The registry endpoint
+    // replaces a provider's previous name for the model, so sending an empty map (or a
+    // fresh benchmark key) would silently drop spellings and re-point the capability
+    // matrix.
+    let mappings = {};
+    let benchmarkKey = logical;
+    try {
+      const reg = await getJSON('/api/models/registry');
+      const hit = (reg.registry || []).find(r => r.logical_name === logical);
+      if (hit) {
+        mappings = Object.assign({}, hit.provider_mappings || {});
+        benchmarkKey = hit.benchmark_key || logical;
+      }
+    } catch (e) { /* fall through with what we have */ }
+    mappings[epSlug] = servedId;
+
+    const body = {
+      logical_name: logical,
+      benchmark_key: benchmarkKey,
+      provider_mappings: mappings,
+    };
+
+    try {
+      note('assigning ' + servedId + ' → ' + logical + '…');
+      const r = await fetch('/api/models/registry', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) { note(out.error || ('HTTP ' + r.status), 'error'); return; }
+      note(servedId + ' → ' + logical + ' (' + (out.action || 'saved') + ')');
+      await load();
+    } catch (e) {
+      note('assign failed: ' + e.message, 'error');
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', load);
+  } else {
+    load();
+  }
+})();
+</script>
+{% endif %}
