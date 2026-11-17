@@ -3,14 +3,14 @@
 ## Metadata
 
 - **Author:** aunttwister (maintained with homelab-expert L2)
-- **Status:** design for review, 2026-11-16 (rev. 4). Nothing in §4 onwards is built.
-  Supersedes the earlier draft that proposed a `task -> board` configuration table.
+- **Status:** design APPROVED 2026-11-17 for §13's build order; nothing in §4 onwards is
+  built yet. All three open questions are decided (§15).
 - **Created:** 2026-11-16 · **Revised:** 2026-11-17 — (1) a score is keyed
   `(portfolio, release, quantisation)`; (2) the intent model is described as its real
-  two-step process (score, then assign); (3) §7's rank-correlation bootstrap measured
-  and found non-discriminating; (4) §15 rewritten — each open question now states what
-  it means, why it blocks, the options and the recommendation, with live measurement
-  behind Q1 and Q2.
+  two-step process (score, then assign); (3) §7's rank-correlation derivation was
+  measured as non-discriminating and is now RETIRED; (4) the operator decided two label
+  spaces (board names for Arena, task names for Intent), auto-map-then-create on
+  registration, and label-plus-evidence wherever a classification is shown.
 - **URL:** `docs/routing-design.md` in github.com/aunttwister/lcp
 - **Mirrored:** LeafWiki `okf-homelab-documentation/local-ai/routing-design`
 
@@ -208,13 +208,16 @@ same portfolio, differing only in **release**. `mi_model_names` is the table for
 
 ---
 
-## 7. How Arena picks a board — derived, not configured
+## 7. How Arena picks a board — superseded by the Q1 decision
 
-A `task → board` configuration table is rejected: a shipped default is a guess nobody
-measures, and an editable one is a table the user must maintain before routing works at
-all.
+**RETIRED 2026-11-17.** The operator decided the judge labels with **board names
+directly** (§15 Q1), so there is no need to derive a board from a task. This section is
+kept for the record: it documents an approach that was designed, measured, and dropped —
+and the measurement is why it was dropped.
 
-**Instead the board is derived from agreement between two independent rankings.**
+The approach was: reject a `task → board` configuration table (a shipped default is a
+guess nobody measures; an editable one is a table the user must maintain before routing
+works at all), and derive the board from agreement between two independent rankings.
 
 ```
 request text
@@ -522,22 +525,31 @@ profile. A walk that ignored breaker state would pick a dead provider every time
 
 ## 13. Build order
 
+Revised 2026-11-17 per the operator's Q1/Q2 decisions: the rank-correlation derivation is
+gone (the judge speaks board names directly), and portfolio creation joined the identity
+queue.
+
 | # | Step | Touches request path? |
 |---|---|---|
 | 1 | Merge the DeepSeek portfolio into `deepseek-flash`, with releases | no |
 | 2 | Fix model identity so benchmark keys and arena slugs join on portfolio | no |
 | 3 | `Routing definitions` page; move prod's matrix editor into tab 1 | no |
 | 4 | CSV import into tab 1 | no |
-| 5 | Release-aware matrix (one row per release × quant) + release-history panel | no |
-| 6 | Unmapped resolution in column 3 | no |
-| 7 | Arena boards tab + derived correlation per intent | no |
-| 8 | Routing type selector on the profile Routing tab | no |
-| 9 | Record `base_intent` / `base_scores` / `base_margin` | additive |
-| 10 | Wire Arena as a score source in `get_model_score()` | **yes, additive** |
-| 11 | Two-stage classification + suggestion loop | medium |
-| 12 | Delete `Manage taxonomy` from Models and the custom taxonomies | no |
+| 5 | Release-aware matrix (one row per release × quant), with inherited-quant marking | no |
+| 6 | Unmapped resolution in column 3: map / create portfolio / leave unmapped | no |
+| 7 | **Board exemplars** — one exemplar set per board, so the judge can label with boards | no |
+| 8 | Arena routing type = the same classifier with the board label space | no |
+| 9 | Routing type selector on the profile Routing tab (+ label-space validation) | no |
+| 10 | Record `base_intent` / `base_scores` / `base_margin` / `arena_board` / `quant_id` | additive |
+| 11 | Wire Arena as a score source in `get_model_score()` | **yes, additive** |
+| 12 | Read-only view over `routing_decisions.semantic_json` (data already stored) | no |
+| 13 | Delete `Manage taxonomy` from Models and the custom taxonomies | no |
 
-Steps 1–8 change no routing behaviour. Step 10 is the only request-path change.
+Steps 1–10 change no routing behaviour. Step 11 is the only request-path change.
+
+**What left this table:** "derived correlation per intent" (old step 7). With the judge
+speaking board names there is nothing to derive — it is replaced by the much smaller
+step 7 above, authoring exemplars.
 
 ---
 
@@ -564,105 +576,89 @@ The routing vocabulary was already there, already had an editor, and was never o
 
 ---
 
-## 15. Open questions
+## 15. Decisions and remaining questions
 
-Each question below states what it means in plain terms, why it blocks work, the
-options, and the recommendation. **Q1 blocks everything else; Q2 and Q3 can be decided
-during the build.**
+All three are now decided by the operator (2026-11-17). What follows is what each
+decision means concretely, and what is left to build.
 
-### Q1 — What is the label space for Arena routing? *(blocking)*
+### Q1 — DECIDED: two label spaces, one engine
 
-**What it means.** The intent judge assigns a label by scoring the message against a
-fixed set of names. Which set?
+**Board names for Arena routing; task names for Intent routing.**
 
-- **our 8 task names** — `agentic_multi_step`, `code_generation`, `debugging`,
-  `planning`, `reasoning_chain`, `research_deep`, `unit_tests`, `casual_chat`
-- **the 36 LMArena board names** — `coding`, `math`, `multi_turn`,
-  `agent_bash_reliability`, `creative_writing`, …
+The judge is the same component (`SemanticClassifier`); only the label space it is
+handed differs. Nothing translates between the two vocabularies, because nothing needs
+to: a message routed by Arena is labelled with a board, a message routed by Intent is
+labelled with the operator's taxonomy.
 
-**Why it blocks.** §7's derivation exists *only* to translate between these two
-vocabularies. If the judge speaks board names, the translation is unnecessary and §7
-collapses to nothing. Every later step (routing type, score source, what gets recorded
-per request) changes shape depending on the answer.
+Consequences:
 
-**Why board names are the stronger option — measured, not argued.** The 8 task names
-literally cannot express the questions being asked of this system. Classified live:
+- §7's derivation (rank correlation, task → board) is **deleted from the build order**.
+  It was measured as non-discriminating (§7), and this decision makes it unnecessary
+  rather than merely unreliable.
+- Each routing type declares its label space, and the label space is validated when the
+  routing type is chosen — a profile cannot be in Arena mode with only the 8 task names
+  loaded.
+- Building Arena routing requires **exemplars per board**. That is the one new input
+  this decision creates.
+
+### Q2 — DECIDED: auto-map on registration, create when it fails
+
+**Yes, it works — and more of it already exists than the question assumed.**
+
+Registration stays simple. The behaviour the operator described splits into three cases,
+and the first is already implemented:
+
+1. **Name maps to an existing portfolio → do it silently.** This is live today.
+   `model_intel_poll` resolves every newly observed served id through
+   `resolve_canonical()`, which matches on slug, benchmark key, declared alias and
+   served id. A match is staged already-linked. Explicitly **no fuzzy or prefix
+   guessing** — a wrong link fabricates capability data, which is worse than a missing
+   one.
+2. **Name maps to nothing → it lands in the identity queue** as an observation. The
+   queue is operator-facing (`GET /api/model-intel/settings` returns
+   `pending_identity`; accept/reject via `POST /api/model-intel/identity/{accept,reject}`).
+3. **Operator decides it is a new portfolio → create it here.** *This is the gap.*
+   `accept()` today raises `KeyError("no canonical model …")` if the target slug does not
+   exist — it can only alias to a portfolio that already exists. Creating one is
+   possible (`model_names.upsert_entry()`), but only from the registry page, not from
+   the point where the operator is looking at the problem.
+
+**What to build:** add "create a new portfolio from this name" to the identity queue's
+accept path, so the three options — *map to existing* / *create new* / *leave unmapped* —
+appear together on one screen. That is the same three-way choice already agreed for
+the matrix's third column, so the two surfaces should share it.
+
+The pool rule stands: a pair with no portfolio may sit in a pool but can never be
+chosen by a score. Only the static chain can reach it by name.
+
+### Q3 — ANSWERED: two different surfaces, and only one needs work
+
+The operator asked whether this means the intent classification log. **Partly — and the
+measurement splits the answer in two.**
+
+**The log already does it.** `routing_decisions.semantic_json` holds the full ranked
+vector per decision. Live counts:
 
 ```
-"what is the best model for multi turn"
-   planning        0.673   ← assigned
-   research_deep   0.665
-   code_generation 0.643
-   unit_tests      0.624
-   classify() -> planning
+routing_decisions        28,668 rows
+  with the score vector  25,308   ← 88%
+  sem_available = 0       3,128   ← keyword fallback, no vector (correct)
+  sem_available = null      232   ← pre-column rows
 ```
 
-There is **no `multi_turn` label**, so a multi-turn question becomes "planning", by a
-margin of 0.008. And `agent_bash_reliability` — one of the 36 boards — has no task name
-that could ever represent it either. The task vocabulary is the *router's* vocabulary;
-it was never designed to answer "which model is best at X".
-
-**Options.**
-
-- **A. Board names as the label space.** Judge assigns a board directly. Requires
-  exemplars per board (one-time authoring). §7's derivation deleted. Intent routing
-  still uses the 8 task names — the two label spaces coexist and are never mixed.
-- **B. Task names as the label space.** Judge assigns one of 8 tasks; a separate step
-  maps task → board. That mapping is either a config table (you rejected) or the
-  derivation (measured as non-discriminating).
-- **C. Both, per routing type.** Arena routing scores against boards; Intent routing
-  scores against the operator's own taxonomy. Same engine, different label space.
-
-**Recommendation: C.** It is A for Arena routing and B for Intent routing, which is
-also exactly the two routing types already agreed. The classifier accepts its label
-space as an argument, so this needs no new machinery. The cost is board exemplars, and
-boards you do not care about are simply not authored.
-
-### Q2 — May a profile's pool contain a model that has no portfolio?
-
-**What it means.** A profile's **pool** is the set of models its routing may choose
-from. Some provider pairs are registered but not tied to a portfolio, and therefore
-have no scores. May such a pair sit in the pool?
-
-**Where the estate stands** (measured):
+Example stored value:
 
 ```
-mi_deployments          112 pairs
-  active                 23   all portfolio-bound — these have scores
-  retired                12   all portfolio-bound
-  new                    77   ← 73 have NO portfolio at all
+[["casual_chat",0.7484],["code_generation",0.6966],
+ ["agentic_multi_step",0.5858],["planning",0.5764],["research_deep",0.5721]]
 ```
 
-So the question is about those **73**. They are names a provider serves that your
-registry has not yet decided what they are.
+So **label plus evidence is already the behaviour of the log.** Nothing to build. What
+is missing is only that no UI renders it — the API returns it, the page does not.
 
-**Options.**
+**The suggestion panel is the part that does not exist.** `scores_like` appears
+nowhere in the codebase — it is a concept in this document only. When it is built, it
+shows label plus evidence, exactly as decided.
 
-- **A. Allowed in the pool, but never picked by score.** It can only be reached if the
-  operator names it explicitly in the static chain. The system never *chooses* it on a
-  score it does not have. Honest and usable immediately.
-- **B. Barred from the pool until portfolio-bound.** Cleaner data, but a model you are
-  actively paying a provider for cannot be routed to at all until you classify it.
-
-**Recommendation: A.** A model with no score can never win a scoring comparison anyway;
-letting it sit in the pool costs nothing and prevents "I registered it, why can't I use
-it". What must not happen is scoring inventing a number for it.
-
-### Q3 — When the system suggests a label, what evidence does it show?
-
-**What it means.** During taxonomy authoring the system proposes "this new label looks
-like `casual_chat`". Does the panel show **just the label**, or **the label plus the
-scores behind it**?
-
-**Why it matters.** A suggestion with no evidence is either trusted blindly or ignored.
-With evidence it is checkable — and when it is wrong, the numbers show you why.
-
-**Options.**
-
-- **A. Label only.** `scores like: casual_chat`.
-- **B. Label plus the ranked vector.** `scores like: casual_chat 0.64, code_generation
-  0.61, unit_tests 0.55` — the same `top_scores()` output the router uses.
-
-**Recommendation: B.** The vector already exists (it is one call), it makes a wrong
-suggestion debuggable, and the numbers are what make the suggestion credible. This is
-cosmetic compared with Q1 and can be decided during the build.
+So Q3 resolves as: *the log is already correct, keep it; the authoring hint inherits the
+same format; the only build item is a view over data that already exists.*
