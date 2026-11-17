@@ -48,10 +48,11 @@
       </p>
       <div class="prou-grid">
         <div>
-          <label class="prou-label">Route by</label>
+          <label class="prou-label">Routing type</label>
           <select id="prouRouteBy">
-            <option value="intent"{% if routing.route_by == 'intent' %} selected{% endif %}>intent &mdash; classify each request, reorder by capability</option>
-            <option value="rules"{% if routing.route_by == 'rules' %} selected{% endif %}>rules &mdash; keep the static order, rules only</option>
+            <option value="static"{% if routing.route_by == 'static' %} selected{% endif %}>Static &mdash; pool order; hard rules only</option>
+            <option value="intent"{% if routing.route_by == 'intent' %} selected{% endif %}>Intent &mdash; classify each request, reorder by capability</option>
+            <option value="arena"{% if routing.route_by == 'arena' %} selected{% endif %}>Arena &mdash; classify to an LMArena board, walk its ranking</option>
           </select>
         </div>
         <div class="prou-grid-action">

@@ -3233,8 +3233,11 @@ class SettingsEndpoints:
             settings.set_routing_min_score(min_score, profile=profile)
         if "route_by" in body:
             route_by = (body.get("route_by") or "").strip().lower()
-            if route_by not in settings.ROUTE_BY_OPTIONS:
-                self._send_json({"error": "route_by must be intent | rules"}, 400)
+            # The three tiers, plus `rules` as the legacy spelling of `static`: an
+            # existing client that sends the old value must keep working.
+            if route_by not in settings.ROUTE_BY_ALL_ACCEPTED:
+                self._send_json(
+                    {"error": "route_by must be static | intent | arena"}, 400)
                 return
             settings.set_route_by(route_by, profile=profile)
         if "enabled" in body:
