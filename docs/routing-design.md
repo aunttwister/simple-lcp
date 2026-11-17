@@ -3,16 +3,14 @@
 ## Metadata
 
 - **Author:** aunttwister (maintained with homelab-expert L2)
-- **Status:** design for review, 2026-11-16 (rev. 3). Nothing in §4 onwards is built.
-  Supersedes the earlier draft that proposed a `task -> board` configuration table;
-  that table is gone (§7), because the board is derived from agreement between
-  independent rankings — although that derivation is now measured as NOT WORKING at
-  the current model overlap, and a simpler alternative is recommended in its place.
+- **Status:** design for review, 2026-11-16 (rev. 4). Nothing in §4 onwards is built.
+  Supersedes the earlier draft that proposed a `task -> board` configuration table.
 - **Created:** 2026-11-16 · **Revised:** 2026-11-17 — (1) a score is keyed
-  `(portfolio, release, quantisation)`, not `(portfolio, release)`; (2) the intent model
-  is described as its real two-step process (score, then assign); (3) §7's
-  rank-correlation bootstrap is measured and found non-discriminating, with the
-  "label the classifier with board names" alternative recommended instead.
+  `(portfolio, release, quantisation)`; (2) the intent model is described as its real
+  two-step process (score, then assign); (3) §7's rank-correlation bootstrap measured
+  and found non-discriminating; (4) §15 rewritten — each open question now states what
+  it means, why it blocks, the options and the recommendation, with live measurement
+  behind Q1 and Q2.
 - **URL:** `docs/routing-design.md` in github.com/aunttwister/lcp
 - **Mirrored:** LeafWiki `okf-homelab-documentation/local-ai/routing-design`
 
@@ -568,10 +566,103 @@ The routing vocabulary was already there, already had an editor, and was never o
 
 ## 15. Open questions
 
-1. **Arena cold start.** With the derived-board approach there is no cold start *after*
-   step 2 — correlation works from data on disk. Confirm that ordering is acceptable.
-2. **Pool and volume.** 77 of 112 `model:provider` pairs are `new`/unmapped. May a
-   profile's pool contain an unmapped pair (usable, unscored), or must a pair be
-   portfolio-bound before it can be pooled?
-3. **`scores_like` visibility.** When the system offers a hint, does it show the
-   correlation it used, or just the label?
+Each question below states what it means in plain terms, why it blocks work, the
+options, and the recommendation. **Q1 blocks everything else; Q2 and Q3 can be decided
+during the build.**
+
+### Q1 — What is the label space for Arena routing? *(blocking)*
+
+**What it means.** The intent judge assigns a label by scoring the message against a
+fixed set of names. Which set?
+
+- **our 8 task names** — `agentic_multi_step`, `code_generation`, `debugging`,
+  `planning`, `reasoning_chain`, `research_deep`, `unit_tests`, `casual_chat`
+- **the 36 LMArena board names** — `coding`, `math`, `multi_turn`,
+  `agent_bash_reliability`, `creative_writing`, …
+
+**Why it blocks.** §7's derivation exists *only* to translate between these two
+vocabularies. If the judge speaks board names, the translation is unnecessary and §7
+collapses to nothing. Every later step (routing type, score source, what gets recorded
+per request) changes shape depending on the answer.
+
+**Why board names are the stronger option — measured, not argued.** The 8 task names
+literally cannot express the questions being asked of this system. Classified live:
+
+```
+"what is the best model for multi turn"
+   planning        0.673   ← assigned
+   research_deep   0.665
+   code_generation 0.643
+   unit_tests      0.624
+   classify() -> planning
+```
+
+There is **no `multi_turn` label**, so a multi-turn question becomes "planning", by a
+margin of 0.008. And `agent_bash_reliability` — one of the 36 boards — has no task name
+that could ever represent it either. The task vocabulary is the *router's* vocabulary;
+it was never designed to answer "which model is best at X".
+
+**Options.**
+
+- **A. Board names as the label space.** Judge assigns a board directly. Requires
+  exemplars per board (one-time authoring). §7's derivation deleted. Intent routing
+  still uses the 8 task names — the two label spaces coexist and are never mixed.
+- **B. Task names as the label space.** Judge assigns one of 8 tasks; a separate step
+  maps task → board. That mapping is either a config table (you rejected) or the
+  derivation (measured as non-discriminating).
+- **C. Both, per routing type.** Arena routing scores against boards; Intent routing
+  scores against the operator's own taxonomy. Same engine, different label space.
+
+**Recommendation: C.** It is A for Arena routing and B for Intent routing, which is
+also exactly the two routing types already agreed. The classifier accepts its label
+space as an argument, so this needs no new machinery. The cost is board exemplars, and
+boards you do not care about are simply not authored.
+
+### Q2 — May a profile's pool contain a model that has no portfolio?
+
+**What it means.** A profile's **pool** is the set of models its routing may choose
+from. Some provider pairs are registered but not tied to a portfolio, and therefore
+have no scores. May such a pair sit in the pool?
+
+**Where the estate stands** (measured):
+
+```
+mi_deployments          112 pairs
+  active                 23   all portfolio-bound — these have scores
+  retired                12   all portfolio-bound
+  new                    77   ← 73 have NO portfolio at all
+```
+
+So the question is about those **73**. They are names a provider serves that your
+registry has not yet decided what they are.
+
+**Options.**
+
+- **A. Allowed in the pool, but never picked by score.** It can only be reached if the
+  operator names it explicitly in the static chain. The system never *chooses* it on a
+  score it does not have. Honest and usable immediately.
+- **B. Barred from the pool until portfolio-bound.** Cleaner data, but a model you are
+  actively paying a provider for cannot be routed to at all until you classify it.
+
+**Recommendation: A.** A model with no score can never win a scoring comparison anyway;
+letting it sit in the pool costs nothing and prevents "I registered it, why can't I use
+it". What must not happen is scoring inventing a number for it.
+
+### Q3 — When the system suggests a label, what evidence does it show?
+
+**What it means.** During taxonomy authoring the system proposes "this new label looks
+like `casual_chat`". Does the panel show **just the label**, or **the label plus the
+scores behind it**?
+
+**Why it matters.** A suggestion with no evidence is either trusted blindly or ignored.
+With evidence it is checkable — and when it is wrong, the numbers show you why.
+
+**Options.**
+
+- **A. Label only.** `scores like: casual_chat`.
+- **B. Label plus the ranked vector.** `scores like: casual_chat 0.64, code_generation
+  0.61, unit_tests 0.55` — the same `top_scores()` output the router uses.
+
+**Recommendation: B.** The vector already exists (it is one call), it makes a wrong
+suggestion debuggable, and the numbers are what make the suggestion credible. This is
+cosmetic compared with Q1 and can be decided during the build.
