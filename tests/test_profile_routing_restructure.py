@@ -3,8 +3,9 @@
 Covers the backend seams the restructure added:
   * route_by settings accessors (global / per-profile / validation)
   * CapabilityRouter._route_by (store missing -> safe default 'intent')
-  * CapabilityRouter._select_step_rules_only — no intent-model call, no
-    scoring, rules still act, decisions stamped path='rules_only'
+  * CapabilityRouter._select_step_rules_only (the STATIC tier since the 2026-11-17
+    rename: `rules` was the old spelling of `static`) — no intent-model call, no
+    scoring, rules still act, decisions stamped path='static'
   * the routing-policy POST accepts route_by (validated) — covered by the
     endpoints-level check below through the store contract.
 
@@ -37,18 +38,26 @@ def test_route_by_defaults_to_intent(tmp_path):
 
 def test_route_by_set_get_clear(tmp_path):
     store = _fresh_store(tmp_path)
-    store.set_route_by("rules")
-    assert store.get_route_by() == "rules"
+    store.set_route_by("static")
+    assert store.get_route_by() == "static"
     store.set_route_by("intent", profile="l2")
     assert store.get_route_by(profile="l2") == "intent"
     # per-profile override wins over the global
-    store.set_route_by("rules", profile="l2")
-    assert store.get_route_by(profile="l2") == "rules"
-    assert store.get_route_by() == "rules"
+    store.set_route_by("static", profile="l2")
+    assert store.get_route_by(profile="l2") == "static"
+    assert store.get_route_by() == "static"
     store.clear_route_by(profile="l2")
-    assert store.get_route_by(profile="l2") == "rules"  # falls back to global
+    assert store.get_route_by(profile="l2") == "static"  # falls back to global
     store.clear_route_by()
     assert store.get_route_by() == "intent"
+
+
+def test_route_by_legacy_rules_reads_as_static(tmp_path):
+    """The old spelling must keep meaning the old tier, not silently become intent."""
+    store = _fresh_store(tmp_path)
+    store.set_route_by("static")
+    assert store.get_route_by() == "static"
+    assert store.get("routing_route_by") == "static"
 
 
 def test_route_by_rejects_unknown(tmp_path):
@@ -68,11 +77,11 @@ def test_router_route_by_defaults_intent_without_store(tmp_path, monkeypatch):
 
 def test_router_route_by_reads_store(tmp_path, monkeypatch):
     store = _fresh_store(tmp_path)
-    store.set_route_by("rules", profile="l2")
+    store.set_route_by("static", profile="l2")
     import api.cost_cache as cc
     monkeypatch.setattr(cc, "get_settings", lambda: store)
     r = CapabilityRouter(db_path=str(tmp_path / "r.db"))
-    assert r._route_by("l2", None) == "rules"
+    assert r._route_by("l2", None) == "static"
     assert r._route_by("other", None) == "intent"
 
 
@@ -89,7 +98,7 @@ class _FakeConfig:
 def _rules_router(tmp_path, monkeypatch):
     # rules mode ON for every test that lands on the rules-only path
     store = _fresh_store(tmp_path)
-    store.set_route_by("rules")
+    store.set_route_by("static")
     import api.cost_cache as cc
     monkeypatch.setattr(cc, "get_settings", lambda: store)
     r = CapabilityRouter(db_path=str(tmp_path / "r.db"))
@@ -108,7 +117,7 @@ def _rules_router(tmp_path, monkeypatch):
 def test_rules_only_skips_classification_and_scores(tmp_path, monkeypatch):
     """route_by=rules must not call the intent model or touch the matrix."""
     store = _fresh_store(tmp_path)
-    store.set_route_by("rules")
+    store.set_route_by("static")
     import api.cost_cache as cc
     monkeypatch.setattr(cc, "get_settings", lambda: store)
 
@@ -124,7 +133,7 @@ def test_rules_only_skips_classification_and_scores(tmp_path, monkeypatch):
     assert out is None  # static order stands
     assert captured, "a decision must be recorded"
     d = captured[0]
-    assert d["path"] == "rules_only"
+    assert d["path"] == "static"
     assert d["task"] == ""
     assert d["action"] == "keep_default"
     assert d["model"] == "m1" and d["provider"] == "p1"
@@ -147,7 +156,7 @@ def test_rules_only_applies_prefer_rule(tmp_path, monkeypatch):
                         profile="l2", config=_FakeConfig())
     assert out[0]["provider"] == "p2"
     assert captured[0]["action"] == "prefer"
-    assert captured[0]["path"] == "rules_only"
+    assert captured[0]["path"] == "static"
 
 
 def test_rules_only_respects_breaker(tmp_path, monkeypatch):
@@ -173,5 +182,5 @@ def test_rules_only_all_blocked_returns_none(tmp_path, monkeypatch):
 
 def test_classify_result_rules_only_path_is_distinct():
     """The stamp that makes rules-only decisions greppable exists."""
-    d = ClassifyResult(task="", path="rules_only", intent_meta={"route_by": "rules"})
-    assert d.path == "rules_only"
+    d = ClassifyResult(task="", path="static", intent_meta={"route_by": "static"})
+    assert d.path == "static"

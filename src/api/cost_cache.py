@@ -217,26 +217,46 @@ class SettingsStore:
     # ── Route-by key (CUR-328): what drives the dynamic redirect ──────────
 
     ROUTE_BY_KEY = "routing_route_by"
-    ROUTE_BY_OPTIONS = ("intent", "rules")
+    #: The three tiers (design doc §4): Static (the chain order, rules only), Intent
+    #: (the task taxonomy + capability matrix), Arena (the board label space + the
+    #: leaderboard walk). `rules` is the OLD NAME for the static tier and is still
+    #: accepted and stored as `static`, so an estate that has `rules` saved does not
+    #: silently start routing by intent because the vocabulary was renamed.
+    ROUTE_BY_OPTIONS = ("static", "intent", "arena")
+    ROUTE_BY_ALIASES = {"rules": "static"}
+    ROUTE_BY_ALL_ACCEPTED = ROUTE_BY_OPTIONS + ("rules",)
+
+    @classmethod
+    def normalize_route_by(cls, value: Optional[str]) -> Optional[str]:
+        """The tier name for *value*, or None when it is not a known tier."""
+        if value is None:
+            return None
+        v = cls.ROUTE_BY_ALIASES.get(value, value)
+        return v if v in cls.ROUTE_BY_OPTIONS else None
 
     def get_route_by(self, default: str = "intent",
                      profile: Optional[str] = None) -> str:
         """What the dynamic router keys on for this scope.
 
         ``intent`` (default) classifies each request and reorders by the
-        capability matrix; ``rules`` keeps the static chain order and lets
-        only explicit rules act (no intent-model call, no scoring). A
-        per-profile override wins; otherwise the global value.
+        capability matrix; ``static`` keeps the chain order and lets only
+        explicit rules act (no intent-model call, no scoring); ``arena``
+        classifies into the board label space and walks that board's ranking,
+        filtered to the pool. A per-profile override wins; otherwise the global
+        value. An unrecognised stored value falls back to *default* — never to
+        a mode nobody chose.
         """
         raw = self.get(self._profile_key(self.ROUTE_BY_KEY, profile), None)
         if raw is None and profile:
             raw = self.get(self.ROUTE_BY_KEY, None)
-        return raw if raw in self.ROUTE_BY_OPTIONS else default
+        return self.normalize_route_by(raw) or default
 
     def set_route_by(self, value: str, profile: Optional[str] = None) -> None:
-        if value not in self.ROUTE_BY_OPTIONS:
-            raise ValueError(f"invalid route_by {value!r}; expected {self.ROUTE_BY_OPTIONS}")
-        self.set(self._profile_key(self.ROUTE_BY_KEY, profile), value)
+        norm = self.normalize_route_by(value)
+        if norm is None:
+            raise ValueError(
+                f"invalid route_by {value!r}; expected {self.ROUTE_BY_OPTIONS}")
+        self.set(self._profile_key(self.ROUTE_BY_KEY, profile), norm)
 
     def clear_route_by(self, profile: Optional[str] = None) -> None:
         """Remove a route-by override (per-profile or global)."""
