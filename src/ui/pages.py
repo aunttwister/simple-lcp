@@ -373,6 +373,31 @@ def render_models_page(config, engine=None, params=None) -> str:
                        params=p)
 
 
+def render_routing_definitions_page(config, engine=None, params=None) -> str:
+    """Render `Routing definitions` — where routing is defined (design doc §10).
+
+    Three tabs, one per vocabulary: the capability matrix the router reads, the
+    LMArena boards it can route by, and the model IDs that are not tied to a
+    portfolio yet.
+
+    This page exists because the Models page became the leaderboard (2026-11-15) and
+    took the capability editor with it: the editor was reachable NOWHERE in the UI
+    from then until this page was built (found 2026-11-17 while assessing a prod cut).
+    Tab 1 is that editor, lifted verbatim from the page it used to live on.
+
+    ``?tab=matrix`` is the default because the editor is the reason the page exists.
+    """
+    from .render import render_page
+    tab = _tab(dict(params or {}), ("matrix", "boards", "unmapped"), "matrix")
+    label = {"matrix": "Capability matrix",
+             "boards": "Arena boards",
+             "unmapped": "Unmapped"}[tab]
+    return render_page("pages/routingdefs.html", config, engine,
+                       active_page="routingdefs",
+                       tab=tab,
+                       crumbs=(("Routing definitions", "/routing-definitions"), (label, None)))
+
+
 def _profile_config_payload(config, name, pcfg) -> dict:
     """The profile's declared configuration, as the page init payload carries it.
 

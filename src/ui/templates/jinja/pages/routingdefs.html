@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Routing definitions — LCP{% endblock %}
+
+{#
+  Routing definitions — where routing is DEFINED (design doc §10).
+
+  Three tabs, one per vocabulary:
+    * matrix   — the capability matrix: the intent ranking the router reads
+                 (declared data, edited by hand). Lifted verbatim from the page
+                 that used to live under Models, because that page became the
+                 leaderboard and this editor had no other home.
+    * boards   — LMArena's published boards plus the poll. Polling is a ROUTING
+                 input, so it belongs here, not on the leaderboard.
+    * unmapped — registered model:provider pairs with no portfolio yet, and the
+                 three ways to resolve each one.
+
+  This page is the navbar entry the operator asked for; before it existed the
+  capability editor was reachable nowhere in the UI.
+#}
+
+{% block content %}
+<h1>Routing definitions</h1>
+
+<div class="page-tabs">
+  <a class="tab-btn{% if tab == 'matrix' %} active{% endif %}" href="/routing-definitions">Capability matrix</a>
+  <a class="tab-btn{% if tab == 'boards' %} active{% endif %}" href="/routing-definitions?tab=boards">Arena boards</a>
+  <a class="tab-btn{% if tab == 'unmapped' %} active{% endif %}" href="/routing-definitions?tab=unmapped">Unmapped</a>
+</div>
+
+{% include "sections/sec_routingdefs_matrix.html" %}
+{% include "sections/sec_routingdefs_boards.html" %}
+{% include "sections/sec_routingdefs_unmapped.html" %}
+{% endblock %}
+
+{% block scripts %}
+{% include "sections/sec_routingdefs_matrix_script.html" %}
+{% include "sections/sec_routingdefs_boards_script.html" %}
+{% include "sections/sec_routingdefs_unmapped_script.html" %}
+{% endblock %}

@@ -1215,6 +1215,8 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_profile_avatar(h._path_part(h.path, 3)))
     t.get("page.models", exact("/models"),
           lambda h, p: h._serve_models_page())
+    t.get("page.routingdefs", exact("/routing-definitions"),
+          lambda h, p: h._serve_routing_definitions_page())
     # ── Work section (work layer merged into LCP as a module) ──
     t.get("page.work.cron", exact("/work/cron"),
           lambda h, p: h._serve_work_cron_page())

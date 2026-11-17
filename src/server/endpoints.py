@@ -4238,6 +4238,12 @@ class DashboardEndpoints:
         from ..ui.pages import render_models_page
         self._send_html(render_models_page(self.config, self.engine, self._qs()))
 
+    def _serve_routing_definitions_page(self):
+        """Server-rendered Routing definitions page (?tab=matrix|boards|unmapped)."""
+        from ..ui.pages import render_routing_definitions_page
+        self._send_html(render_routing_definitions_page(
+            self.config, self.engine, self._qs()))
+
     def _serve_model_limits_api(self):
         """GET /api/models/limits — the capability flags the vision gate reads.
 
