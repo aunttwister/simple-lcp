@@ -3,14 +3,14 @@
 ## Metadata
 
 - **Author:** aunttwister (maintained with homelab-expert L2)
-- **Status:** design APPROVED 2026-11-17 for §13's build order; nothing in §4 onwards is
-  built yet. All three open questions are decided (§15).
+- **Status:** design APPROVED 2026-11-17. §15 records the three decided questions; §16
+  is a pre-build gap and edge-case analysis, every number probed live. Nothing in §4
+  onwards is built.
 - **Created:** 2026-11-16 · **Revised:** 2026-11-17 — (1) a score is keyed
   `(portfolio, release, quantisation)`; (2) the intent model is described as its real
-  two-step process (score, then assign); (3) §7's rank-correlation derivation was
-  measured as non-discriminating and is now RETIRED; (4) the operator decided two label
-  spaces (board names for Arena, task names for Intent), auto-map-then-create on
-  registration, and label-plus-evidence wherever a classification is shown.
+  two-step process; (3) §7's rank-correlation derivation measured as non-discriminating
+  and RETIRED; (4) two label spaces decided, auto-map-then-create registration,
+  label-plus-evidence; (5) §16 gap analysis added.
 - **URL:** `docs/routing-design.md` in github.com/aunttwister/lcp
 - **Mirrored:** LeafWiki `okf-homelab-documentation/local-ai/routing-design`
 
@@ -662,3 +662,117 @@ shows label plus evidence, exactly as decided.
 
 So Q3 resolves as: *the log is already correct, keep it; the authoring hint inherits the
 same format; the only build item is a view over data that already exists.*
+
+---
+
+## 16. Gap analysis and edge cases — measured 2026-11-17
+
+Written at the operator's request before any build starts. Every number below was
+probed against the live staging database, not recalled.
+
+### 16.1 Where the work stands
+
+| Layer | State |
+|---|---|
+| Leaderboard (36 boards, 438 rows) | **built, live on staging** (:8735, alembic 040) |
+| Persist-then-map taxonomy mapping (14 seeds) | **built, live on staging** |
+| Registration fixes (active-only, release normalisation) | **built, live on staging** |
+| Design doc (this document) | **approved** — all 3 questions decided |
+| Routing types, Arena routing, board exemplars, recording columns | **not started** |
+| Prod (:8734) | **alembic 029** — none of the above is visible in prod |
+
+The prod gap is deliberate (no deploy GO), but it means the entire leaderboard feature
+exists only on staging until steps 1–2 of §13 ship and prod migrates 029 → 040.
+
+### 16.2 Gaps nothing in the design has fitted yet
+
+1. **Board exemplars do not exist and have no home.** The Q1 decision made exemplars
+   the critical path for Arena routing — the judge cannot label with board names
+   without them — and nothing in the plan says who authors them, where they live, or
+   what makes a set acceptable. This is the largest unbuilt piece of the design.
+2. **The model-key join is still broken.** LiveBench scores key to retired releases
+   (`claude-opus-5` vs `claude-opus-5-5`); overlap with arena slugs is 4 of 16. The
+   matrix compare and any independent-source scoring inherit this. It is §13 step 2
+   and must land before step 5's matrix means anything across sources.
+3. **The DeepSeek merge (§13 step 1) has not started**, and steps 4–6 of the build
+   order sit on top of it.
+4. **The identity queue has no UI.** Q2's create-new-portfolio option lands on an
+   API-only surface (`/api/model-intel/settings` returns `pending_identity`; no
+   template renders it). Building the decision without building the screen leaves the
+   operator unable to reach it.
+5. **The `custom:` rows problem.** 3 hand-entered rows are not derivable and are read
+   by nothing; deletion is decided, but `qwen3.8-27b-heretic` has **0** arena-board
+   rows — deleting its 3 custom rows leaves it with no scores at all. It must be
+   re-entered through whatever replaces custom entry (a matrix cell), not silently
+   dropped.
+
+### 16.3 Edge cases — each one probed, not assumed
+
+**E1 — The 36 boards are not 36 label spaces.** The set includes meta boards
+(`overall`, `exclude_ties`, `longer_query`, `non_english` — artefacts of the poll
+methodology, not intents) and 9 language boards (`english` … `spanish`). As a label
+space, a language board means "route by the language of the message", which is a
+different product decision nobody has made. **Required:** the Arena label space is a
+curated subset of boards (roughly 20), declared per install, not "all boards the poll
+found".
+
+**E2 — The effort dimension makes "walk the board" ambiguous.** The `coding` board
+carries four effort groups (`''`×4, `max`×3, `xhigh`×2, `high`×2). Walking "the"
+ranking requires an effort policy. **Required:** default = the highest effort the
+deployment supports, else the unlabelled rows; the policy must be explicit in the
+walker, not accidental in the sort.
+
+**E3 — Ties.** No ties on `coding` today, but the walk needs a deterministic tiebreak
+(value desc, then slug) so routing never flips on equal Elos.
+
+**E4 — "No servable model on the board" cannot happen today — but must be coded.**
+Measured: every board has ≥1 servable model (11 of 11 on text boards, 18 of 18 on
+agent boards). Today. The estate changes; the walker needs a defined fallback to the
+static chain when a board's slice of the pool is empty, not an exception.
+
+**E5 — Arena routing can only pick the best of what we serve, and sometimes that is
+rank 9.** Measured worst cases: `multi_turn` our best rank = 9, `french` = 9,
+`polish` = 7. That is correct behaviour — best *available* — but the UI must show the
+absolute rank alongside the pick, or "Arena picked rank 9" reads as a bug when it is
+the honest answer.
+
+**E6 — Conversation stickiness is undecided and it matters.** Measured:
+conversations run 300–800 messages, contain up to **6 distinct tasks**, yet almost
+always 1 model. Per-message Arena decisions could bounce a long conversation between
+models as the text drifts between boards. **Open question for the operator:** does
+Arena routing re-decide per message, or per conversation? Recommendation: re-decide
+per message with hysteresis — switch only when the new pick beats the incumbent by a
+configured margin. Hysteresis keeps stability without freezing a conversation onto a
+wrong model.
+
+**E7 — Keyword fallback cannot speak board names.** 3,128 of 28,668 decisions were
+classified by keyword fallback (`sem_available=0`), which only knows task names. If
+Arena mode silently fell back to keywords, it would guess a board mapping — exactly
+the fabrication this design forbids. **Required:** in Arena mode, embedder
+unavailable → static chain, never keyword→board.
+
+**E8 — Quant inheritance has an end.** One active quant deployment exists
+(`DeepSeek-V4.1-Flash-1017 @ exl3-eaqv1-2.9bpw`); it routes on its base grade. But if
+a new release has neither a quant score nor a base score, inheritance has nothing to
+inherit. **Required:** the chain terminates in the static chain, visibly marked
+"unscored", not a zero.
+
+**E9 — A re-poll can reorder a board mid-conversation.** With per-message decisions
+this is harmless (each decision is recorded with the ranking it used). With
+stickiness (E6), the conversation must keep its incumbent until the hysteresis
+threshold says otherwise — a poll must never re-rank a live conversation.
+
+**E10 — The prod migration is the riskiest single step left.** Alembic 040 on prod
+needs the same WAL-safe backup ritual staging got
+(`integrity_check ok` pre-040), and prod's Models page is the capability-matrix
+editor users see today — the §13 step 3 swap must move, not replace, it.
+
+### 16.4 What this changes in the build order
+
+Nothing moves. Three things are added to the steps they belong to:
+
+- step 7 (board exemplars) gains: curated board subset, authoring surface, and a
+  defined "acceptable set" check;
+- step 8 (Arena routing type) gains: E2 effort policy, E3 tiebreak, E4 fallback,
+  E7 keyword guard, E6/E9 hysteresis;
+- step 5 (matrix) gains: E8 visible "unscored" terminal state.
