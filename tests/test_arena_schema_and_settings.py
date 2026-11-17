@@ -119,6 +119,37 @@ def test_migration_041_adds_both_columns():
     assert {"base_intent", "arena_board"} <= cols
 
 
+def test_migration_041_works_through_an_alembic_style_connection():
+    """The startup path: alembic runs this with a SQLAlchemy Connection.
+
+    A SQLAlchemy Connection raises ObjectNotExecutableError on a plain SQL string —
+    only ``sa.text(...)`` works — while a bare sqlite3 connection is the opposite. The
+    first version of the migration supported only the second, and the container went
+    into a crash loop on deploy (2026-11-17, staging). This pins the startup path.
+    """
+    from sqlalchemy import create_engine, text
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        engine = create_engine(f"sqlite:///{path}")
+        with engine.begin() as conn:
+            conn.execute(text(SCHEMA_NO_ARENA_COLS.strip().rstrip(";")))
+        mod = _migration_041()
+        with engine.begin() as conn:
+            mod.upgrade(conn)          # must not raise ObjectNotExecutableError
+        with engine.begin() as conn:
+            cols = {r[1] for r in conn.execute(
+                text("PRAGMA table_info(routing_decisions)")).fetchall()}
+        assert {"base_intent", "arena_board"} <= cols
+    finally:
+        for ext in ("", "-wal", "-shm"):
+            try:
+                os.unlink(path + ext)
+            except FileNotFoundError:
+                pass
+
+
 def test_migration_041_is_idempotent():
     """Re-running on an upgraded DB must not raise — upgrades get retried."""
     con = sqlite3.connect(":memory:")
