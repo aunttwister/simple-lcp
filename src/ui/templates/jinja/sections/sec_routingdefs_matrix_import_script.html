@@ -7,8 +7,6 @@
   The report is shown VERBATIM, including the aborted case: an import that writes part of
   a file and reports success is how a matrix comes to look complete when it is not.
 -#}
-{% if tab == 'matrix' %}
-<script>
 (function () {
   const fileEl = document.getElementById('matrixFile');
   if (!fileEl) return;
@@ -70,5 +68,3 @@
     }
   });
 })();
-</script>
-{% endif %}
