@@ -1,11 +1,16 @@
 {#-
-  Unmapped tab — the resolution queue (design doc §9 / §15 Q2).
+  Unmapped tab — REGISTERED deployments with no portfolio.
 
-  Read:  /api/model-intel/settings  -> `staged` (status='new' deployments, model_id null)
-         /api/models/registry       -> the portfolios to map onto
-  Write: POST /api/models/registry  -> the SAME endpoint the matrix editor uses.
+  Read:  GET /api/models/unbound   -> {registered, unbound[], count}
+         GET /api/models/registry  -> the portfolios to map onto
+  Write: POST /api/models/registry -> the SAME endpoint the matrix editor uses.
          One write path for identity, so a mapping made here is indistinguishable
          from one made by hand in the editor — which is the point.
+
+  2026-11-17: this used to read /api/model-intel/settings and take `staged`, which is
+  the POLL's discovery queue (status='new'). It showed 47 model IDs that were never
+  registered — the opposite of the rule this page exists to enforce. It now reads the
+  registry, so only registered deployments appear.
 -#}
 {% if tab == 'unmapped' %}
 <script>
@@ -15,8 +20,8 @@
 
   const NOTE = document.getElementById('unmappedNote');
   let portfolios = [];
-  let staged = [];
-  let endpoints = {};
+  let unbound = [];
+  let endpointSlugs = {};
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -38,21 +43,20 @@
   async function load() {
     note('loading…');
     try {
-      const [settings, reg] = await Promise.all([
-        getJSON('/api/model-intel/settings'),
+      const [unb, reg] = await Promise.all([
+        getJSON('/api/models/unbound'),
         getJSON('/api/models/registry'),
       ]);
-      staged = (settings.staged || []).filter(r => !r.model_id);
-      endpoints = {};
-      (settings.endpoints || []).forEach(e => {
-        const slug = e.slug || e.endpoint || e.name;
-        if (slug) endpoints[e.endpoint_id] = slug;
-      });
+      if (unb.error) throw new Error(unb.error);
+      unbound = unb.unbound || [];
+      endpointSlugs = {};
+      unbound.forEach(r => { endpointSlugs[r.endpoint_id] = r.endpoint_slug; });
       portfolios = (reg.registry || []).map(r => r.logical_name).sort();
       render();
-      note(staged.length
-        ? staged.length + ' unresolved model ID(s)' + (staged.length >= 50 ? ' (showing the 50 newest)' : '')
-        : 'nothing unresolved');
+      const n = unb.registered || 0;
+      note(unbound.length
+        ? unbound.length + ' of ' + n + ' registered deployment(s) have no portfolio'
+        : 'all ' + n + ' registered deployment(s) are bound to a portfolio');
     } catch (e) {
       note('could not load: ' + e.message, 'error');
     }
@@ -64,13 +68,15 @@
   }
 
   function render() {
-    if (!staged.length) {
-      listEl.innerHTML = '<tr><td colspan="5" class="empty">Every registered model ID is tied to a portfolio.</td></tr>';
+    if (!unbound.length) {
+      listEl.innerHTML = '<tr><td colspan="5" class="empty">' +
+        'Every registered deployment is tied to a portfolio.</td></tr>';
       return;
     }
-    listEl.innerHTML = staged.map(function (r) {
-      const ep = endpoints[r.endpoint_id] || ('endpoint ' + r.endpoint_id);
+    listEl.innerHTML = unbound.map(function (r) {
+      const ep = r.endpoint_slug || ('endpoint ' + r.endpoint_id);
       const id = 'u-' + r.deployment_id;
+      const served = esc(r.served_id).replace(/'/g, "\\'");
       return '<tr id="' + id + '">' +
         '<td><code>' + esc(r.served_id) + '</code></td>' +
         '<td>' + esc(ep) + '</td>' +
@@ -78,11 +84,9 @@
         '<td><input class="form-input" type="text" id="' + id + '-new" placeholder="new-portfolio-slug"></td>' +
         '<td class="nowrap">' +
           '<button class="btn btn-primary btn-sm" type="button" ' +
-            'onclick="unmappedAssign(' + r.deployment_id + ', ' + r.endpoint_id + ', \'' +
-            esc(r.served_id).replace(/'/g, "\\'") + '\', false)">Assign</button> ' +
+            'onclick="unmappedAssign(' + r.deployment_id + ', ' + r.endpoint_id + ', \'' + served + '\', false)">Assign</button> ' +
           '<button class="btn btn-outline btn-sm" type="button" ' +
-            'onclick="unmappedAssign(' + r.deployment_id + ', ' + r.endpoint_id + ', \'' +
-            esc(r.served_id).replace(/'/g, "\\'") + '\', true)">Create</button>' +
+            'onclick="unmappedAssign(' + r.deployment_id + ', ' + r.endpoint_id + ', \'' + served + '\', true)">Create</button>' +
         '</td>' +
       '</tr>';
     }).join('');
@@ -91,7 +95,6 @@
   // `createNew` false -> map onto the selected existing portfolio.
   // `createNew` true  -> the typed slug becomes the new portfolio.
   window.unmappedAssign = async function (deploymentId, endpointId, servedId, createNew) {
-    const row = document.getElementById('u-' + deploymentId);
     const slug = createNew
       ? (document.getElementById('u-' + deploymentId + '-new') || {}).value
       : (document.getElementById('u-' + deploymentId + '-sel') || {}).value;
@@ -100,8 +103,8 @@
       note(createNew ? 'type a name for the new portfolio first' : 'choose a portfolio first', 'error');
       return;
     }
-    const epSlug = endpoints[endpointId] || '';
-    if (!epSlug) { note('unknown provider for this row', 'error'); return; }
+    const epSlug = endpointSlugs[endpointId] || '';
+    if (!epSlug) { note('unknown endpoint for this row', 'error'); return; }
 
     // Look the target portfolio up FIRST: mapping onto an existing one must carry its
     // current provider mappings and benchmark key forward. The registry endpoint

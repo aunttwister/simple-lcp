@@ -1,22 +1,27 @@
 {#-
-  Routing definitions → Unmapped: registered model:provider pairs with no portfolio.
+  Routing definitions → Unmapped: REGISTERED deployments with no portfolio.
 
-  These are names a provider serves that the registry has not yet decided what they
-  are. Until one is resolved it has no scores, so no routing tier can choose it —
-  only an explicit static-chain entry can reach it (design doc §15 Q2).
+  Operator, 2026-11-17: "Why do we have 47 models? Can we only have the models that
+  are registered". He was right, and the 47 were not registered models at all — they
+  were the poll's DISCOVERY queue (``mi_deployments.status='new'``: every model ID an
+  endpoint serves, vetted or not). This tab read that queue and presented it as part of
+  the estate, which is exactly the rule it was supposed to enforce.
 
-  Three ways out, per the operator's decision:
-    * map it onto an existing portfolio
-    * create a new portfolio for it
-    * leave it unmapped (a decision, not an oversight)
+  It now reads ``GET /api/models/unbound``, which applies the registration predicate
+  every other read path uses: ``mi_models.status='active'`` AND
+  ``mi_deployments.status='active'`` (see ``model_ratings.VISIBLE_PREDICATE``).
 
-  Both writes go through the registry endpoint the matrix editor already uses, so
-  there is one write path for identity, not two.
+  A registered deployment with no portfolio has no scores, so no routing tier can pick
+  it — only an explicit static-chain entry reaches it. Three ways out, per the
+  operator's decision: map it onto an existing portfolio, create a new one, or leave it.
+
+  Both writes go through /api/models/registry — the same endpoint the matrix editor
+  uses, so identity has one write path, not two.
 -#}
 {% if tab == 'unmapped' %}
 <p class="subtitle">
-  Model IDs your providers serve that are not tied to a portfolio yet. They have no
-  scores, so routing cannot pick them — only an explicit static-chain entry reaches them.
+  Registered deployments with no portfolio. <strong>Registered</strong> means active on
+  both the model and the deployment; a model ID a poll merely discovered is not listed.
   <span id="unmappedNote" class="seed-status"></span>
 </p>
 
@@ -25,7 +30,7 @@
     <thead>
       <tr>
         <th>Model ID (as served)</th>
-        <th>Provider</th>
+        <th>Endpoint</th>
         <th>Assign to portfolio</th>
         <th>Or create a new one</th>
         <th></th>
@@ -36,8 +41,9 @@
 </div>
 
 <div class="dp-note" style="margin-top:12px">
-  <strong>What happens on assign.</strong> The provider mapping is written to the
-  registry, which is what makes this model ID resolvable to a portfolio. The existing
-  deployment rows pick the new identity up on the next poll; nothing is rescored here.
+  <strong>Not listed here:</strong> model IDs a poll discovered that were never
+  registered. Nothing becomes part of the estate until it is registered, so those are
+  reviewed and accepted on <strong>Models</strong> — polling stages them, registration
+  decides.
 </div>
 {% endif %}

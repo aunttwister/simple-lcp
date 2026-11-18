@@ -1,0 +1,53 @@
+{#-
+  Routing definitions → Capability matrix: CSV import (design build step 4).
+
+  A SIBLING of the editor, deliberately not folded into it: the editor partial is prod's
+  bytes lifted verbatim, and the value of that is that the editor the operator already
+  uses behaves exactly as it does. New surface goes beside it.
+-#}
+{% if tab == 'matrix' %}
+<div class="panel-section" style="margin-top:1.5rem">
+  <h3 class="section-title">Import capability scores</h3>
+  <p class="subtitle">
+    One row per <code>model, task_type, score</code>. Only <strong>registered models</strong>
+    are written — a row naming anything else is skipped and counted, because a score on a
+    model that can never be displayed is a number nobody can act on.
+  </p>
+
+  <div class="mp-field">
+    <label class="form-label" for="matrixFile">CSV file</label>
+    <input class="form-input mp-file" id="matrixFile" type="file" accept=".csv,text/csv">
+    <div class="form-help" id="matrixFileName" hidden></div>
+  </div>
+  <div class="mp-actions">
+    <button class="btn btn-primary btn-sm" id="matrixImportBtn">Import CSV</button>
+    <a class="btn btn-outline btn-sm" id="matrixTemplateBtn"
+       href="/api/models/capability/template" download>Download template</a>
+  </div>
+  <div class="mp-msg" id="matrixMsg"></div>
+
+  <div class="mp-cols" style="margin-top:0.875rem">
+    <div class="mp-cols-title">Columns the file may carry</div>
+    <table class="dp-table">
+      <thead><tr><th scope="col">column</th><th scope="col">required</th>
+        <th scope="col">example</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">model</td><td>yes</td><td class="mono">glm-5.3-flash</td></tr>
+        <tr><td class="mono">task_type</td><td>yes</td><td class="mono">code_generation</td></tr>
+        <tr><td class="mono">score</td><td>yes</td><td class="mono">0.87 or 87</td></tr>
+        <tr><td class="mono">release</td><td>no</td><td class="mono">2026-11-17</td></tr>
+      </tbody>
+    </table>
+    <div class="form-help">
+      A header row is required and column order is free. Aliases are accepted for the
+      first three (<code>model_slug</code>, <code>task</code>/<code>axis</code>,
+      <code>value</code>). <code>score</code> takes 0–1 or 0–100 and is normalised.
+      <strong>An unknown <code>task_type</code> is an error, not a skipped row</strong> —
+      the router reads the eight routing axes and nothing else, so a typo would create a
+      score nothing consults. A file with any error writes <em>nothing</em>; fix the file
+      and re-import. Imported rows are tagged <code>import</code>, so they never overwrite
+      benchmark or hand-entered scores, and those never overwrite them.
+    </div>
+  </div>
+</div>
+{% endif %}
