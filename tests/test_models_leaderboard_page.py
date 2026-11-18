@@ -54,22 +54,38 @@ def _sec(name):
     return open(os.path.join(TEMPLATES, "sections", name)).read()
 
 
-#: The lane's JS is TWO partials now — the shared helpers (fetch wrappers, the poll
-#: cache, the formatters) are included by both pages, so reading only the boards
-#: partial sees the wiring but not the helpers it calls.
-LANE_JS = _sec("sec_lcp_shared_js.html") + _sec("sec_routingdefs_boards_script.html")
+#: The lane's JS is at least two partials — the shared helpers (fetch wrappers, the poll
+#: cache, the formatters), the lane mechanics, and then the tab's own panes. Reading one
+#: partial alone sees wiring without the helpers it calls.
+LANE_JS = (_sec("sec_lcp_shared_js.html") + _sec("sec_lane_js.html")
+           + _sec("sec_routingdefs_boards_script.html"))
+#: 2026-11-18 rework: the panes split across tabs, so a test names the surface it means.
+TAX_HTML = _sec("sec_taxonomy_pane.html")
+TAX_JS = _sec("sec_taxonomy_pane_script.html")
+IMPORT_HTML = _sec("sec_routingdefs_matrix_import.html")
+IMPORT_JS = _sec("sec_routingdefs_matrix_import_script.html")
+LEADERBOARD_HTML = _sec("sec_leaderboard.html")
+LEADERBOARD_JS = _sec("sec_leaderboard_script.html")
 
 
-def lane_page(cfg, engine, params=None):
-    """The SAME lane, on the page that carries it now (Routing definitions → boards)."""
+def lane_page(cfg, engine, params=None, tab="boards"):
+    """The SAME lane, on the tab that carries the surface under test.
+
+    2026-11-17 it moved to Routing definitions; 2026-11-18 it split by tab — the poll is on
+    Arena boards, the list / a model's scores / the import / the taxonomies on the Capability
+    matrix. Defaults to boards, where the poll assertions point.
+    """
     from src.ui.pages import render_routing_definitions_page
     p = dict(params or {})
-    p["tab"] = "boards"
+    p["tab"] = tab
     return render_routing_definitions_page(cfg, engine, p)
 
 
-def _render_lane(cfg, engine, params=None):
-    """The detail lane MOVED to Routing definitions → Arena boards (2026-11-17).
+def _render_lane(cfg, engine, params=None, tab="boards"):
+    """The detail lane MOVED to Routing definitions (2026-11-17), and split by tab
+    (2026-11-18): the poll is on Arena boards, the list / import / taxonomy on the
+    Capability matrix. The contract these tests check did not change — only which tab
+    carries which pane. Defaults to boards, which is where the poll assertions point.
 
     Polling is a routing input, so it belongs where routing is defined. The contract
     these tests check did not change — only the page that carries it did. Re-pointing
@@ -172,21 +188,28 @@ def test_the_lane_carries_no_header_controls_of_its_own(cfg, engine):
     (manage taxonomy), which is the state those two buttons used to produce with a click.
     Re-adding them here would be two controls that do nothing.
     """
-    html = lane_page(cfg, engine)
-    assert "lb-head" not in html, "a leaderboard header block came along with the move"
+    html = lane_page(cfg, engine, tab="boards")
     for gone in ('id="pollRunBtn"', 'id="taxOpenBtn"'):
         assert gone not in html, gone
-    # the lane itself, with its header and its default pane
-    assert 'id="mpTitle">Manage taxonomy<' in html
-    assert 'id="pollPane"' in html and 'id="taxPane"' in html
+    # The lane, with the pane THIS tab owns and the one opener it has. The leaderboard
+    # header is here now and legitimately so — the board moved to this tab on 2026-11-18,
+    # which is why the old "no lb-head" assertion is gone rather than kept passing.
+    assert 'id="mpTitle">Poll<' in html
+    assert 'id="pollPane"' in html and 'id="pollOpenBtn"' in html
+    assert 'id="taxPane"' not in html, "the taxonomy pane belongs to the matrix tab"
 
 
-def test_the_two_buttons_open_the_two_panes(cfg, engine):
-    html = lane_page(cfg, engine)
-    assert 'id="pollPane"' in html and 'id="taxPane"' in html
-    # both panes live INSIDE the shared panel, which is what the buttons drive
-    body = html.split('id="mpBody"')[1]
-    assert 'id="pollPane"' in body and 'id="taxPane"' in body
+def test_each_tab_owns_the_panes_it_opens(cfg, engine):
+    """2026-11-18: the panes split by tab, and every one of them still lives INSIDE the
+    shared lane body — which is what the column-2 openers drive."""
+    boards = lane_page(cfg, engine, tab="boards")
+    assert 'id="pollPane"' in boards.split('id="mpBody"')[1]
+    assert 'id="taxPane"' not in boards
+
+    matrix = lane_page(cfg, engine, tab="matrix")
+    mbody = matrix.split('id="mpBody"')[1]
+    for pane in ("listPane", "detailPane", "importPane", "taxPane"):
+        assert 'id="%s"' % pane in mbody, "the matrix lane is missing %s" % pane
 
 
 # ── 4. the usage widget is gone from this page ──────────────────────────────
@@ -215,7 +238,7 @@ def test_the_strip_renders_a_more_affordance(cfg, engine):
     assert 'id="mlTabs"' in html
     # the "…" button is created by the strip renderer, and its dropdown carries
     # the overflowed tabs; both must exist in the shipped script.
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LEADERBOARD_JS
     assert "STRIP_DESKTOP = 4" in script
     assert "STRIP_MOBILE = 1" in script
     assert "ml-more-menu" in script
@@ -223,12 +246,12 @@ def test_the_strip_renders_a_more_affordance(cfg, engine):
 
 
 def test_the_strip_breakpoint_is_768(cfg, engine):
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LEADERBOARD_JS
     assert "matchMedia('(min-width: 768px)')" in script
 
 
 def test_the_more_menu_is_keyboard_reachable(cfg, engine):
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LEADERBOARD_JS
     for token in ("aria-haspopup", "aria-expanded", "ArrowDown", "ArrowUp", "Escape"):
         assert token in script, token
     # the menu carries the ARIA menu roles: the container is set programmatically
@@ -258,7 +281,7 @@ def test_every_board_cell_carries_its_label(cfg, engine):
     """Below 640px each row becomes labelled blocks. A cell without a data-label
     renders as an unlabelled number on a phone, so every one of them carries it —
     the header row is display:none there and cannot label anything."""
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LEADERBOARD_JS
     for label in ('data-label="#"', 'data-label="Model"', 'data-label="Lab"',
                   'data-label="Percentile"', 'data-label="Date"'):
         assert label in script, label
@@ -352,30 +375,34 @@ def test_the_panel_says_a_poll_is_arena_only(cfg, engine):
 
 # ── 10. manage taxonomy is the default pane, and CSV is a FILE ─────────────
 
-def test_manage_taxonomy_opens_by_default(cfg, engine):
-    """Operator: "manage taxonomy should be the default opened in column 3"."""
-    html = lane_page(cfg, engine)
-    assert 'id="mpTitle">Manage taxonomy<' in html
-    script = LANE_JS
-    assert "mpShow('tax')" in script
-    # the desktop default at init, and what "close" resets to
-    init = script.split("initBoardsPanel", 1)[1]
-    assert "if (MP_DESKTOP.matches) mpShow('tax');" in init
+def test_the_boards_lane_opens_on_the_poll_now(cfg, engine):
+    """Operator, 2026-11-18: "arena boards should have poll data in 3rd column, not manage
+    taxonomy". The default pane flipped, and the taxonomy followed the matrix tab.
+
+    This SUPERSEDES the earlier "manage taxonomy should be the default opened in column 3":
+    that pane is no longer on this tab at all."""
+    assert 'id="mpTitle">Poll<' in lane_page(cfg, engine, tab="boards")
+    assert "if (MP_DESKTOP.matches) mpShow('poll');" in \
+        _sec("sec_routingdefs_boards_script.html")
+    # and the matrix's own default is the list that picks the table's columns
+    assert 'id="mpTitle">Models<' in lane_page(cfg, engine, tab="matrix")
+    assert "if (MP_DESKTOP.matches) mpShow('list');" in \
+        _sec("sec_routingdefs_matrix_script.html")
 
 
 def test_the_csv_control_is_a_file_input(cfg, engine):
     """Operator: "import csv should be a file import, the necessary columns should
-    be shown below"."""
-    html = lane_page(cfg, engine)
+    be shown below". Rendered on the matrix tab — the import's home since 2026-11-18."""
+    html = lane_page(cfg, engine, tab="matrix")
     assert 'id="taxFile"' in html
     assert 'type="file"' in html
     assert 'id="taxCsv"' not in html          # the paste box is gone
-    assert "FileReader" in open(os.path.join(TEMPLATES, "sections",
-                                             "sec_routingdefs_boards_script.html")).read()
+    # the FILE READER lives with the control that owns it (taxFile), i.e. the taxonomy pane
+    assert "FileReader" in TAX_JS
 
 
 def test_the_columns_table_lists_what_a_file_may_carry(cfg, engine):
-    html = lane_page(cfg, engine)
+    html = lane_page(cfg, engine, tab="matrix")
     block = html.split('class="mp-cols"', 1)[1]
     for col in ("model_slug", "value", "taxonomy", "lab"):
         assert col in block, col
@@ -386,15 +413,15 @@ def test_the_columns_table_lists_what_a_file_may_carry(cfg, engine):
 def test_the_import_can_use_the_selected_custom_board_as_its_fallback(cfg, engine):
     """A file with no `taxonomy` column lands on the board being looked at —
     but only when that board is one of the operator's own."""
-    script = LANE_JS
+    script = TAX_JS
     assert "indexOf('custom:') === 0" in script
     assert "taxonomy: fallback" in script
 
 
 def test_a_template_download_is_offered(cfg, engine):
-    html = lane_page(cfg, engine)
+    html = lane_page(cfg, engine, tab="matrix")
     assert 'id="taxTemplateBtn"' in html
-    script = LANE_JS
+    script = TAX_JS
     assert "taxonomy-template.csv" in script
 
 
@@ -466,8 +493,13 @@ def test_the_two_panes_are_never_both_shown(cfg, engine):
     artifact, but the code has to make it impossible."""
     script = LANE_JS
     body = script.split("function mpShow(pane)", 1)[1].split("\n}", 1)[0]
-    assert "pollPane').hidden = pane !== 'poll'" in body
-    assert "taxPane').hidden = pane !== 'tax'" in body
+    # Generic by construction: every pane declares .dp-pane + data-pane, and the loop hides
+    # ALL of them before the named one is revealed, so two panes can never be shown at once
+    # — whatever panes a given tab happens to carry.
+    assert "querySelectorAll('.dp-pane')" in body
+    assert "el.hidden = el.dataset.pane !== pane" in body
+    assert "pollPane" not in body and "taxPane" not in body, \
+        "mpShow must not name panes; the lane serves tabs with different pane sets"
 
 
 # ── 11. the two defects the operator reported on the shipped panel ─────────
@@ -536,7 +568,7 @@ def test_the_board_name_may_wrap_so_the_panel_cannot_overflow():
 # always about ONE taxonomy. These pin the inversion.
 
 def test_the_mapping_list_is_one_entry_per_taxonomy_not_per_board():
-    html = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
+    html = open("src/ui/templates/jinja/sections/sec_taxonomy_pane_script.html").read()
     # the row builder keys on taxonomy, and offers one add control per taxonomy
     assert "function taxGroups()" in html
     assert "byTax[r.taxonomy]" in html
@@ -549,7 +581,7 @@ def test_the_mapping_list_is_one_entry_per_taxonomy_not_per_board():
 def test_one_action_can_add_several_boards_to_a_taxonomy():
     """`reasoning_chain` is fed by math + expert + hard_prompts_english. Mapping
     those one dropdown at a time is exactly the repetitiveness he named."""
-    html = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
+    html = open("src/ui/templates/jinja/sections/sec_taxonomy_pane_script.html").read()
     assert "multiple size=" in html            # a real multi-select
     assert "selectedOptions" in html
     assert "async function mapBoards(tax, boards)" in html
@@ -561,18 +593,18 @@ def test_one_action_can_add_several_boards_to_a_taxonomy():
 def test_the_22_unused_boards_are_collapsed_not_in_the_way():
     """10 language slices + 8 industry slices + 4 overall/meta cuts. They are not
     competing measurements, so they belong behind a disclosure."""
-    html = open("src/ui/templates/jinja/sections/sec_routingdefs_boards.html").read()
+    html = open("src/ui/templates/jinja/sections/sec_taxonomy_pane.html").read()
     assert '<details class="mm-unused-wrap"' in html
     assert 'id="unusedBoards"' in html
     # and it says WHY they are unused, rather than implying they are broken
     assert "language slices, industry" in html
-    js = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
+    js = open("src/ui/templates/jinja/sections/sec_taxonomy_pane_script.html").read()
     assert "function renderUnused()" in js
     assert "Unused LMArena boards (" in js
 
 
 def test_a_taxonomy_with_only_languages_still_shows_its_chips():
-    js = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
+    js = open("src/ui/templates/jinja/sections/sec_taxonomy_pane_script.html").read()
     assert "nothing measures this yet" in js
     # the count is per taxonomy, and singular/plural is not faked
     assert "board${g.boards.length === 1 ? '' : 's'}" in js
@@ -581,7 +613,7 @@ def test_a_taxonomy_with_only_languages_still_shows_its_chips():
 def test_the_multi_add_message_agrees_with_the_count():
     """Caught live: adding ONE board said "1 board now measure reasoning_chain".
     The noun, the verb and the number come from the same variable."""
-    js = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
+    js = open("src/ui/templates/jinja/sections/sec_taxonomy_pane_script.html").read()
     assert "boards.length === 1 ? 'board now measures' : 'boards now measure'" in js
     # and the old malformed string must be gone
     assert "board${boards.length === 1 ? '' : 's'} now measure" not in js
@@ -591,6 +623,6 @@ def test_the_board_picker_names_the_measurement_not_the_family_twice():
     """A board is literally named `agent`, so labelling by family produced
     "agent · agent · 18 ours" — the same word twice, and never saying whether the
     board carries Elo or net improvement (the two are never ranked together)."""
-    js = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
+    js = open("src/ui/templates/jinja/sections/sec_taxonomy_pane_script.html").read()
     assert "unitLabel(o.unit)" in js
     assert "${esc(o.board)} · ${famLabel(o.family)}" not in js

@@ -198,10 +198,21 @@ if (!MP_DESKTOP.matches) mpHide();
     const t = await API.taxonomy();
     STATE.tabs = t.tabs || [];
     if (STATE.tabs.length) STATE.tax = STATE.tabs[0].taxonomy;
-    // Eligibility for the poll prompt without loading a board: this page has no
-    // leaderboard, so the count is fetched on its own.
-    try { const d = await API.board(null); STATE.lb = {rows: [], eligible: d.eligible || []}; }
-    catch (e) { /* the prompt just shows the empty-state wording */ }
+    // The board is why this tab exists — "no leaderboard is shown in arena boards" — so
+    // RENDER it. This call used to fetch the board and keep only `eligible`, throwing the
+    // rows away, because the leaderboard lived on the Models page. Nobody called
+    // renderTabs()/loadBoard() outside a poll, so the table sat empty until the operator
+    // happened to poll — which is exactly what he reported.
+    renderTabs();
+    if (STATE.tax) {
+      await loadBoard(STATE.tax);
+    } else {
+      try {
+        const d = await API.board(null);
+        STATE.lb = {rows: [], eligible: d.eligible || []};
+        renderBoard({taxonomy: '', rows: [], eligible: d.eligible || []});
+      } catch (e) { /* the prompt just shows the empty-state wording */ }
+    }
     renderPollEligible();
     loadPoll();
     renderPollPanel();
