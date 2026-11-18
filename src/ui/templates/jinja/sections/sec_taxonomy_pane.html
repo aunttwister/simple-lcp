@@ -1,0 +1,75 @@
+{#- The taxonomy pane: your own boards and how the arena boards map onto them.
+    Lives on the Capability matrix tab (2026-11-18) — the taxonomies are the matrix's axes.
+    Include it INSIDE the lane, after the other panes. -#}
+<div id="taxPane" class="dp-pane" data-pane="tax" hidden>
+      <p class="dp-note">
+        Your own boards. They are kept apart from the arena's by construction
+        (<code>custom:</code>) — a poll can never overwrite them, and your numbers are
+        never mixed into an arena ranking. A poll has nothing to fetch for these.
+      </p>
+      <div id="taxList" class="mp-tax-list"></div>
+
+      <!-- ── The mapping, TAXONOMY-FIRST ───────────────────────────────────────
+           The old shape listed all 36 boards, each with its own dropdown: 88
+           interaction targets across 5 screens of scroll to answer "what measures
+           reasoning_chain?". The question the user actually has is one taxonomy at a
+           time, so the list is 8 rows and each row carries its boards as chips plus
+           ONE multi-select add. -->
+      <div class="mp-cols-title" style="margin-top:0.875rem">What measures each taxonomy</div>
+      <div class="mp-tax-map" id="taxMap"></div>
+      <div class="mp-msg" id="mapMsg"></div>
+
+      <!-- The unused boards are 10 languages, 8 industries and 4 overall/meta
+           slices — not competing measurements. Collapsed by default, because
+           scrolling past 22 irrelevant rows is what made this feel repetitive. -->
+      <details class="mm-unused-wrap" id="unusedWrap">
+        <summary><span id="unusedSummary">Unused LMArena boards</span></summary>
+        <div class="mm-unused-note">
+          Nothing here is a task measurement — these are language slices, industry
+          slices and overall/meta cuts. That is why no taxonomy uses them. Open this
+          only if you want one anyway.
+        </div>
+        <div id="unusedBoards"></div>
+      </details>
+
+      <div class="mp-field">
+        <label class="form-label" for="taxName">New taxonomy</label>
+        <input class="form-input" id="taxName" type="text" placeholder="e.g. local-served quality">
+      </div>
+      <button class="btn btn-outline btn-sm" id="taxDefineBtn">Define taxonomy</button>
+
+      <div class="mp-field">
+        <label class="form-label" for="taxFile">Import a CSV file</label>
+        <input class="form-input mp-file" id="taxFile" type="file" accept=".csv,text/csv">
+        <div class="form-help" id="taxFileName" hidden></div>
+      </div>
+      <div class="mp-actions">
+        <button class="btn btn-primary btn-sm" id="taxImportBtn">Import CSV</button>
+        <button class="btn btn-outline btn-sm" id="taxTemplateBtn">Download template</button>
+      </div>
+      <div class="mp-msg" id="taxMsg"></div>
+
+      <div class="mp-cols">
+        <div class="mp-cols-title">Columns the file may carry</div>
+        <table class="dp-table">
+          <thead><tr><th scope="col">column</th><th scope="col">required</th>
+            <th scope="col">example</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">model_slug</td><td>yes</td><td class="mono">glm-5.3-flash</td></tr>
+            <tr><td class="mono">value</td><td>yes</td><td class="mono">1520</td></tr>
+            <tr><td class="mono">taxonomy</td><td>no</td><td class="mono">local-served</td></tr>
+            <tr><td class="mono">lab</td><td>no</td><td class="mono">zai</td></tr>
+          </tbody>
+        </table>
+        <div class="form-help">
+          A header row is required; column order is free. Any additional column is
+          ignored. Only a model a provider here actually serves is written — every other
+          row is skipped and counted in the result.
+          <code>taxonomy</code> is optional: leave it out and the file lands on the board
+          selected on the right when that board is one of yours.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</aside>

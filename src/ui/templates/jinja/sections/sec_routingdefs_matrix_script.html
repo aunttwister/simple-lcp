@@ -4,6 +4,7 @@
 
 {% if tab == 'matrix' %}
 <script>
+{% include "sections/sec_lane_js.html" %}
 const API = {
   async matrix() {
     const r = await fetch('/api/models/capability');
@@ -38,7 +39,7 @@ const API = {
 };
 
 // ── State ──────────────────────────────────────────────────────────────────
-let STATE = { registry: {}, providers: {}, matrix: {}, selected: null, filter: '', activeModels: new Set(), configuredOnly: false, registered: new Set() };
+let STATE = { registry: {}, providers: {}, matrix: {}, selected: null, filter: '', activeModels: new Set(), configuredOnly: false, registered: new Set(), compare: new Set() };
 
 // model → list of providers that expose it (from gateway.yaml providers.models)
 function providerModels() {
@@ -147,6 +148,7 @@ async function loadAll() {
   STATE.activeModels = active;
 
   renderModelList();
+  renderMatrix();
   if (STATE.selected && allModels().includes(STATE.selected)) {
     renderDetail(STATE.selected);
   } else if (allModels().length) {
@@ -193,13 +195,26 @@ function renderModelList() {
       ? '<span class="mli-prov" title="' + esc(provs.join(', ')) + '">' +
         provs.map(p => '<span class="prov-chip">' + esc(p) + '</span>').join('') + '</span>'
       : '';
+    // The tick picks what the comparison table shows as a COLUMN. It is separate from the
+    // click that selects a model for editing, so comparing twelve models does not mean
+    // opening twelve detail panes.
+    const ticked = STATE.compare.has(m) ? ' checked' : '';
     return `<div class="model-list-item ${active} ${configured}" data-model="${m}">
+      <input type="checkbox" class="matrix-tick" data-model="${m}"${ticked}
+             title="Show this model as a column in the comparison matrix"
+             aria-label="Compare ${esc(m)}">
       <div class="mli-name" title="${m}">${m}</div>
       <div class="mli-meta">${best ? '<span class="mli-best">' + best + '</span>' : ''}${provHtml}</div>
     </div>`;
   }).join('');
   container.querySelectorAll('.model-list-item').forEach(el => {
     el.addEventListener('click', () => selectModel(el.dataset.model));
+  });
+  container.querySelectorAll('.matrix-tick').forEach(box => {
+    // stopPropagation: without it the tick would also select the model and swap the lane
+    // to the detail pane, so ticking a column would fling the list away.
+    box.addEventListener('click', ev => ev.stopPropagation());
+    box.addEventListener('change', () => toggleCompare(box.dataset.model, box.checked));
   });
 }
 
@@ -869,5 +884,141 @@ document.getElementById('regMappingRows').addEventListener('change', function (e
 })();
 
 loadAll();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// THE COMPARISON MATRIX — shape B (operator, 2026-11-18: "go for B")
+//
+// Rows are the AXES routing speaks; columns are the models; the best score on each row is
+// marked. Chosen over a model x model grid for three measured reasons: a pairwise grid is
+// symmetric, so half its cells repeat the other half; it hides the rank FLIPS that are the
+// only reason to compare at all (on prod, claude-opus-5 leads reasoning at 95.7% while
+// qwen3.8-max leads planning at 74.1% and agentic at 64.6%); and adding a model costs one
+// column here versus a row AND a column there.
+//
+// Rows come from the SAME payload the editor uses (STATE.matrix.tasks), so the table and
+// the editor cannot disagree about what a model scores.
+// ══════════════════════════════════════════════════════════════════════════════
+const AXIS_ORDER = [
+  'code_generation', 'reasoning_chain', 'agentic_multi_step', 'planning',
+  'research_deep', 'casual_chat', 'debugging', 'unit_tests',
+];
+const AXIS_LABEL = {
+  code_generation: 'code generation', reasoning_chain: 'reasoning chain',
+  agentic_multi_step: 'agentic multi-step', planning: 'planning',
+  research_deep: 'research (deep)', casual_chat: 'casual chat',
+  debugging: 'debugging', unit_tests: 'unit tests',
+};
+// How many columns load unticked. The list is the operator's to widen; this only sets
+// what the table opens with, because 12 columns on a laptop is a scrollbar, not a table.
+const MATRIX_DEFAULT_COLUMNS = 8;
+
+function axesForMatrix() {
+  const tasks = (STATE.matrix && STATE.matrix.tasks) || {};
+  const known = AXIS_ORDER.filter(a => tasks[a]);
+  const extra = Object.keys(tasks).filter(a => AXIS_ORDER.indexOf(a) === -1).sort();
+  return known.concat(extra);
+}
+
+// A name is displayable when it IS a registered slug or RESOLVES to one through the alias
+// map — the same rule the list uses ("only models a provider CONFIRMS it serves").
+function isRegistered(name) {
+  const reg = STATE.registered;
+  if (!reg || !reg.size) return true;   // no registry yet: do not hide everything
+  const s = String(name).toLowerCase();
+  return reg.has(s) || reg.has(String(canonicalName(name)).toLowerCase());
+}
+
+// The registered models that carry a score, best average first — so the table leads with
+// the models worth comparing rather than with whichever sorted first alphabetically.
+function compareModels() {
+  const tasks = (STATE.matrix && STATE.matrix.tasks) || {};
+  const avg = {};
+  for (const a of Object.keys(tasks)) {
+    for (const [m, sc] of Object.entries(tasks[a])) {
+      if (!isRegistered(m)) continue;
+      (avg[m] = avg[m] || []).push(Number(sc));
+    }
+  }
+  return Object.keys(avg)
+    .map(m => [m, avg[m].reduce((x, y) => x + y, 0) / avg[m].length])
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(x => x[0]);
+}
+
+function renderMatrix() {
+  const head = document.getElementById('matrixHead');
+  const body = document.getElementById('matrixBody');
+  if (!head || !body) return;
+  const tasks = (STATE.matrix && STATE.matrix.tasks) || {};
+  const all = compareModels();
+  let cols = all.filter(m => STATE.compare.has(m));
+  if (!STATE.compare.size) cols = all.slice(0, MATRIX_DEFAULT_COLUMNS);
+  const axes = axesForMatrix();
+
+  if (!cols.length) {
+    head.innerHTML = '';
+    body.innerHTML = '<tr><td class="empty">No registered model carries a score yet —'
+      + ' import a file or add scores, then compare.</td></tr>';
+    return;
+  }
+
+  head.innerHTML = '<tr><th scope="col">axis</th>' + cols.map(m =>
+    `<th scope="col" class="matrix-col" title="${esc(m)}">`
+    + `<span class="matrix-model">${esc(m)}</span></th>`).join('') + '</tr>';
+
+  body.innerHTML = axes.map(axis => {
+    const row = tasks[axis] || {};
+    const vals = cols.map(m => (m in row ? Number(row[m]) : null));
+    const scored = vals.filter(v => v !== null);
+    const best = scored.length ? Math.max(...scored) : -Infinity;
+    // A row where NOTHING is scored is a finding, not an empty row: that is an axis with
+    // no measurement anywhere, and hiding it would hide the gap. On prod, debugging and
+    // unit_tests are exactly that — and they are the two busiest axes in real traffic.
+    return `<tr><th scope="row" class="matrix-axis">${esc(AXIS_LABEL[axis] || axis)}</th>`
+      + cols.map((m, i) => {
+          const v = vals[i];
+          if (v === null) return '<td class="matrix-cell empty" title="not scored">—</td>';
+          const isBest = scored.length > 1 && v === best;
+          return `<td class="matrix-cell${isBest ? ' best' : ''}"`
+            + `${isBest ? ' title="highest on this axis"' : ''}>`
+            + `${(v * 100).toFixed(1)}%</td>`;
+        }).join('') + '</tr>';
+  }).join('');
+
+  const note = document.getElementById('matrixNote');
+  if (note) {
+    const without = axes.filter(a => !Object.keys(tasks[a] || {}).some(m => cols.indexOf(m) !== -1));
+    note.textContent = cols.length + ' of ' + all.length + ' registered model(s) compared'
+      + (without.length
+         ? ' — no scores on: ' + without.map(a => AXIS_LABEL[a] || a).join(', ')
+         : '');
+  }
+}
+
+function toggleCompare(model, on_) {
+  if (on_) STATE.compare.add(model); else STATE.compare.delete(model);
+  renderMatrix();
+  renderModelList();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// THE LANE — panes: the list, one model's scores, the import, the taxonomies
+// ══════════════════════════════════════════════════════════════════════════════
+PANE_TITLES.list = 'Models';
+PANE_TITLES.detail = 'Scores';
+PANE_TITLES.import = 'Import scores';
+PANE_TITLES.tax = 'Manage taxonomy';
+
+on('importOpenBtn', 'click', () => mpShow('import'));
+on('listOpenBtn', 'click', () => mpShow('list'));
+on('taxOpenBtn', 'click', () => mpShow('tax'));
+on('mpClose', 'click', mpClose);
+on('mpBackdrop', 'click', mpHide);
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && !MP_DESKTOP.matches) mpHide();
+});
+MP_DESKTOP.addEventListener('change', mpSyncViewport);
+if (!MP_DESKTOP.matches) mpHide();
+
 </script>
 {% endif %}

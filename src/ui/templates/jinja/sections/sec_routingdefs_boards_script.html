@@ -7,6 +7,8 @@
 {% if tab == 'boards' %}
 <script>
 {% include "sections/sec_lcp_shared_js.html" %}
+{% include "sections/sec_lane_js.html" %}
+{% include "sections/sec_leaderboard_script.html" %}
 function renderPollEligible() {
   const elig = document.getElementById('pollEligible');
   if (!elig) return;
@@ -15,88 +17,6 @@ function renderPollEligible() {
     ? `${n} registered models can appear on a board right now.`
     : 'No model is registered right now, so no board can list one.';
 }
-
-// ── the shared detail panel: poll | manage taxonomy ─────────────────────────
-const MP_DESKTOP = window.matchMedia('(min-width: 1100px)');
-
-function mpPanel() { return document.getElementById('modelsPanel'); }
-
-function mpShow(pane) {
-  const panel = mpPanel();
-  if (!panel) return;
-  document.getElementById('pollPane').hidden = pane !== 'poll';
-  document.getElementById('taxPane').hidden = pane !== 'tax';
-  const title = document.getElementById('mpTitle');
-  if (title) title.textContent = pane === 'tax' ? 'Manage taxonomy' : 'Poll latest data';
-  panel.dataset.pane = pane;
-  panel.classList.add('open');
-  const back = document.getElementById('mpBackdrop');
-  // Backdrop only where the panel overlays (< 1100px). On the desktop lane
-  // there is no modal layer at all.
-  if (back) back.classList.toggle('open', !MP_DESKTOP.matches);
-}
-
-function mpHide() {
-  const panel = mpPanel();
-  if (!panel) return;
-  panel.classList.remove('open');
-  const back = document.getElementById('mpBackdrop');
-  if (back) back.classList.remove('open');
-}
-
-function mpClose() {
-  // ✕ CLOSES the lane on both breakpoints. It used to call mpShow('tax') on
-  // desktop — a no-op whenever taxonomy was already the open pane, which is the
-  // state this page now loads in, so the button read as broken. Closing is the
-  // honest meaning for a control shaped like a close button; the two buttons in
-  // column 2 bring the lane back, and a closed lane releases its reserved width
-  // (see the #modelsPanel rule in dashboard.css) so nothing is wasted.
-  mpHide();
-}
-
-// ── drag handle (file-explorer splitter), the shared lane mechanics ────────
-// The dragged width rides --dp-width on <body>; --detail-width stays the shared
-// default owned by the overview block.
-(function mpResizer() {
-  const handle = document.getElementById('mpResizer');
-  if (!handle) return;
-  const MIN_W = 280, MAX_W = 760;
-  let dragging = false;
-
-  function setWidth(px, persist) {
-    px = Math.max(MIN_W, Math.min(px, Math.min(window.innerWidth * 0.6, MAX_W)));
-    document.body.style.setProperty('--dp-width', px + 'px');
-    if (persist) {
-      try { localStorage.setItem('models-panel-width', String(px)); } catch (e) { /* private mode */ }
-    }
-  }
-  try {
-    const saved = parseInt(localStorage.getItem('models-panel-width') || '', 10);
-    if (saved) setWidth(saved, false);
-  } catch (e) { /* private mode */ }
-
-  handle.addEventListener('pointerdown', ev => {
-    dragging = true;
-    handle.classList.add('dragging');
-    handle.setPointerCapture(ev.pointerId);
-    document.body.classList.add('dp-resizing');
-  });
-  handle.addEventListener('pointermove', ev => {
-    if (dragging) setWidth(window.innerWidth - ev.clientX, false);
-  });
-  handle.addEventListener('pointerup', ev => {
-    if (!dragging) return;
-    dragging = false;
-    handle.classList.remove('dragging');
-    handle.releasePointerCapture(ev.pointerId);
-    document.body.classList.remove('dp-resizing');
-    setWidth(window.innerWidth - ev.clientX, true);
-  });
-  handle.addEventListener('dblclick', () => {
-    document.body.style.removeProperty('--dp-width');
-    try { localStorage.removeItem('models-panel-width'); } catch (e) { /* private mode */ }
-  });
-})();
 
 // ── poll: staged diff, then accept or discard ───────────────────────────────
 function fmtStamp(iso) {
@@ -246,341 +166,31 @@ async function clearPoll() {
   renderPollPanel();
 }
 
-// ── manage taxonomy ────────────────────────────────────────────────────────
-function renderTaxList() {
-  const wrap = document.getElementById('taxList');
-  if (!wrap) return;
-  const tabs = STATE.tabs || [];
-  wrap.innerHTML = tabs.length
-    ? tabs.map(t => `<div class="mp-tax-row${STATE.tax === t.taxonomy ? ' active' : ''}"
-        data-tax="${esc(t.taxonomy)}">
-        <span class="mp-tax-name">${esc(t.label || t.taxonomy)}</span>
-        <span class="mp-tax-kind">${t.kind === 'custom' ? 'yours' : 'arena'}</span>
-        <span class="mp-tax-rows">${t.rows} rows</span>
-      </div>`).join('')
-    : '<div class="muted">No taxonomies yet.</div>';
-  wrap.querySelectorAll('.mp-tax-row').forEach(el => {
-    el.addEventListener('click', () => selectTab(el.dataset.tax));
-  });
-}
-
-// ── the mapping, TAXONOMY-FIRST ────────────────────────────────────────────
-// Measured complaint (2026-11-16): the board-first list rendered 36 rows with 36
-// dropdowns and 36 buttons — 88 targets across 5 screen-heights of scroll — to
-// answer a question that is always about ONE taxonomy. The list is now 8 rows, and
-// each row is the whole answer for that taxonomy: its boards as removable chips,
-// plus one multi-select to add more.
-//
-// The user's unit of thought is "what measures reasoning_chain", not "where does
-// `math` go". 22 of the 36 boards are 10 language slices, 8 industry slices and 4
-// overall/meta cuts — not competing measurements — so they live in a collapsed
-// disclosure instead of in the way.
-function famLabel(fam) { return fam === 'agent' ? 'agent' : 'text'; }
-
-// Group the flat mapping rows into one entry per taxonomy.
-function taxGroups() {
-  const cat = STATE.catalogue || {};
-  const rows = cat.mapping || [];
-  const byTax = {};
-  rows.forEach(r => {
-    const g = byTax[r.taxonomy] || (byTax[r.taxonomy] = {taxonomy: r.taxonomy, boards: []});
-    g.boards.push(r);
-  });
-  // Order by the tab strip, so this list and the board tabs never disagree.
-  const order = (STATE.tabs || []).map(t => t.taxonomy);
-  return Object.values(byTax).sort((a, b) => {
-    const ia = order.indexOf(a.taxonomy), ib = order.indexOf(b.taxonomy);
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.taxonomy.localeCompare(b.taxonomy);
-  });
-}
-
-function boardOptions() {
-  const cat = STATE.catalogue || {};
-  const all = [].concat(cat.mapped || [], cat.unmapped || []);
-  // A board may feed several taxonomies, so it must be offered even when already
-  // mapped elsewhere — the chips show which, and adding one is not a replacement.
-  return all.slice().sort((a, b) =>
-    (a.family === b.family ? 0 : a.family === 'agent' ? -1 : 1) ||
-    a.board.localeCompare(b.board));
-}
-
-function renderTaxMap() {
-  const wrap = document.getElementById('taxMap');
-  if (!wrap) return;
-  const cat = STATE.catalogue;
-  if (!cat || (!cat.mapping && !(cat.mapped || []).length)) {
-    wrap.innerHTML = '<div class="muted">No board catalogue yet — poll once and every ' +
-      'LMArena board is stored here for mapping.</div>';
-    renderUnused();
-    return;
-  }
-  const groups = taxGroups();
-  const opts = boardOptions();
-
-  wrap.innerHTML = groups.map(g => {
-    const chips = g.boards.map(b => `
-      <span class="mm-chip" title="${esc(famLabel(b.family))} · ${b.stored_rows || 0} stored">
-        ${esc(b.board)}
-        <button class="mm-chip-x" data-tax="${esc(g.taxonomy)}" data-board="${esc(b.board)}"
-          title="Stop ${esc(b.board)} measuring ${esc(g.taxonomy)}"
-          aria-label="Unmap ${esc(b.board)} from ${esc(g.taxonomy)}">×</button>
-      </span>`).join('');
-    // ONE control per taxonomy instead of one per board, and it takes several at
-    // once: `reasoning_chain` is fed by math + expert + hard_prompts_english, and
-    // mapping those one dropdown at a time is the repetitiveness he named.
-    const avail = opts.filter(o => !g.boards.some(b => b.board === o.board));
-    // Label by UNIT, not family: a board is literally named `agent`, so
-    // "agent · agent · 18 ours" said the same word twice and never told the operator
-    // which measurement he was adding (Elo vs net improvement).
-    const selOpts = avail.map(o =>
-      `<option value="${esc(o.board)}">${esc(o.board)} · ${esc(unitLabel(o.unit))}` +
-      ` · ${o.models_matched} ours</option>`).join('');
-    return `<div class="mm-tax">
-      <div class="mm-tax-head">
-        <span class="mm-tax-name mono">${esc(g.taxonomy)}</span>
-        <span class="mm-tax-count">${g.boards.length} board${g.boards.length === 1 ? '' : 's'}</span>
-      </div>
-      <div class="mm-map">${chips || '<span class="muted">nothing measures this yet</span>'}</div>
-      <div class="mm-add">
-        <select class="form-input mm-sel" multiple size="3" data-tax="${esc(g.taxonomy)}"
-          aria-label="Boards to add to ${esc(g.taxonomy)}">${selOpts}</select>
-        <button class="btn btn-outline btn-sm mm-go" data-tax="${esc(g.taxonomy)}">Add</button>
-      </div>
-    </div>`;
-  }).join('');
-
-  wrap.querySelectorAll('.mm-go').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const sel = wrap.querySelector(`.mm-sel[data-tax="${CSS.escape(btn.dataset.tax)}"]`);
-      const boards = sel ? [...sel.selectedOptions].map(o => o.value) : [];
-      mapBoards(btn.dataset.tax, boards);
-    });
-  });
-  wrap.querySelectorAll('.mm-chip-x').forEach(btn => {
-    btn.addEventListener('click', ev => {
-      ev.stopPropagation();
-      unmapBoard(btn.dataset.tax, btn.dataset.board);
-    });
-  });
-  renderUnused();
-}
-
-function renderUnused() {
-  const host = document.getElementById('unusedBoards');
-  const sum = document.getElementById('unusedSummary');
-  if (!host) return;
-  const cat = STATE.catalogue || {};
-  const unused = cat.unmapped || [];
-  if (sum) sum.textContent = `Unused LMArena boards (${unused.length})`;
-  host.innerHTML = unused.slice().sort((a, b) => a.board.localeCompare(b.board)).map(b => `
-    <div class="mm-unused-row">
-      <span class="mono">${esc(b.board)}</span>
-      <span class="muted">${famLabel(b.family)} · ${b.models_matched} ours · ${b.stored_rows || 0} stored</span>
-    </div>`).join('');
-}
-
-// Add several boards to one taxonomy in ONE request each, then refresh once.
-// Mapping is commutative and independent per pair, so a loop is honest here: if the
-// third fails the first two stay mapped and the message says which failed.
-async function mapBoards(tax, boards) {
-  if (!boards.length) { mapMsg('Pick at least one board for ' + tax + '.', 'warn'); return; }
-  mapMsg(`Mapping ${boards.length} board${boards.length === 1 ? '' : 's'} → ${tax}…`);
-  const failed = [];
-  let written = 0;
-  for (const board of boards) {
-    const r = await API.map({taxonomy: tax, board: board});
-    if (r.error) { failed.push(board + ': ' + r.error); continue; }
-    written += (r.published && r.published.written) || 0;
-    if (r.tabs) STATE.tabs = r.tabs;
-  }
-  if (failed.length) {
-    mapMsg(`Mapped, but ${failed.length} failed — ${failed.join('; ')}`, 'bad');
-  } else {
-    const noun = boards.length === 1 ? 'board now measures' : 'boards now measure';
-    mapMsg(`${boards.length} ${noun} ${tax}` +
-      (written ? ` — ${written} rows published.` : ' — no stored rows yet.'), 'ok');
-  }
-  await refreshAfterMap(STATE.tabs);
-}
-
-async function unmapBoard(tax, board) {
-  mapMsg('Unmapping ' + board + ' from ' + tax + '…');
-  const r = await API.unmap(tax, board);
-  if (r.error) { mapMsg('Unmap failed: ' + r.error, 'bad'); return; }
-  mapMsg(`${board} no longer measures ${tax}` +
-    (r.removed ? ` — ${r.removed} rows removed.` : '.'), 'ok');
-  await refreshAfterMap(r.tabs);
-}
-
-async function refreshAfterMap(tabs) {
-  if (tabs) STATE.tabs = tabs;
-  await loadCatalogue();
-  if (typeof renderTabs === 'function') renderTabs();
-  renderTaxList();
-  if (typeof loadBoard === 'function' && STATE.tax) loadBoard(STATE.tax);
-}
-
-async function loadCatalogue() {
-  try {
-    STATE.catalogue = await API.catalogue();
-  } catch (e) {
-    STATE.catalogue = null;
-  }
-  renderTaxMap();
-}
-
-function mapMsg(text, tone) {
-  const el = document.getElementById('mapMsg');
-  if (!el) return;
-  el.textContent = text || '';
-  el.dataset.tone = tone || '';
-}
-
-function taxMsg(text, tone) {
-  const el = document.getElementById('taxMsg');
-  if (!el) return;
-  el.textContent = text || '';
-  el.dataset.tone = tone || '';
-}
-
-async function defineTaxonomy() {
-  const name = (document.getElementById('taxName').value || '').trim();
-  if (!name) { taxMsg('Name the taxonomy first.'); return; }
-  const r = await API.taxonomy({action: 'define', name});
-  if (r.error) { taxMsg('Error: ' + r.error); return; }
-  document.getElementById('taxName').value = '';
-  const tabs = await API.taxonomy();
-  STATE.tabs = tabs.tabs || [];
-  renderTabs();
-  renderTaxList();
-  taxMsg('Defined ' + r.taxonomy + '. Open its tab to add ratings.');
-}
-
-// ── CSV import: a real file chooser, not a paste box ───────────────────────
-// Operator, 2026-11-15: "import csv should be a file import, the necessary
-// columns should be shown below". The template carries the columns beside the
-// chooser; this only reads the file and posts its text.
-function readFileText(file) {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result || ''));
-    fr.onerror = () => reject(fr.error || new Error('could not read the file'));
-    fr.readAsText(file);
-  });
-}
-
-async function importTaxonomyCsv() {
-  const input = document.getElementById('taxFile');
-  const file = input && input.files && input.files[0];
-  if (!file) { taxMsg('Choose a CSV file first.'); return; }
-  let csv;
-  try {
-    csv = await readFileText(file);
-  } catch (e) {
-    taxMsg('Could not read ' + file.name + ': ' + e);
-    return;
-  }
-  if (!csv.trim()) { taxMsg(file.name + ' is empty.'); return; }
-
-  const btn = document.getElementById('taxImportBtn');
-  if (btn) btn.disabled = true;
-  taxMsg('Importing ' + file.name + '…');
-
-  // The board selected in the tab strip is sent as the fallback taxonomy, so a
-  // file whose rows carry no `taxonomy` column lands where the operator is
-  // looking — but only when that board is one of his own.
-  const fallback = (STATE.tax && String(STATE.tax).indexOf('custom:') === 0)
-    ? STATE.tax.split(':', 2)[1] : null;
-  const r = await API.taxonomy({action: 'import', csv: csv, taxonomy: fallback});
-  if (btn) btn.disabled = false;
-  if (r.error) { taxMsg('Import failed: ' + r.error); return; }
-
-  const tabs = await API.taxonomy();
-  STATE.tabs = tabs.tabs || [];
-  renderTabs();
-  renderTaxList();
-  let msg = `Imported ${r.written} ratings from ${file.name}.`;
-  if (r.skipped_unregistered) msg += ` Skipped ${r.skipped_unregistered} row(s) — that model is not served here.`;
-  if (r.errors && r.errors.length) {
-    msg += ` ${r.errors.length} line(s) rejected: ` +
-      r.errors.slice(0, 3).map(e => 'line ' + e.line + ' ' + e.error).join('; ');
-  }
-  taxMsg(msg, r.written ? 'ok' : 'warn');
-  if (r.written && r.taxonomy) {
-    // Show what was just written rather than leaving him on a stale board.
-    const want = r.taxonomy;
-    if ((STATE.tabs || []).some(t => t.taxonomy === want)) selectTab(want);
-  }
-}
-
-// The chosen file's name, so the control reports what it will import.
-(function taxFileLabel() {
-  const input = document.getElementById('taxFile');
-  const label = document.getElementById('taxFileName');
-  if (!input || !label) return;
-  input.addEventListener('change', () => {
-    const f = input.files && input.files[0];
-    // The native control already prints "No file chosen", so the helper line only
-    // appears once there is a file — and then it carries the size too.
-    if (!f) { label.hidden = true; label.textContent = ''; return; }
-    const kb = f.size ? ` (${Math.max(1, Math.round(f.size / 1024))} KB)` : '';
-    label.textContent = 'Selected: ' + f.name + kb;
-    label.hidden = false;
-  });
-})();
-
-// A template with the exact header, so nobody has to remember the column names.
-on('taxTemplateBtn', 'click', () => {
-  const csv = 'model_slug,value,taxonomy,lab\n' +
-    'glm-5.3-flash,1520,local-served,zai\n' +
-    'kimi-k3,1508,local-served,moonshot\n';
-  const blob = new Blob([csv], {type: 'text/csv'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'taxonomy-template.csv';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
-});
-
 // ── wiring ─────────────────────────────────────────────────────────────────
 // Top button SHOWS the pane; it does not poll. Operator: "only by user's 'Poll
 // again' the repolling will happen" — so a stored set is displayed as-is and a
 // fresh fetch needs the pane's own button.
-// Every binding goes through `on`: each control is bound only if it is on this
-// page. That is what lets the shared JS serve two pages without either one
-// dereferencing an element the other owns — an unguarded getElementById here
-// threw and killed the whole script on the page that did not have the control.
-function on(id, ev, fn) {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener(ev, fn);
-}
+//
+// Every binding goes through `on` (shared): each control is bound only if it is on this
+// page. Without that guard an unguarded getElementById threw on the page that did not own
+// the control and killed the whole script — which is how the 2026-11-17 split failed.
+// The taxonomy controls are NOT bound here: that pane moved to the Capability matrix tab
+// and binds its own.
+PANE_TITLES.poll = 'Poll';
+on('pollOpenBtn', 'click', () => mpShow('poll'));
 on('mpClose', 'click', mpClose);
 on('mpBackdrop', 'click', mpHide);
 on('pollRunBtn2', 'click', runPoll);
 on('pollAgainBtn', 'click', runPoll);
 on('pollUpdateBtn', 'click', updatePoll);
 on('pollClearBtn', 'click', clearPoll);
-on('taxDefineBtn', 'click', defineTaxonomy);
-on('taxImportBtn', 'click', importTaxonomyCsv);
 document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && !MP_DESKTOP.matches) mpHide();
 });
-
-// Viewport flip: the lane re-appears on desktop, the sheet closes on mobile.
-function mpSyncViewport(mq) {
-  const panel = mpPanel();
-  if (!panel) return;
-  // Growing to desktop must not force the lane open over an operator who closed
-  // it; it restores the lane only if the pane was already chosen.
-  if (mq.matches && panel.dataset.pane) mpShow(panel.dataset.pane);
-  else mpHide();
-}
 MP_DESKTOP.addEventListener('change', mpSyncViewport);
-// A .open class can survive into a mobile document via a back/forward-cache
-// restore; a fresh mobile load must show the BOARD, not a sheet over it.
+// A `.open` class can survive into a mobile document via a back/forward-cache restore;
+// a fresh mobile load must show the BOARD, not a sheet over it.
 if (!MP_DESKTOP.matches) mpHide();
-
 // ── first paint ────────────────────────────────────────────────────────────
 (async function initBoardsPanel() {
   if (!mpPanel()) return;
@@ -593,7 +203,6 @@ if (!MP_DESKTOP.matches) mpHide();
     try { const d = await API.board(null); STATE.lb = {rows: [], eligible: d.eligible || []}; }
     catch (e) { /* the prompt just shows the empty-state wording */ }
     renderPollEligible();
-    renderTaxList();
     loadPoll();
     renderPollPanel();
     await loadCatalogue();
@@ -601,7 +210,7 @@ if (!MP_DESKTOP.matches) mpHide();
     const n = document.getElementById('pollMsg');
     if (n) n.textContent = 'Boards unavailable: ' + e;
   }
-  if (MP_DESKTOP.matches) mpShow('tax');
+  if (MP_DESKTOP.matches) mpShow('poll');
 })();
 </script>
 {% endif %}

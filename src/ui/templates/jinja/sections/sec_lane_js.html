@@ -1,0 +1,125 @@
+{#- The shared detail lane: how a page shows and hides its column-3 panes, plus the
+    guarded binder. Split out of sec_lcp_shared_js.html because the Capability matrix
+    tab keeps prod's own editor script, which defines its OWN API and STATE — including
+    both would be two `const API` declarations and a SyntaxError that kills the page.
+    A page includes this ONE piece if all it needs is the lane. -#}
+// ── the shared detail lane ─────────────────────────────────────────────────
+// Used by the Models page, Routing definitions → Arena boards and → Capability matrix.
+// One implementation: the lane mechanics (reserved width, drag handle, slide-over under
+// 1100px) are shared with overview and conversations and are not ours to redesign.
+const PANE_TITLES = {};
+// ── the shared detail panel: poll | manage taxonomy ─────────────────────────
+const MP_DESKTOP = window.matchMedia('(min-width: 1100px)');
+
+function mpPanel() { return document.getElementById('modelsPanel'); }
+
+function mpShow(pane) {
+  const panel = mpPanel();
+  if (!panel) return;
+  // Every pane in the lane carries `dp-pane` and `data-pane=<name>`: this hides them ALL
+  // and reveals the one asked for. A hardcoded pane list (pollPane/taxPane) cannot serve
+  // two tabs whose panes differ — which is exactly what broke when the taxonomy pane moved
+  // to the Capability matrix tab and left this function setting `hidden` on nothing.
+  panel.querySelectorAll('.dp-pane').forEach(el => {
+    el.hidden = el.dataset.pane !== pane;
+  });
+  mpSyncViewport();
+  const t = document.getElementById('mpTitle');
+  if (t) t.textContent = PANE_TITLES[pane] || pane;
+  panel.dataset.pane = pane;
+  panel.classList.add('open');
+  const bd = document.getElementById('mpBackdrop');
+  if (bd) bd.classList.add('open');
+}
+
+function mpHide() {
+  const panel = mpPanel();
+  if (!panel) return;
+  panel.classList.remove('open');
+  const back = document.getElementById('mpBackdrop');
+  if (back) back.classList.remove('open');
+}
+
+function mpClose() {
+  // ✕ CLOSES the lane on both breakpoints. It used to call mpShow('tax') on
+  // desktop — a no-op whenever taxonomy was already the open pane, which is the
+  // state this page now loads in, so the button read as broken. Closing is the
+  // honest meaning for a control shaped like a close button; the two buttons in
+  // column 2 bring the lane back, and a closed lane releases its reserved width
+  // (see the #modelsPanel rule in dashboard.css) so nothing is wasted.
+  mpHide();
+}
+
+// ── drag handle (file-explorer splitter), the shared lane mechanics ────────
+// The dragged width rides --dp-width on <body>; --detail-width stays the shared
+// default owned by the overview block.
+(function mpResizer() {
+  const handle = document.getElementById('mpResizer');
+  if (!handle) return;
+  const MIN_W = 280, MAX_W = 760;
+  let dragging = false;
+
+  function setWidth(px, persist) {
+    px = Math.max(MIN_W, Math.min(px, Math.min(window.innerWidth * 0.6, MAX_W)));
+    document.body.style.setProperty('--dp-width', px + 'px');
+    if (persist) {
+      try { localStorage.setItem('models-panel-width', String(px)); } catch (e) { /* private mode */ }
+    }
+  }
+  try {
+    const saved = parseInt(localStorage.getItem('models-panel-width') || '', 10);
+    if (saved) setWidth(saved, false);
+  } catch (e) { /* private mode */ }
+
+  handle.addEventListener('pointerdown', ev => {
+    dragging = true;
+    handle.classList.add('dragging');
+    handle.setPointerCapture(ev.pointerId);
+    document.body.classList.add('dp-resizing');
+  });
+  handle.addEventListener('pointermove', ev => {
+    if (dragging) setWidth(window.innerWidth - ev.clientX, false);
+  });
+  handle.addEventListener('pointerup', ev => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    handle.releasePointerCapture(ev.pointerId);
+    document.body.classList.remove('dp-resizing');
+    setWidth(window.innerWidth - ev.clientX, true);
+  });
+  handle.addEventListener('dblclick', () => {
+    document.body.style.removeProperty('--dp-width');
+    try { localStorage.removeItem('models-panel-width'); } catch (e) { /* private mode */ }
+  });
+})();
+
+function on(id, ev, fn) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener(ev, fn);
+}
+on('mpClose', 'click', mpClose);
+on('mpBackdrop', 'click', mpHide);
+on('pollRunBtn2', 'click', runPoll);
+on('pollAgainBtn', 'click', runPoll);
+on('pollUpdateBtn', 'click', updatePoll);
+on('pollClearBtn', 'click', clearPoll);
+on('taxDefineBtn', 'click', defineTaxonomy);
+on('taxImportBtn', 'click', importTaxonomyCsv);
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && !MP_DESKTOP.matches) mpHide();
+});
+
+// Viewport flip: the lane re-appears on desktop, the sheet closes on mobile.
+function mpSyncViewport(mq) {
+  const panel = mpPanel();
+  if (!panel) return;
+  // Growing to desktop must not force the lane open over an operator who closed
+  // it; it restores the lane only if the pane was already chosen.
+  if (mq.matches && panel.dataset.pane) mpShow(panel.dataset.pane);
+  else mpHide();
+}
+MP_DESKTOP.addEventListener('change', mpSyncViewport);
+// A .open class can survive into a mobile document via a back/forward-cache
+// restore; a fresh mobile load must show the BOARD, not a sheet over it.
+if (!MP_DESKTOP.matches) mpHide();
