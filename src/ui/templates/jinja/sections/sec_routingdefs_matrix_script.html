@@ -147,6 +147,7 @@ async function loadAll() {
   }
   STATE.activeModels = active;
 
+  seedCompare();
   renderModelList();
   renderMatrix();
   if (STATE.selected && allModels().includes(STATE.selected)) {
@@ -199,10 +200,18 @@ function renderModelList() {
     // click that selects a model for editing, so comparing twelve models does not mean
     // opening twelve detail panes.
     const ticked = STATE.compare.has(m) ? ' checked' : '';
+    // A scoreless model cannot be a column: it would render an all-dash column that looks
+    // like a measurement failure rather than missing data. The tick is DISABLED and says
+    // why, so ticking it is not a click that does nothing.
+    const scoreable = hasScores(m);
     return `<div class="model-list-item ${active} ${configured}" data-model="${m}">
-      <input type="checkbox" class="matrix-tick" data-model="${m}"${ticked}
+      ${scoreable
+        ? `<input type="checkbox" class="matrix-tick" data-model="${m}"${ticked}
              title="Show this model as a column in the comparison matrix"
-             aria-label="Compare ${esc(m)}">
+             aria-label="Compare ${esc(m)}">`
+        : `<input type="checkbox" class="matrix-tick" data-model="${m}" disabled
+             title="No capability scores yet — there is nothing to compare"
+             aria-label="${esc(m)} has no scores">`}
       <div class="mli-name" title="${m}">${m}</div>
       <div class="mli-meta">${best ? '<span class="mli-best">' + best + '</span>' : ''}${provHtml}</div>
     </div>`;
@@ -885,6 +894,9 @@ document.getElementById('regMappingRows').addEventListener('change', function (e
 
 loadAll();
 
+{% include "sections/sec_routingdefs_matrix_import_script.html" %}
+{% include "sections/sec_taxonomy_pane_script.html" %}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // THE COMPARISON MATRIX — shape B (operator, 2026-11-18: "go for B")
 //
@@ -945,14 +957,30 @@ function compareModels() {
     .map(x => x[0]);
 }
 
+// The ticked set IS what the table shows, so it must start as the default set rather than
+// empty: with it empty, the first tick made the table drop from 8 columns to 1 (ticking one
+// model replaced the whole display set). Seeding it also keeps the checkboxes honest.
+// Does this model carry any score at all? A column with no values is not a comparison.
+function hasScores(name) {
+  const tasks = (STATE.matrix && STATE.matrix.tasks) || {};
+  for (const a of Object.keys(tasks)) {
+    if (name in tasks[a]) return true;
+  }
+  return false;
+}
+
+function seedCompare() {
+  if (STATE.compare.size) return;
+  compareModels().slice(0, MATRIX_DEFAULT_COLUMNS).forEach(m => STATE.compare.add(m));
+}
+
 function renderMatrix() {
   const head = document.getElementById('matrixHead');
   const body = document.getElementById('matrixBody');
   if (!head || !body) return;
   const tasks = (STATE.matrix && STATE.matrix.tasks) || {};
   const all = compareModels();
-  let cols = all.filter(m => STATE.compare.has(m));
-  if (!STATE.compare.size) cols = all.slice(0, MATRIX_DEFAULT_COLUMNS);
+  const cols = all.filter(m => STATE.compare.has(m));
   const axes = axesForMatrix();
 
   if (!cols.length) {
@@ -1018,7 +1046,10 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && !MP_DESKTOP.matches) mpHide();
 });
 MP_DESKTOP.addEventListener('change', mpSyncViewport);
-if (!MP_DESKTOP.matches) mpHide();
+if (MP_DESKTOP.matches) mpShow('list');
+// the taxonomy pane lives on this tab now, so its list is this tab's to load
+if (typeof renderTaxList === 'function') renderTaxList();
+else mpHide();
 
 </script>
 {% endif %}

@@ -98,20 +98,11 @@ function on(id, ev, fn) {
   const el = document.getElementById(id);
   if (el) el.addEventListener(ev, fn);
 }
-on('mpClose', 'click', mpClose);
-on('mpBackdrop', 'click', mpHide);
-on('pollRunBtn2', 'click', runPoll);
-on('pollAgainBtn', 'click', runPoll);
-on('pollUpdateBtn', 'click', updatePoll);
-on('pollClearBtn', 'click', clearPoll);
-on('taxDefineBtn', 'click', defineTaxonomy);
-on('taxImportBtn', 'click', importTaxonomyCsv);
-document.addEventListener('keydown', ev => {
-  if (ev.key === 'Escape' && !MP_DESKTOP.matches) mpHide();
-});
-
-// Viewport flip: the lane re-appears on desktop, the sheet closes on mobile.
 function mpSyncViewport(mq) {
+  // The media query is a DEFAULT, not a required argument: mpShow/mpHide/mpClose call this
+  // with none, and `mq.matches` on undefined threw — which aborted mpShow BEFORE it set the
+  // title or added .open, so the lane opened to an empty, closed panel.
+  mq = mq || MP_DESKTOP;
   const panel = mpPanel();
   if (!panel) return;
   // Growing to desktop must not force the lane open over an operator who closed
@@ -119,7 +110,3 @@ function mpSyncViewport(mq) {
   if (mq.matches && panel.dataset.pane) mpShow(panel.dataset.pane);
   else mpHide();
 }
-MP_DESKTOP.addEventListener('change', mpSyncViewport);
-// A .open class can survive into a mobile document via a back/forward-cache
-// restore; a fresh mobile load must show the BOARD, not a sheet over it.
-if (!MP_DESKTOP.matches) mpHide();
