@@ -1455,6 +1455,8 @@ def _build_routes() -> RouteTable:
     # ── models ──
     t.get("api.models.capability", exact("/api/models/capability"),
           lambda h, p: h._serve_capability_api())
+    t.get("api.models.unbound", exact("/api/models/unbound"),
+          lambda h, p: h._serve_models_unbound_api())
     t.get("api.models.registry", exact("/api/models/registry"),
           lambda h, p: h._serve_registry_api())
     # The capability flags the vision gate reads (supports_vision / thinking /
@@ -1535,6 +1537,10 @@ def _build_routes() -> RouteTable:
 
     t.post("api.models.registry", exact("/api/models/registry"),
            lambda h, p: h._serve_registry_upsert_api())
+    t.get("api.models.capability.template", exact("/api/models/capability/template"),
+          lambda h, p: h._serve_capability_template_api())
+    t.post("api.models.capability.import", exact("/api/models/capability/import"),
+           lambda h, p: h._serve_capability_import_api())
     t.post("api.models.capability.manual", exact("/api/models/capability/manual"),
            lambda h, p: h._serve_capability_manual_api())
     t.post("api.models.capability.seed", exact("/api/models/capability/seed"),

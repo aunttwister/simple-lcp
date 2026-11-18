@@ -1,0 +1,148 @@
+{#- Shared JS for the leaderboard (Models) and the boards panel (Routing definitions).
+    Raw JS on purpose: this partial is INCLUDED INSIDE a <script> block, so it must
+    not carry its own tag or a tab guard. One copy of the fetch wrappers, the poll
+    cache and the formatters — both pages use them, and a second copy would drift. -#}
+const API = {
+  async board(tax) {
+    const r = await fetch('/api/model-ratings/leaderboard' +
+      (tax ? '?taxonomy=' + encodeURIComponent(tax) : ''));
+    return r.json();
+  },
+  async boardStaged() {
+    const r = await fetch('/api/model-ratings/staged');
+    return r.json();
+  },
+  async boardPoll() {
+    const r = await fetch('/api/model-ratings/poll', {method: 'POST'});
+    return r.json();
+  },
+  async boardUpdate(keys) {
+    const r = await fetch('/api/model-ratings/update', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({keys: keys})
+    });
+    return r.json();
+  },
+  async boardClear() {
+    const r = await fetch('/api/model-ratings/clear', {method: 'POST'});
+    return r.json();
+  },
+  async catalogue() {
+    const r = await fetch('/api/model-ratings/catalogue');
+    return r.json();
+  },
+  async map(body) {
+    const r = await fetch('/api/model-ratings/map', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    return r.json();
+  },
+  async unmap(taxonomy, board) {
+    const r = await fetch('/api/model-ratings/map?taxonomy=' + encodeURIComponent(taxonomy) +
+      '&board=' + encodeURIComponent(board), {method: 'DELETE'});
+    return r.json();
+  },
+  async taxonomy(body) {
+    const r = await fetch('/api/model-ratings/taxonomy', body ? {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    } : {});
+    return r.json();
+  }
+};
+
+let STATE = {tax: null, tabs: [], lb: {rows: [], eligible: []},
+             pollRows: [], polledAt: null, pollChecks: {}, catalogue: null};
+
+// ── polled data lives in the BROWSER, not on the server ────────────────────
+// Operator, 2026-11-15: "once we poll it we should keep it on frontend in
+// memory in local or session storage ... only by user's Poll again the
+// repolling will happen". So a page load READS what this tab polled and shows
+// it with the time it was taken; nothing re-polls behind his back, and a reload
+// does not throw away which rows he had ticked.
+//
+// session storage, not local: the polled set is a review in progress, and a new
+// tab should not inherit a stale one from yesterday. Within this tab it survives
+// a reload, which is the case that was destroying his selections.
+const POLL_KEY = 'lcp.lb.poll.v1';
+
+// The row's identity, as a string. One definition, used as the React-style key
+// for both the DOM and the stored tick map, so a tick can never land on the
+// wrong row after a reload.
+function pollKeyOf(r) {
+  return JSON.stringify([r.model_slug, r.taxonomy, r.unit, r.board, r.effort]);
+}
+
+function savePoll(rows, polledAt) {
+  STATE.pollRows = rows || [];
+  STATE.polledAt = polledAt || null;
+  try {
+    if (STATE.pollRows.length) {
+      sessionStorage.setItem(POLL_KEY, JSON.stringify({
+        v: 1, at: STATE.polledAt, rows: STATE.pollRows, checks: STATE.pollChecks || {}
+      }));
+    } else {
+      sessionStorage.removeItem(POLL_KEY);
+      STATE.pollChecks = {};
+    }
+  } catch (e) { /* private mode: the panel still works for this page view */ }
+}
+
+function loadPoll() {
+  try {
+    const raw = sessionStorage.getItem(POLL_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (!d || d.v !== 1 || !Array.isArray(d.rows)) return false;
+    STATE.pollRows = d.rows;
+    STATE.polledAt = d.at || null;
+    STATE.pollChecks = d.checks || {};
+    return STATE.pollRows.length > 0;
+  } catch (e) { return false; }
+}
+
+// Persist the ticks as they are made, so a reload resumes the SAME review rather
+// than resetting every row to its default. Writing on change (not on unload) means
+// a crash or a killed tab keeps the last deliberate click.
+function saveChecks() {
+  if (!STATE.pollRows || !STATE.pollRows.length) return;
+  try {
+    sessionStorage.setItem(POLL_KEY, JSON.stringify({
+      v: 1, at: STATE.polledAt, rows: STATE.pollRows, checks: STATE.pollChecks || {}
+    }));
+  } catch (e) { /* private mode */ }
+}
+
+function checkStateFor(r) {
+  const k = pollKeyOf(r);
+  const stored = (STATE.pollChecks || {})[k];
+  return typeof stored === 'boolean' ? stored : !!r.changed;
+}
+
+// A poll reads the ARENA boards. A `custom:` board is a rating the operator
+// entered and has no upstream, so it must never appear in the polled set even if
+// a stored blob or a hand-made row carries one.
+function isArena(tax) { return String(tax || '').indexOf('custom:') !== 0; }
+function arenaRows(rows) { return (rows || []).filter(r => isArena(r.taxonomy)); }
+
+// ── formatting ──────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function unitLabel(unit) {
+  return unit === 'elo' ? 'Elo' : (unit === 'net_improvement' ? 'net improvement' : unit);
+}
+
+function fmtValue(value, unit) {
+  if (value === null || value === undefined) return '—';
+  return unit === 'elo' ? Number(value).toFixed(1) : Number(value).toFixed(4);
+}
+
+function fmtWhen(s) {
+  // Trails span months, so the date is shown whole; the year is never dropped.
+  return s ? String(s).slice(0, 10) : '—';
+}
+

@@ -4493,6 +4493,20 @@ class DashboardEndpoints:
             self._send_json({"error": str(e)}, 500)
 
 
+    def _serve_models_unbound_api(self):
+        """GET /api/models/unbound — registered deployments with no portfolio.
+
+        Registered means ``status='active'`` on both the model and the deployment.
+        The poll's discovery queue (``status='new'``) is deliberately NOT included:
+        it is not registration, and the operator's rule is that only registered
+        models are displayed.
+        """
+        from ..api import model_names
+        try:
+            self._send_json(model_names.unbound_deployments(self.engine))
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
+
     def _serve_capability_seed_api(self):
         """POST /api/models/capability/seed — (re)apply the bundled declared matrix.
 
@@ -4576,6 +4590,61 @@ class DashboardEndpoints:
             self._audit("capability.manual", model=model, release=label,
                         tasks=sorted(scores))
             self._send_json({"ok": True, "model": model, "release": label})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
+
+    def _serve_capability_import_api(self):
+        """POST /api/models/capability/import — CSV text -> capability scores.
+
+        Body: {csv: "<text>"}. Returns the import report verbatim: what was written,
+        which rows were skipped (unregistered models) and which were errors. A file
+        with any error writes NOTHING — a half-applied import makes the matrix look
+        complete when it is not.
+        """
+        from ..api.capability_csv import import_capabilities
+        from ..api.router import invalidate_registry_cache
+
+        try:
+            body = self._read_body()
+        except Exception:
+            self._send_json({"error": "invalid JSON body"}, 400)
+            return
+        text = body.get("csv")
+        if not isinstance(text, str) or not text.strip():
+            self._send_json({"error": "csv (text) required"}, 400)
+            return
+
+        con = self._mr_connect()
+        try:
+            out = import_capabilities(con, text)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+            return
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
+            return
+        finally:
+            con.close()
+
+        if not out.get("aborted"):
+            invalidate_registry_cache()
+            self._audit("capability.import", written=out["written"],
+                        models=out["models"], axes=out["axes"],
+                        skipped=len(out["skipped"]))
+        self._send_json(out)
+
+    def _serve_capability_template_api(self):
+        """GET /api/models/capability/template — the CSV header + one example line."""
+        from ..api.capability_csv import template
+        body = template().encode("utf-8")
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv")
+            self.send_header("Content-Disposition",
+                             "attachment; filename=capability-template.csv")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 

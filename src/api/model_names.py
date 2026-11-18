@@ -104,6 +104,39 @@ def _migrated(con: sqlite3.Connection) -> bool:
     ).fetchone() is not None
 
 
+def unbound_deployments(target: Any = None) -> dict:
+    """Registered deployments that have no portfolio — the only rows to resolve.
+
+    Registration is the operator's rule, and it is a predicate, not a flag: a model
+    counts as registered only when ``mi_models.status='active'`` AND
+    ``mi_deployments.status='active'`` — the same pair every read path already uses
+    (see ``model_ratings.VISIBLE_PREDICATE``).
+
+    The poll's discovery queue is NOT registration. ``mi_deployments.status='new'``
+    holds every model ID an endpoint serves, vetted or not (77 of them on staging),
+    and showing those as though they were part of the estate is exactly what the
+    operator objected to on 2026-11-17: "Can we only have the models that are
+    registered". So this function never returns them.
+    """
+    con = _connect(target)
+    con.row_factory = sqlite3.Row
+    try:
+        if not _migrated(con):
+            return {"registered": 0, "unbound": [], "count": 0}
+        registered = con.execute(
+            "SELECT COUNT(*) FROM mi_deployments WHERE status = 'active'").fetchone()[0]
+        rows = [dict(r) for r in con.execute(
+            "SELECT d.deployment_id, d.endpoint_id, d.served_id, d.source,"
+            "       e.slug AS endpoint_slug"
+            "  FROM mi_deployments d"
+            "  LEFT JOIN mi_endpoints e ON e.endpoint_id = d.endpoint_id"
+            " WHERE d.status = 'active' AND d.model_id IS NULL"
+            " ORDER BY d.deployment_id DESC")]
+        return {"registered": registered, "unbound": rows, "count": len(rows)}
+    finally:
+        con.close()
+
+
 def registry_entries(target: Any = None) -> list[dict]:
     """Every canonical model with its names, in the shape the registry API exposes.
 

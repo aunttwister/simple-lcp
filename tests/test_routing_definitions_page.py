@@ -107,21 +107,54 @@ def test_matrix_tab_is_the_capability_matrix_not_the_leaderboard(cfg, engine):
     assert "lbTable" not in html, "the leaderboard leaked into the matrix tab"
 
 
-# ── tab 2: the Arena board catalogue ─────────────────────────────────────────
+def test_matrix_tab_carries_the_csv_import(cfg, engine):
+    """Design build step 4. A SIBLING of the editor, not folded into it: the editor
+    partial is prod's bytes lifted verbatim and must stay that way."""
+    html = _render(cfg, engine, "matrix")
+    for control in ("matrixFile", "matrixImportBtn", "matrixTemplateBtn", "matrixMsg"):
+        assert control in html, f"CSV import is missing {control}"
+    assert "/api/models/capability/template" in html, "the template link is dead"
 
-def test_boards_tab_lists_every_stored_board(cfg, engine):
-    """In use / not used, ours-of-stored, publish date — the catalogue the design
-    specifies. Read-only: polling stays where it works (see the deferral test)."""
+
+def test_the_import_routes_are_registered():
+    src = open(os.path.join(REPO, "src", "server", "handler.py")).read()
+    for route in ("api.models.capability.import", "api.models.capability.template"):
+        assert route in src, f"{route} not registered — the control would 404"
+
+
+# ── tab 2: the Arena boards — the poll, MOVED here 2026-11-17 ────────────────
+
+def test_boards_tab_carries_the_poll(cfg, engine):
+    """Design §10: the poll is a routing input, so it lives where routing is defined.
+    Moved from the Models page — this is the move that was deferred in the morning and
+    done properly once the shared JS was extracted."""
     html = _render(cfg, engine, "boards")
-    for control in ("boardCatList", "boardCatNote"):
-        assert control in html, f"boards tab is missing {control}"
-    assert "/api/model-ratings/catalogue" in html, "catalogue is not what it reads"
+    for control in ("pollPane", "pollRunBtn2", "taxPane", "taxMap", "pollRows"):
+        assert control in html, f"the poll lane is missing {control}"
 
 
-def test_the_boards_tab_says_where_the_poll_is(cfg, engine):
-    """A catalogue with no pointer to the poll is a dead end for the operator."""
+def test_boards_tab_carries_the_csv_import(cfg, engine):
+    """Importing a taxonomy CSV is how a custom board gets its numbers."""
     html = _render(cfg, engine, "boards")
-    assert "Models" in html and "Poll" in html
+    for control in ("taxFile", "taxImportBtn", "taxTemplateBtn"):
+        assert control in html, f"CSV import is missing {control}"
+
+
+def test_boards_tab_carries_the_shared_detail_lane(cfg, engine):
+    """The lane mechanics are shared with overview/conversations — not redesigned."""
+    html = _render(cfg, engine, "boards")
+    for control in ("modelsPanel", "mpResizer", "mpClose", "mpBackdrop", "mpBody"):
+        assert control in html, f"the lane is missing {control}"
+
+
+def test_boards_tab_binds_its_wiring_defensively(cfg, engine):
+    """The lane's controls are bound through a guarded helper: an unguarded
+    getElementById threw on the page that did not own the control and killed the
+    whole script — which is how the first split attempt failed."""
+    html = _render(cfg, engine, "boards")
+    assert "function on(id, ev, fn)" in html, "bindings are not guarded"
+    assert "document.getElementById('pollRunBtn').addEventListener" not in html, \
+        "an unguarded binding survived the move"
 
 
 def test_the_page_has_a_breadcrumb(cfg, engine):
@@ -140,7 +173,31 @@ def test_the_page_has_a_breadcrumb(cfg, engine):
 
 def test_unmapped_tab_renders_its_own_surface(cfg, engine):
     html = _render(cfg, engine, "unmapped")
-    assert "unmappedList" in html or "unmappedPane" in html
+    assert "unmappedList" in html and "unmappedNote" in html
+
+
+def test_unmapped_tab_reads_the_REGISTRY_not_the_discovery_queue(cfg, engine):
+    """Operator, 2026-11-17: "Why do we have 47 models? Can we only have the models
+    that are registered".
+
+    The 47 were the poll's DISCOVERY queue (mi_deployments.status='new' — every model
+    ID an endpoint serves, vetted or not), which this tab presented as if it were the
+    estate. It must read registration instead: mi_models.status='active' AND
+    mi_deployments.status='active', the predicate every other read path uses.
+    """
+    html = _render(cfg, engine, "unmapped")
+    assert "/api/models/unbound" in html, "not reading the registered set"
+    assert "/api/model-intel/settings" not in html, \
+        "still reading the poll's discovery queue"
+
+
+def test_the_unbound_read_never_returns_unregistered_rows(engine):
+    """The read itself is the guarantee — the template cannot show what it is not given."""
+    from src.api.model_names import unbound_deployments
+    out = unbound_deployments(engine)
+    assert set(out) >= {"registered", "unbound", "count"}
+    for row in out["unbound"]:
+        assert "served_id" in row and "endpoint_id" in row
 
 
 # ── Models is now the leaderboard ONLY (the design's division) ────────────────
@@ -151,23 +208,40 @@ def test_models_page_keeps_the_leaderboard(cfg, engine):
     assert "lbTable" in html or "leaderboardPane" in html
 
 
-def test_the_poll_is_still_reachable_while_its_move_is_deferred(cfg, engine):
-    """DEFERRED, deliberately, and this test is what stops "deferred" becoming "lost".
+def test_models_links_to_the_poll_instead_of_owning_it(cfg, engine):
+    """The move is DONE: the lane is on the boards tab, and Models points at it.
 
-    Design §10 wants the poll on Routing definitions → Arena boards. It has NOT moved
-    yet, because that page's leaderboard, poll and taxonomy map share ONE <script>
-    block whose first-paint calls back into the leaderboard's tab strip and board
-    loader (#mlTabs / #lbTable). Splitting those helpers is its own task; doing it as a
-    side effect of building this page would have risked the poll the operator uses.
-
-    So: the editor moved (that was the blocker), the catalogue is new, and the poll
-    must remain reachable on Models until its move is done properly.
+    It cannot simply be deleted from Models — a leaderboard with no route to the poll
+    is a dead end. So the two buttons that used to open the lane here are replaced by a
+    link, and the poll itself is no longer rendered on this page.
     """
     from src.ui.pages import render_models_page
     html = render_models_page(cfg, engine, {})
-    assert "pollRunBtn" in html and "pollPane" in html, (
-        "the poll vanished from Models AND has not moved to Routing definitions — "
-        "it is now unreachable")
+    assert 'href="/routing-definitions?tab=boards"' in html, \
+        "Models does not link to where the poll lives now"
+    for gone in ("pollPane", "pollRunBtn", "taxMap", "modelsPanel"):
+        assert gone not in html, f"Models still renders the moved lane control {gone}"
+
+
+def test_the_shared_js_is_one_copy(cfg, engine):
+    """Two pages, one copy of the fetch wrappers, the poll cache and the formatters.
+    A second copy would drift, and the Formatters are what make the two pages agree
+    about what a value means."""
+    import os
+    d = os.path.join(REPO, "src", "ui", "templates", "jinja", "sections")
+    shared = open(os.path.join(d, "sec_lcp_shared_js.html")).read()
+    assert "const API = {" in shared and "function esc(s)" in shared
+    assert "POLL_KEY" in shared, "the poll cache must be shared, not duplicated"
+    for f in ("sec_models_script.html", "sec_routingdefs_boards_script.html"):
+        body = open(os.path.join(d, f)).read()
+        assert 'sec_lcp_shared_js.html' in body, f"{f} does not include the shared JS"
+        assert "const API = {" not in body, f"{f} carries a second copy of API"
+
+
+def test_the_unbound_route_is_registered():
+    """A read the template calls but the server does not serve is a 404 in the tab."""
+    src = open(os.path.join(REPO, "src", "server", "handler.py")).read()
+    assert "api.models.unbound" in src, "route not registered"
 
 
 # ── the editor's own API must still exist (it is what makes tab 1 work) ───────

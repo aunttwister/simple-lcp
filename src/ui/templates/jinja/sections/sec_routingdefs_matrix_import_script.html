@@ -1,0 +1,74 @@
+{#-
+  Capability-matrix CSV import — the client half of design build step 4.
+
+  Read:  GET  /api/models/capability/template  -> the file to fill in (a plain link)
+  Write: POST /api/models/capability/import    -> {csv: "<text>"}
+
+  The report is shown VERBATIM, including the aborted case: an import that writes part of
+  a file and reports success is how a matrix comes to look complete when it is not.
+-#}
+{% if tab == 'matrix' %}
+<script>
+(function () {
+  const fileEl = document.getElementById('matrixFile');
+  if (!fileEl) return;
+  const nameEl = document.getElementById('matrixFileName');
+  const msgEl = document.getElementById('matrixMsg');
+
+  function msg(text, tone) {
+    if (!msgEl) return;
+    msgEl.textContent = text || '';
+    msgEl.className = 'mp-msg' + (tone ? ' ' + tone : '');
+  }
+
+  fileEl.addEventListener('change', () => {
+    const f = fileEl.files && fileEl.files[0];
+    if (!nameEl) return;
+    if (!f) { nameEl.hidden = true; return; }
+    nameEl.textContent = f.name + ' — ' + Math.round(f.size / 1024) + ' KB';
+    nameEl.hidden = false;
+  });
+
+  const btn = document.getElementById('matrixImportBtn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const f = fileEl.files && fileEl.files[0];
+    if (!f) { msg('choose a CSV file first', 'bad'); return; }
+    btn.disabled = true;
+    msg('importing ' + f.name + '…');
+    try {
+      const text = await f.text();
+      const r = await fetch('/api/models/capability/import', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv: text }),
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok || out.error) { msg(out.error || ('HTTP ' + r.status), 'bad'); return; }
+
+      const bits = [];
+      if (out.aborted) {
+        bits.push('NOT imported — the file has errors:');
+      } else {
+        bits.push(out.written + ' score(s) written'
+          + (out.models && out.models.length ? ' for ' + out.models.join(', ') : ''));
+        bits.push('axes: ' + (out.axes || []).join(', '));
+      }
+      if (out.skipped && out.skipped.length) {
+        bits.push(out.skipped.length + ' row(s) skipped: ' + out.skipped.slice(0, 5).join('; ')
+          + (out.skipped.length > 5 ? ' …' : ''));
+      }
+      if (out.errors && out.errors.length) {
+        bits.push(out.errors.slice(0, 5).join('; ') + (out.errors.length > 5 ? ' …' : ''));
+      }
+      msg(bits.join(' · '), out.aborted ? 'bad' : (out.errors && out.errors.length ? 'bad' : 'ok'));
+    } catch (e) {
+      msg('import failed: ' + e.message, 'bad');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+{% endif %}

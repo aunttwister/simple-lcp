@@ -50,6 +50,38 @@ def page(cfg, engine, params=None):
     return render_models_page(cfg, engine, params or {})
 
 
+def _sec(name):
+    return open(os.path.join(TEMPLATES, "sections", name)).read()
+
+
+#: The lane's JS is TWO partials now — the shared helpers (fetch wrappers, the poll
+#: cache, the formatters) are included by both pages, so reading only the boards
+#: partial sees the wiring but not the helpers it calls.
+LANE_JS = _sec("sec_lcp_shared_js.html") + _sec("sec_routingdefs_boards_script.html")
+
+
+def lane_page(cfg, engine, params=None):
+    """The SAME lane, on the page that carries it now (Routing definitions → boards)."""
+    from src.ui.pages import render_routing_definitions_page
+    p = dict(params or {})
+    p["tab"] = "boards"
+    return render_routing_definitions_page(cfg, engine, p)
+
+
+def _render_lane(cfg, engine, params=None):
+    """The detail lane MOVED to Routing definitions → Arena boards (2026-11-17).
+
+    Polling is a routing input, so it belongs where routing is defined. The contract
+    these tests check did not change — only the page that carries it did. Re-pointing
+    them is the point: the alternative (deleting them) would lose the guarantees and
+    leaving them on Models would assert a surface that no longer exists there.
+    """
+    from src.ui.pages import render_routing_definitions_page
+    p = dict(params or {})
+    p["tab"] = "boards"
+    return render_routing_definitions_page(cfg, engine, p)
+
+
 # ── 1. leaderboard only ─────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("dead", [
@@ -90,7 +122,7 @@ def test_a_matrix_bookmark_lands_on_the_leaderboard(cfg, engine):
 
 def test_column_three_is_the_shared_detail_panel(cfg, engine):
     """Not a bespoke in-grid card: the SAME component as overview/conversations."""
-    html = page(cfg, engine)
+    html = lane_page(cfg, engine)
     panel = html.split('id="modelsPanel"')[0].rsplit("<aside", 1)[1]
     assert 'class="detail-panel"' in panel, panel
     for part in ('id="mpResizer"', 'class="dp-header"', 'class="dp-body"'):
@@ -131,20 +163,26 @@ def test_the_lane_is_full_height_not_a_card_beside_the_table(cfg, engine):
 
 # ── 3. exactly two buttons in column 2 ─────────────────────────────────────
 
-def test_column_two_carries_the_two_controls(cfg, engine):
-    html = page(cfg, engine)
-    # the whole strip row: from .lb-head up to the board it introduces
-    head = html.split('class="lb-head"', 1)[1].split('id="leaderboardPane"', 1)[0]
-    assert 'id="pollRunBtn"' in head
-    assert 'id="taxOpenBtn"' in head
-    assert ">Poll latest data<" in head
-    assert ">Manage taxonomy<" in head
-    # nothing else pretends to be a control up there
-    assert head.count("<button") == 2
+def test_the_lane_carries_no_header_controls_of_its_own(cfg, engine):
+    """2026-11-17: the two column-2 controls ("Poll latest data", "Manage taxonomy") are
+    GONE, and deliberately not re-created.
+
+    They existed to OPEN the lane from the leaderboard's header. On the boards tab there
+    is no leaderboard header — the lane is the page, and it opens on its default pane
+    (manage taxonomy), which is the state those two buttons used to produce with a click.
+    Re-adding them here would be two controls that do nothing.
+    """
+    html = lane_page(cfg, engine)
+    assert "lb-head" not in html, "a leaderboard header block came along with the move"
+    for gone in ('id="pollRunBtn"', 'id="taxOpenBtn"'):
+        assert gone not in html, gone
+    # the lane itself, with its header and its default pane
+    assert 'id="mpTitle">Manage taxonomy<' in html
+    assert 'id="pollPane"' in html and 'id="taxPane"' in html
 
 
 def test_the_two_buttons_open_the_two_panes(cfg, engine):
-    html = page(cfg, engine)
+    html = lane_page(cfg, engine)
     assert 'id="pollPane"' in html and 'id="taxPane"' in html
     # both panes live INSIDE the shared panel, which is what the buttons drive
     body = html.split('id="mpBody"')[1]
@@ -207,7 +245,7 @@ def test_the_panel_says_a_custom_board_has_no_upstream(cfg, engine):
 
     The answer belongs on the surface, not in a reply he has to remember.
     """
-    html = page(cfg, engine)
+    html = lane_page(cfg, engine)
     assert "cannot poll your own taxonomies" in html
     assert "Elo" in html and "net improvement" in html
     # and what it will never do to his numbers
@@ -247,15 +285,15 @@ def test_the_stacked_phone_rows_are_wired_to_the_breakpoint(cfg, engine):
 def test_the_polled_set_is_kept_in_session_storage(cfg, engine):
     """Operator: "once we poll it we should keep it on frontend in memory in local
     or session storage ... only by user's Poll again the repolling will happen"."""
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     assert "sessionStorage.setItem(POLL_KEY" in script
     assert "sessionStorage.getItem(POLL_KEY)" in script
     assert "sessionStorage.removeItem(POLL_KEY)" in script
 
 
 def test_loading_the_page_reads_the_stored_poll_and_never_re_polls(cfg, engine):
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
-    init = script.split("initLeaderboard", 1)[1]
+    script = LANE_JS
+    init = script.split("initBoardsPanel", 1)[1]
     assert "loadPoll()" in init
     # the load path must not call the poll endpoint, and must not read the server's
     # staging table either (that would show a set the operator did not ask for)
@@ -265,9 +303,9 @@ def test_loading_the_page_reads_the_stored_poll_and_never_re_polls(cfg, engine):
 
 def test_the_panel_stamps_when_the_data_was_polled(cfg, engine):
     """A polled number without its poll time is not reviewable."""
-    html = page(cfg, engine)
+    html = lane_page(cfg, engine)
     assert 'id="pollAt"' in html
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     assert "Data polled at" in script
     assert "polled_at" in script
 
@@ -280,7 +318,7 @@ def test_a_poll_response_carries_its_timestamp(cfg, engine):
 
 
 def test_accepting_or_clearing_empties_the_stored_set(cfg, engine):
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     for fn in ("async function updatePoll()", "async function clearPoll()"):
         body = script.split(fn, 1)[1].split("\n}\n", 1)[0]
         assert "savePoll([], null)" in body, fn
@@ -292,7 +330,7 @@ def test_the_poll_panel_drops_custom_rows(cfg, engine):
     """Operator: "why are we displaying custom taxonomy elo and rating in poll
     latest data? ... in poll latest data we should only poll the data for lmarena
     taxonomy that's present"."""
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     assert "function arenaRows(" in script
     assert "const rows = arenaRows(STATE.pollRows);" in script
     assert "savePoll(arenaRows(r.rows)" in script
@@ -308,7 +346,7 @@ def test_the_server_side_staged_list_is_arena_only_too(cfg, engine):
 
 
 def test_the_panel_says_a_poll_is_arena_only(cfg, engine):
-    html = page(cfg, engine)
+    html = lane_page(cfg, engine)
     assert "Arena boards only" in html
 
 
@@ -316,28 +354,28 @@ def test_the_panel_says_a_poll_is_arena_only(cfg, engine):
 
 def test_manage_taxonomy_opens_by_default(cfg, engine):
     """Operator: "manage taxonomy should be the default opened in column 3"."""
-    html = page(cfg, engine)
+    html = lane_page(cfg, engine)
     assert 'id="mpTitle">Manage taxonomy<' in html
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     assert "mpShow('tax')" in script
     # the desktop default at init, and what "close" resets to
-    init = script.split("initLeaderboard", 1)[1]
+    init = script.split("initBoardsPanel", 1)[1]
     assert "if (MP_DESKTOP.matches) mpShow('tax');" in init
 
 
 def test_the_csv_control_is_a_file_input(cfg, engine):
     """Operator: "import csv should be a file import, the necessary columns should
     be shown below"."""
-    html = page(cfg, engine)
+    html = lane_page(cfg, engine)
     assert 'id="taxFile"' in html
     assert 'type="file"' in html
     assert 'id="taxCsv"' not in html          # the paste box is gone
     assert "FileReader" in open(os.path.join(TEMPLATES, "sections",
-                                             "sec_models_script.html")).read()
+                                             "sec_routingdefs_boards_script.html")).read()
 
 
 def test_the_columns_table_lists_what_a_file_may_carry(cfg, engine):
-    html = page(cfg, engine)
+    html = lane_page(cfg, engine)
     block = html.split('class="mp-cols"', 1)[1]
     for col in ("model_slug", "value", "taxonomy", "lab"):
         assert col in block, col
@@ -348,15 +386,15 @@ def test_the_columns_table_lists_what_a_file_may_carry(cfg, engine):
 def test_the_import_can_use_the_selected_custom_board_as_its_fallback(cfg, engine):
     """A file with no `taxonomy` column lands on the board being looked at —
     but only when that board is one of the operator's own."""
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     assert "indexOf('custom:') === 0" in script
     assert "taxonomy: fallback" in script
 
 
 def test_a_template_download_is_offered(cfg, engine):
-    html = page(cfg, engine)
+    html = lane_page(cfg, engine)
     assert 'id="taxTemplateBtn"' in html
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     assert "taxonomy-template.csv" in script
 
 
@@ -368,7 +406,7 @@ def test_a_tick_survives_a_reload(cfg, engine):
     the rows and written on every change (not on unload), so a killed tab keeps the
     last deliberate click.
     """
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     assert "function saveChecks()" in script
     assert "STATE.pollChecks[raw] = box.checked" in script
     assert "checks: STATE.pollChecks" in script
@@ -383,7 +421,7 @@ def test_a_tick_survives_a_reload(cfg, engine):
 def test_the_row_identity_is_defined_once(cfg, engine):
     """The DOM key and the stored tick key must be the same function, or a tick
     lands on the wrong row."""
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     assert "function pollKeyOf(r)" in script
     assert "const key = esc(pollKeyOf(r));" in script
 
@@ -408,26 +446,25 @@ def test_the_polled_list_fills_the_lane(cfg, engine):
 def test_only_the_panes_own_button_polls(cfg, engine):
     """Operator: "only by user's 'Poll again' the repolling will happen".
 
-    The page-header button SHOWS the pane. If it also polled, opening the panel
-    would silently replace a stored review with a fresh fetch — the exact thing he
-    ruled out.
+    The header button that opened the pane is gone with the move, so nothing is left
+    that could poll merely by being clicked to reveal a pane. Exactly two controls run a
+    poll — the pane's own "Poll LMArena now" and "Poll again" — and neither can be
+    triggered by opening anything.
     """
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
-    line = [l for l in script.splitlines()
-            if "getElementById('pollRunBtn').addEventListener" in l][0]
-    assert "mpShow('poll')" in line
-    assert "runPoll" not in line, line
-    # and runPoll must not disable it: a button that only shows a pane stays usable
+    script = LANE_JS
+    assert "on('pollRunBtn2', 'click', runPoll)" in script
+    assert "on('pollAgainBtn', 'click', runPoll)" in script
+    # the OLD header control, named exactly: pollRunBtn2 must not be mistaken for it
+    assert "pollRunBtn'" not in script, "the removed header button is back"
     run = script.split("async function runPoll()", 1)[1].split("\n}\n", 1)[0]
     assert "pollRunBtn'" not in run
-    # and exactly ONE control runs the poll: the pane's own button (+ Poll again)
-    assert script.count("addEventListener('click', runPoll)") == 2
+
 
 
 def test_the_two_panes_are_never_both_shown(cfg, engine):
     """mpShow hides the other pane; a screenshot of both at once is a harness
     artifact, but the code has to make it impossible."""
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     body = script.split("function mpShow(pane)", 1)[1].split("\n}", 1)[0]
     assert "pollPane').hidden = pane !== 'poll'" in body
     assert "taxPane').hidden = pane !== 'tax'" in body
@@ -456,7 +493,7 @@ def test_the_close_button_actually_closes(cfg, engine):
     It called mpShow('tax'), a no-op whenever taxonomy was already the open pane —
     which is the state the page now loads in. A close button must hide the lane.
     """
-    script = open(os.path.join(TEMPLATES, "sections", "sec_models_script.html")).read()
+    script = LANE_JS
     body = script.split("function mpClose()", 1)[1].split("\n}", 1)[0]
     assert "mpHide()" in body
     # no mpShow( in the body itself (the comment above it may mention the old call)
@@ -499,7 +536,7 @@ def test_the_board_name_may_wrap_so_the_panel_cannot_overflow():
 # always about ONE taxonomy. These pin the inversion.
 
 def test_the_mapping_list_is_one_entry_per_taxonomy_not_per_board():
-    html = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    html = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
     # the row builder keys on taxonomy, and offers one add control per taxonomy
     assert "function taxGroups()" in html
     assert "byTax[r.taxonomy]" in html
@@ -512,7 +549,7 @@ def test_the_mapping_list_is_one_entry_per_taxonomy_not_per_board():
 def test_one_action_can_add_several_boards_to_a_taxonomy():
     """`reasoning_chain` is fed by math + expert + hard_prompts_english. Mapping
     those one dropdown at a time is exactly the repetitiveness he named."""
-    html = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    html = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
     assert "multiple size=" in html            # a real multi-select
     assert "selectedOptions" in html
     assert "async function mapBoards(tax, boards)" in html
@@ -524,18 +561,18 @@ def test_one_action_can_add_several_boards_to_a_taxonomy():
 def test_the_22_unused_boards_are_collapsed_not_in_the_way():
     """10 language slices + 8 industry slices + 4 overall/meta cuts. They are not
     competing measurements, so they belong behind a disclosure."""
-    html = open("src/ui/templates/jinja/sections/sec_models.html").read()
+    html = open("src/ui/templates/jinja/sections/sec_routingdefs_boards.html").read()
     assert '<details class="mm-unused-wrap"' in html
     assert 'id="unusedBoards"' in html
     # and it says WHY they are unused, rather than implying they are broken
     assert "language slices, industry" in html
-    js = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    js = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
     assert "function renderUnused()" in js
     assert "Unused LMArena boards (" in js
 
 
 def test_a_taxonomy_with_only_languages_still_shows_its_chips():
-    js = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    js = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
     assert "nothing measures this yet" in js
     # the count is per taxonomy, and singular/plural is not faked
     assert "board${g.boards.length === 1 ? '' : 's'}" in js
@@ -544,7 +581,7 @@ def test_a_taxonomy_with_only_languages_still_shows_its_chips():
 def test_the_multi_add_message_agrees_with_the_count():
     """Caught live: adding ONE board said "1 board now measure reasoning_chain".
     The noun, the verb and the number come from the same variable."""
-    js = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    js = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
     assert "boards.length === 1 ? 'board now measures' : 'boards now measure'" in js
     # and the old malformed string must be gone
     assert "board${boards.length === 1 ? '' : 's'} now measure" not in js
@@ -554,6 +591,6 @@ def test_the_board_picker_names_the_measurement_not_the_family_twice():
     """A board is literally named `agent`, so labelling by family produced
     "agent · agent · 18 ours" — the same word twice, and never saying whether the
     board carries Elo or net improvement (the two are never ranked together)."""
-    js = open("src/ui/templates/jinja/sections/sec_models_script.html").read()
+    js = open("src/ui/templates/jinja/sections/sec_routingdefs_boards_script.html").read()
     assert "unitLabel(o.unit)" in js
     assert "${esc(o.board)} · ${famLabel(o.family)}" not in js

@@ -53,6 +53,8 @@ SECTION_TAB = {
     # not tied to a portfolio yet.
     "sec_routingdefs_matrix": "matrix",
     "sec_routingdefs_matrix_script": "matrix",
+    "sec_routingdefs_matrix_import": "matrix",
+    "sec_routingdefs_matrix_import_script": "matrix",
     "sec_routingdefs_boards": "boards",
     "sec_routingdefs_boards_script": "boards",
     "sec_routingdefs_unmapped": "unmapped",
@@ -111,7 +113,11 @@ def _markers():
     """
     owner = {}
     for fn in sorted(os.listdir(SECTIONS)):
-        if fn.endswith("_script.html") or fn.endswith("_head.html"):
+        if (fn.endswith("_script.html") or fn.endswith("_head.html")
+                or fn.endswith("_js.html")):
+            # `_js.html` is SHARED: sec_lcp_shared_js.html is included inside the
+            # <script> of both the Models page and the Arena boards tab, so its ids
+            # (it has none, only JS) cannot belong to one tab.
             continue
         tab = SECTION_TAB[fn[:-5]]
         with open(os.path.join(SECTIONS, fn)) as fh:
