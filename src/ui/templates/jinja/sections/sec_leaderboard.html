@@ -1,0 +1,25 @@
+{#- The leaderboard: the board tabs and the table. SHARED by the Models page and
+    Routing definitions → Arena boards, so there is ONE implementation of the table the
+    operator reads. No tab guard here — the INCLUDING page supplies it.
+
+    Operator, 2026-11-18: "no leaderboard is shown in arena boards". The arena data and
+    its leaderboard belong together: the boards ARE this table's taxonomies, and the poll
+    that fills it now sits in the same tab's third column. -#}
+<p class="subtitle">
+  Where each model stands. <strong>Elo</strong> on the text boards,
+  <strong>net improvement</strong> on the agent boards, each with a
+  <strong>percentile</strong>. Only models a provider here serves are listed.
+</p>
+
+<div class="lb-head">
+  <div class="ml-tabs" id="mlTabs" role="tablist" aria-label="Leaderboards"></div>
+  <div class="lb-actions">
+{% if tab != 'boards' %}    <a class="btn btn-outline btn-sm" id="boardsLink"
+       href="/routing-definitions?tab=boards">Poll &amp; boards</a>{% endif %}
+  </div>
+</div>
+
+<div class="lb-board" id="leaderboardPane">
+  <p class="subtitle" id="lbNote"></p>
+  <div id="lbTable" class="table-wrap"></div>
+</div>
