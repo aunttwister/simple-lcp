@@ -123,6 +123,41 @@ def test_the_import_routes_are_registered():
         assert route in src, f"{route} not registered — the control would 404"
 
 
+def test_the_model_list_shows_ONLY_registered_models(cfg, engine):
+    """Operator, 2026-11-18: "this list is broken".
+
+    It showed 19 models of which 10 were not registered. The list unions three sources
+    and NONE of them is a registration: `mi_models` carries retired rows, the provider
+    config carries configured-but-unserved names, and the matrix carries scores for
+    models retired since — and the detail pane opened on `claude-5-opus-thinking`,
+    which is not registered. Prod's editor never had the rule because it was moved
+    byte-for-byte; this pins it on the move.
+    """
+    html = _render(cfg, engine, "matrix")
+    assert "STATE.registered" in html, "the list does not consult the registered set"
+    assert "registered" in html and "canonicalName" in html
+    # and the rule is stated where a reader will find it
+    assert "only models a provider CONFIRMS" in html
+
+
+def test_the_registered_set_arrives_with_the_scores(cfg, engine):
+    """One payload carries both, so the page cannot disagree with the read paths: the
+    scores (what the router reads) and the displayable set (the operator's rule).
+    Reporting it as a SEPARATE list, not as a filter, keeps a still-in-force score
+    visible to the router while the page refuses to display its model."""
+    src = open(os.path.join(REPO, "src", "server", "endpoints.py")).read()
+    block = src.split("def _serve_capability_api", 1)[1].split("def _serve_registry_api", 1)[0]
+    assert "visible_models" in block, "the registered set is not the shared predicate"
+    assert '"registered": registered' in block, "the payload does not carry it"
+
+
+def test_the_list_does_not_hide_everything_when_there_is_no_registry(cfg, engine):
+    """An unmigrated DB returns no registered set; the list must fall back rather than
+    render empty, which would read as 'all my models disappeared'."""
+    html = _render(cfg, engine, "matrix")
+    assert "if (!reg || !reg.size) return sorted;" in html
+
+
 # ── tab 2: the Arena boards — the poll, MOVED here 2026-11-17 ────────────────
 
 def test_boards_tab_carries_the_poll(cfg, engine):

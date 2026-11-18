@@ -4488,6 +4488,31 @@ class DashboardEndpoints:
             # are removed with the rest of the benchmark UI.
             subtasks: dict[str, dict[str, dict[str, float]]] = {}
 
+            # Which of these models a provider actually CONFIRMS it serves.
+            #
+            # Reported as a SEPARATE list rather than applied as a filter here: the
+            # router reads these scores whatever the registration state, and silently
+            # dropping rows would hide a score that is still in force. The page needs
+            # both halves — the numbers, and the set it may DISPLAY — so the operator's
+            # rule ("only registered models are displayed") is enforced where it is
+            # claimed, and it cannot drift from the other read paths because it is the
+            # same predicate (model_ratings.visible_models).
+            #
+            # Operator, 2026-11-18, on the list this feeds: "this list is broken". It
+            # showed 19 models of which 10 were not registered (the registry query
+            # carries retired rows, the provider config carries configured-but-unserved
+            # names, and the matrix carries scores for models since retired).
+            registered: list[str] = []
+            try:
+                con = self._mr_connect()
+                try:
+                    from ..api.model_ratings import visible_models
+                    registered = sorted(visible_models(con))
+                finally:
+                    con.close()
+            except Exception:   # noqa: BLE001 — an unmigrated DB has no registry
+                registered = []
+
             self._send_json({
                 "tasks": tasks,
                 "sources": sources,
@@ -4496,6 +4521,7 @@ class DashboardEndpoints:
                 "active_releases": active_releases,
                 "subtasks": subtasks,
                 "count": len(graded),
+                "registered": registered,
             })
         except Exception as e:
             self._send_json({"error": str(e)}, 500)

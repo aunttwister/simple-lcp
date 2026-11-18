@@ -38,7 +38,7 @@ const API = {
 };
 
 // ── State ──────────────────────────────────────────────────────────────────
-let STATE = { registry: {}, providers: {}, matrix: {}, selected: null, filter: '', activeModels: new Set(), configuredOnly: false };
+let STATE = { registry: {}, providers: {}, matrix: {}, selected: null, filter: '', activeModels: new Set(), configuredOnly: false, registered: new Set() };
 
 // model → list of providers that expose it (from gateway.yaml providers.models)
 function providerModels() {
@@ -101,7 +101,23 @@ function allModels() {
   for (const models of Object.values(STATE.matrix.tasks || {})) {
     for (const m of Object.keys(models)) names.add(canonicalName(m));
   }
-  return [...names].sort();
+  // OPERATOR RULE (2026-11-18): only models a provider CONFIRMS it serves are
+  // displayed. The three sources above are none of them a registration — the
+  // registry carries RETIRED rows, the provider config carries configured-but-
+  // unserved names, and the matrix carries scores for models retired since. The
+  // result was 19 models of which 10 were not registered, and the detail pane
+  // opened on one of them ("this list is broken").
+  //
+  // `registered` rides in on the SAME payload as the scores, computed server-side by
+  // the predicate every other read path uses, so this page cannot disagree with
+  // them. A name is kept when it IS a registered slug or when it RESOLVES to one
+  // (provider spellings alias onto the portfolio via the alias map).
+  const reg = STATE.registered;
+  const sorted = [...names].sort();
+  if (!reg || !reg.size) return sorted;   // no registry yet: do not hide everything
+  return sorted.filter(m =>
+    reg.has(String(m).toLowerCase()) ||
+    reg.has(String(canonicalName(m)).toLowerCase()));
 }
 
 async function loadAll() {
@@ -115,6 +131,8 @@ async function loadAll() {
   for (const e of (reg.registry || [])) registryMap[e.logical_name] = e;
   STATE.registry = registryMap;
   STATE.aliasMap = buildAliasMap();
+  // The displayable set, from the same response that carried the scores.
+  STATE.registered = new Set((matrix.registered || []).map(x => String(x).toLowerCase()));
 
   // Highlighted set = any model registered in a provider's `models` list
   // (includes llama.cpp / providers not wired into a profile chain), plus
