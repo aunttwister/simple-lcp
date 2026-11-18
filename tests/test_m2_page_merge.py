@@ -57,6 +57,11 @@ SECTION_TAB = {
     "sec_routingdefs_matrix_import_script": "matrix",
     "sec_routingdefs_boards": "boards",
     "sec_routingdefs_boards_script": "boards",
+    # 2026-11-18 rework: the leaderboard is ONE partial rendered by two tabs, and the
+    # taxonomy pane moved off Arena boards onto the matrix.
+    "sec_leaderboard_script": "leaderboard",
+    "sec_taxonomy_pane": "matrix",
+    "sec_taxonomy_pane_script": "matrix",
     "sec_routingdefs_unmapped": "unmapped",
     "sec_routingdefs_unmapped_script": "unmapped",
     "sec_routingdefs_log": "log",
@@ -66,6 +71,12 @@ SECTION_TAB = {
     "sec_prouting": "routing",
     "sec_pmodels": "models",
 }
+
+# Partials rendered by MORE THAN ONE tab. Their ids cannot belong to a single tab and must
+# be excluded from the ownership map for the same reason the `_js` partials are:
+# sec_leaderboard.html IS the leaderboard, and the Models page and Arena boards both render
+# it, so an id like `lbTable` on the boards tab would otherwise read as leakage from Models.
+SHARED = {"sec_leaderboard"}
 
 # `/in-progress` is the 2026-10-06 addition: the only view that can show a
 # request the `requests` table has not recorded yet, because that table is
@@ -116,7 +127,7 @@ def _markers():
     owner = {}
     for fn in sorted(os.listdir(SECTIONS)):
         if (fn.endswith("_script.html") or fn.endswith("_head.html")
-                or fn.endswith("_js.html")):
+                or fn.endswith("_js.html") or fn[:-5] in SHARED):
             # `_js.html` is SHARED: sec_lcp_shared_js.html is included inside the
             # <script> of both the Models page and the Arena boards tab, so its ids
             # (it has none, only JS) cannot belong to one tab.
@@ -218,7 +229,10 @@ MERGED = [
 def test_tab_renders_its_own_section(cfg, engine, label, tab, render):
     html = render(cfg, engine)
     assert "<!--" not in html[:6]  # rendered a page, not a template error string
-    for marker in MARKERS[tab]:
+    # .get, not []: a tab whose ONLY section is a shared partial owns no ids. Models is
+    # exactly that now — it renders sec_leaderboard.html, which Arena boards renders too,
+    # so its ids cannot be attributed to one tab and the tab has no private markers.
+    for marker in MARKERS.get(tab, []):
         assert 'id="%s"' % marker in html, "%s missing %s" % (label, marker)
 
 

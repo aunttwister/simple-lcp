@@ -103,8 +103,12 @@ def test_matrix_tab_carries_the_capability_editor(cfg, engine):
 
 
 def test_matrix_tab_is_the_capability_matrix_not_the_leaderboard(cfg, engine):
+    """2026-11-18: the tab's column 2 IS the comparison ("go for B"): rows are the axes,
+    columns the models. Not the leaderboard — that lives on Arena boards and Models."""
     html = _render(cfg, engine, "matrix")
-    assert "Capability scores drive dynamic routing" in html
+    assert 'id="matrixCompare"' in html, "the comparison matrix is not on the matrix tab"
+    assert "One row per axis, one column per model" in html
+    assert 'id="matrixHead"' in html and 'id="matrixBody"' in html
     assert "lbTable" not in html, "the leaderboard leaked into the matrix tab"
 
 
@@ -165,15 +169,24 @@ def test_boards_tab_carries_the_poll(cfg, engine):
     Moved from the Models page — this is the move that was deferred in the morning and
     done properly once the shared JS was extracted."""
     html = _render(cfg, engine, "boards")
-    for control in ("pollPane", "pollRunBtn2", "taxPane", "taxMap", "pollRows"):
+    for control in ("pollPane", "pollRunBtn2", "pollRows"):
         assert control in html, f"the poll lane is missing {control}"
+    # Operator, 2026-11-18: "arena boards should have poll data in 3rd column, NOT manage
+    # taxonomy" — the taxonomy pane and its map left this tab.
+    for gone in ("taxPane", "taxMap", "taxFile"):
+        assert gone not in html, f"taxonomy control {gone} is still on the boards tab"
 
 
-def test_boards_tab_carries_the_csv_import(cfg, engine):
-    """Importing a taxonomy CSV is how a custom board gets its numbers."""
-    html = _render(cfg, engine, "boards")
-    for control in ("taxFile", "taxImportBtn", "taxTemplateBtn"):
-        assert control in html, f"CSV import is missing {control}"
+def test_the_import_lives_on_the_matrix_tab_not_the_boards_tab(cfg, engine):
+    """Operator, 2026-11-18: "import should be a button on 2nd column and when clicked it
+    should open up the details in 3rd column" — so it is the matrix's, and it is gone here."""
+    boards = _render(cfg, engine, "boards")
+    for gone in ("taxFile", "taxImportBtn", "matrixFile", "importOpenBtn"):
+        assert gone not in boards, f"the import is still on the boards tab: {gone}"
+    matrix = _render(cfg, engine, "matrix")
+    for control in ("importOpenBtn", "matrixFile", "taxImportBtn", "taxFile",
+                    "taxTemplateBtn"):
+        assert control in matrix, f"CSV import is missing from the matrix tab: {control}"
 
 
 def test_boards_tab_carries_the_shared_detail_lane(cfg, engine):

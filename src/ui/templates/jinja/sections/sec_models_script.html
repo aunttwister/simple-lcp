@@ -3,13 +3,15 @@
       * sec_lcp_shared_js.html      — API, STATE, the poll cache, the formatters
       * sec_leaderboard_script.html — the board tab strip and the table (shared)
       * this file                   — only the page's first paint
+    NOT sec_lane_js.html: this page has no detail lane, and including the lane's mechanics
+    for a lane that is not here is what made a `modelsPanel` reference appear on a page with
+    no `modelsPanel` element.
     Each piece appears exactly once; a second copy of the shared files is a duplicate
     `const` declaration and a SyntaxError that kills the whole page. -#}
 
 {% if tab == 'leaderboard' %}
 <script>
 {% include "sections/sec_lcp_shared_js.html" %}
-{% include "sections/sec_lane_js.html" %}
 {% include "sections/sec_leaderboard_script.html" %}
 
 // ── first paint ────────────────────────────────────────────────────────────

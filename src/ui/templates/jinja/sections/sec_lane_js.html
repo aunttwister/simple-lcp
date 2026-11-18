@@ -17,7 +17,7 @@ function mpShow(pane) {
   const panel = mpPanel();
   if (!panel) return;
   // Every pane in the lane carries `dp-pane` and `data-pane=<name>`: this hides them ALL
-  // and reveals the one asked for. A hardcoded pane list (pollPane/taxPane) cannot serve
+  // and reveals the one asked for. A hardcoded pair of pane names cannot serve
   // two tabs whose panes differ — which is exactly what broke when the taxonomy pane moved
   // to the Capability matrix tab and left this function setting `hidden` on nothing.
   panel.querySelectorAll('.dp-pane').forEach(el => {
