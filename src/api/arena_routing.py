@@ -97,6 +97,32 @@ def _board_classifier(taxonomy_id: str = BOARD_LABEL_SPACE_ID):
         return None
 
 
+def label_space(con: sqlite3.Connection) -> dict:
+    """What the Arena tier would judge against, and whether it can judge at all.
+
+    The tier needs two things to fire: boards the poll has STORED (a label with no
+    ranking behind it is a pick with nothing behind it) and an exemplar set for each
+    (a label the classifier was never taught is a label it cannot assign). Missing the
+    first is the common case on a fresh install, and it fails SILENTLY — every message
+    falls back to the static chain, so the operator sees Arena selected and no arena
+    behaviour. That is why this is exposed to the selector rather than left implicit.
+    """
+    from .board_exemplars import BOARD_EXEMPLARS
+
+    stored = curated_boards(con)
+    ready = [b for b in stored if b in BOARD_EXEMPLARS]
+    return {
+        "boards": ready,
+        "count": len(ready),
+        "ready": bool(ready),
+        "stored_count": len(stored),
+        # Stored but unteachable — a board the poll wrote that has no exemplars yet.
+        # Reported rather than hidden: it is the difference between "not polled" and
+        # "polled but not usable", and only the first is fixed by polling.
+        "without_exemplars": sorted(b for b in stored if b not in BOARD_EXEMPLARS),
+    }
+
+
 def pick_board(text: str) -> tuple[Optional[str], list]:
     """Which board judges *text* — ``(board, [(label, score), …])``.
 

@@ -1,0 +1,43 @@
+{#-
+  Routing definitions → Classification log (design build step 12).
+
+  READ-ONLY over data already stored. `routing_decisions.semantic_json` holds the ranked
+  label vector the classifier produced for every message (25,308 of 28,668 rows on
+  staging carry one), and `base_intent` / `arena_board` hold what was assigned from it.
+  The operator's Q3 decision was "label plus evidence" — the log already recorded both;
+  this is the surface that shows it, so the classifier can be judged on real traffic
+  instead of on a description of it.
+
+  Nothing here writes. A view that could edit the log would be a view nobody could trust
+  as a record.
+-#}
+{% if tab == 'log' %}
+<p class="subtitle">
+  What the router classified, and the evidence it classified from. Read-only — this is
+  the record, not a control.
+  <span id="logNote" class="seed-status"></span>
+</p>
+
+<div class="table-wrap">
+  <table class="dp-table" id="logTable">
+    <thead>
+      <tr>
+        <th>When</th>
+        <th>Profile</th>
+        <th>Assigned</th>
+        <th>Board</th>
+        <th>How</th>
+        <th>Evidence — the ranked label vector</th>
+      </tr>
+    </thead>
+    <tbody id="logList"></tbody>
+  </table>
+</div>
+
+<div class="dp-note" style="margin-top:12px">
+  <strong>Reading the evidence.</strong> The vector is what the classifier scored before
+  any gate was applied, strongest first. "Assigned" is what survived the gate; a row whose
+  strongest score is below the gate fell back to the static chain, and its board is blank
+  because no board was walked.
+</div>
+{% endif %}

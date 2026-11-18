@@ -2556,11 +2556,38 @@ def _status_for_profile(router, config, profile: Optional[str]) -> dict:
         "policy": policy,
         "min_score": min_score,
         "route_by": route_by,
+        # The Arena tier's readiness. The selector shows this because Arena with no
+        # label space is INDISTINGUISHABLE from Arena working: every message falls back
+        # to the static chain, so a tier that can never fire looks like a tier that has
+        # not fired yet. Measured, not assumed — an empty dict if the DB is unreadable.
+        "arena": _arena_label_space(router.db_path),
         "rules": router._rules(config, profile),
         # Per-profile has no matrix of its own; decisions are global (recent
         # decisions are not filtered by profile here — UI can filter).
         "has_override": bool(profile and router._has_profile_override(profile)),
     }
+
+
+def _arena_label_space(db_path: Optional[str]) -> dict:
+    """``arena_routing.label_space`` against the router's DB, or an empty report.
+
+    Never raises: the status payload must render even when the DB is mid-migration.
+    """
+    try:
+        import sqlite3
+        from .arena_routing import label_space
+        con = sqlite3.connect(db_path) if db_path else None
+        if con is None:
+            return {"ready": False, "count": 0, "boards": [],
+                    "stored_count": 0, "without_exemplars": []}
+        try:
+            con.row_factory = sqlite3.Row
+            return label_space(con)
+        finally:
+            con.close()
+    except Exception:   # noqa: BLE001
+        return {"ready": False, "count": 0, "boards": [], "stored_count": 0,
+                "without_exemplars": []}
 
 
 def routing_status(config: Optional[object] = None) -> dict:

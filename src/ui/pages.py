@@ -388,10 +388,11 @@ def render_routing_definitions_page(config, engine=None, params=None) -> str:
     ``?tab=matrix`` is the default because the editor is the reason the page exists.
     """
     from .render import render_page
-    tab = _tab(dict(params or {}), ("matrix", "boards", "unmapped"), "matrix")
+    tab = _tab(dict(params or {}), ("matrix", "boards", "unmapped", "log"), "matrix")
     label = {"matrix": "Capability matrix",
              "boards": "Arena boards",
-             "unmapped": "Unmapped"}[tab]
+             "unmapped": "Unmapped",
+             "log": "Classification log"}[tab]
     return render_page("pages/routingdefs.html", config, engine,
                        active_page="routingdefs",
                        tab=tab,

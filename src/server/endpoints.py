@@ -3239,6 +3239,23 @@ class SettingsEndpoints:
                 self._send_json(
                     {"error": "route_by must be static | intent | arena"}, 400)
                 return
+            # Label-space validation (design build step 9). Arena judges a message
+            # against LMArena boards, so with none stored it can never fire: every
+            # message falls back to the static chain and the operator sees Arena
+            # selected with no arena behaviour. Refused rather than accepted-and-inert,
+            # because silent fallback is indistinguishable from "has not fired yet".
+            if route_by == "arena":
+                from ..api.router import _arena_label_space
+                space = _arena_label_space(_engine_db_path(self.engine))
+                if not space.get("ready"):
+                    self._send_json({
+                        "error": "Arena needs a label space and there is none: no LMArena "
+                                 "board has been polled yet, so no message could be "
+                                 "judged. Poll on Routing definitions → Arena boards "
+                                 "first, or choose Static or Intent.",
+                        "arena": space,
+                    }, 400)
+                    return
             settings.set_route_by(route_by, profile=profile)
         if "enabled" in body:
             enabled = body.get("enabled")
@@ -4626,11 +4643,15 @@ class DashboardEndpoints:
         finally:
             con.close()
 
-        if not out.get("aborted"):
-            invalidate_registry_cache()
-            self._audit("capability.import", written=out["written"],
-                        models=out["models"], axes=out["axes"],
-                        skipped=len(out["skipped"]))
+        if out.get("aborted"):
+            # 400, not 200: an aborted import wrote nothing, and a client that only
+            # reads the status code must not be able to record that as a success.
+            self._send_json(out, 400)
+            return
+        invalidate_registry_cache()
+        self._audit("capability.import", written=out["written"],
+                    models=out["models"], axes=out["axes"],
+                    skipped=len(out["skipped"]))
         self._send_json(out)
 
     def _serve_capability_template_api(self):
