@@ -59,6 +59,8 @@ SECTION_TAB = {
     "sec_routingdefs_boards_script": "boards",
     "sec_routingdefs_unmapped": "unmapped",
     "sec_routingdefs_unmapped_script": "unmapped",
+    "sec_routingdefs_log": "log",
+    "sec_routingdefs_log_script": "log",
     # M2d: level-3 only — the routing controls and the model pool act on one
     # profile, which is what the level-3 page is.
     "sec_prouting": "routing",

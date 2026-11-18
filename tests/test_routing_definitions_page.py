@@ -68,14 +68,15 @@ def test_the_route_is_registered():
 
 # ── the three tabs the design specifies ───────────────────────────────────────
 
-def test_the_three_tabs_are_present(cfg, engine):
-    """Three tabs, one per vocabulary. The DEFAULT tab links to the bare URL, so it
-    carries no query param — assert the link targets, not a literal string."""
+def test_the_four_tabs_are_present(cfg, engine):
+    """Four tabs: the capability matrix, the Arena boards, the unbound queue, and the
+    classification log. The DEFAULT tab links to the bare URL, so it carries no query
+    param — assert the link targets, not a literal string."""
     html = _render(cfg, engine)
-    for label in ("Capability matrix", "Arena boards", "Unmapped"):
+    for label in ("Capability matrix", "Arena boards", "Unmapped", "Classification log"):
         assert label in html, f"tab strip is missing {label}"
     assert 'href="/routing-definitions"' in html, "matrix (the default) has no link"
-    for tab in ("boards", "unmapped"):
+    for tab in ("boards", "unmapped", "log"):
         assert f"tab={tab}" in html, f"tab strip is missing the {tab} link"
 
 
@@ -198,6 +199,28 @@ def test_the_unbound_read_never_returns_unregistered_rows(engine):
     assert set(out) >= {"registered", "unbound", "count"}
     for row in out["unbound"]:
         assert "served_id" in row and "endpoint_id" in row
+
+
+# ── tab 4: the classification log (design step 12) ───────────────────────────
+
+def test_the_log_tab_renders(cfg, engine):
+    html = _render(cfg, engine, "log")
+    assert "logList" in html and "logNote" in html
+
+
+def test_the_log_reads_the_stored_record(cfg, engine):
+    """`routing_decisions.semantic_json` already holds the ranked vector for 25,308 of
+    28,668 decisions. This view renders it — it does not re-score anything, because a
+    recomputed number beside a recorded one makes the record unreadable as a record."""
+    html = _render(cfg, engine, "log")
+    assert "/api/routing/status" in html
+    assert "recent_decisions" in html or "semantic_json" in html
+
+
+def test_the_log_never_writes(cfg, engine):
+    """A view that could edit the log is a view nobody could trust as the record."""
+    html = _render(cfg, engine, "log")
+    assert "method: 'POST'" not in html and 'method: "POST"' not in html
 
 
 # ── Models is now the leaderboard ONLY (the design's division) ────────────────

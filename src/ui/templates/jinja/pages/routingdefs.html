@@ -11,8 +11,10 @@
                  leaderboard and this editor had no other home.
     * boards   — LMArena's published boards plus the poll. Polling is a ROUTING
                  input, so it belongs here, not on the leaderboard.
-    * unmapped — registered model:provider pairs with no portfolio yet, and the
-                 three ways to resolve each one.
+    * unmapped — registered deployments with no portfolio, and the three ways to
+                 resolve each one.
+    * log      — what the router classified and the evidence it classified from
+                 (read-only; the data is already stored)
 
   This page is the navbar entry the operator asked for; before it existed the
   capability editor was reachable nowhere in the UI.
@@ -25,12 +27,14 @@
   <a class="tab-btn{% if tab == 'matrix' %} active{% endif %}" href="/routing-definitions">Capability matrix</a>
   <a class="tab-btn{% if tab == 'boards' %} active{% endif %}" href="/routing-definitions?tab=boards">Arena boards</a>
   <a class="tab-btn{% if tab == 'unmapped' %} active{% endif %}" href="/routing-definitions?tab=unmapped">Unmapped</a>
+  <a class="tab-btn{% if tab == 'log' %} active{% endif %}" href="/routing-definitions?tab=log">Classification log</a>
 </div>
 
 {% include "sections/sec_routingdefs_matrix.html" %}
 {% include "sections/sec_routingdefs_matrix_import.html" %}
 {% include "sections/sec_routingdefs_boards.html" %}
 {% include "sections/sec_routingdefs_unmapped.html" %}
+{% include "sections/sec_routingdefs_log.html" %}
 {% endblock %}
 
 {% block scripts %}
@@ -38,4 +42,5 @@
 {% include "sections/sec_routingdefs_matrix_import_script.html" %}
 {% include "sections/sec_routingdefs_boards_script.html" %}
 {% include "sections/sec_routingdefs_unmapped_script.html" %}
+{% include "sections/sec_routingdefs_log_script.html" %}
 {% endblock %}

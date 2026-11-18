@@ -1,0 +1,92 @@
+{#-
+  Classification log — the client half of design build step 12.
+
+  Read: GET /api/routing/status -> `recent_decisions[]`, each carrying `semantic_json`
+        (the ranked vector), `base_intent`, `arena_board`, `path`, `task`, `profile`.
+
+  Everything shown here is already in the database; this parses and renders it. No write,
+  and no client-side re-scoring: showing a recomputed score next to a recorded one would
+  make the record unreadable as a record.
+-#}
+{% if tab == 'log' %}
+<script>
+(function () {
+  const listEl = document.getElementById('logList');
+  if (!listEl) return;
+  const NOTE = document.getElementById('logNote');
+
+  function note(t, tone) {
+    if (NOTE) { NOTE.textContent = t || ''; NOTE.className = 'seed-status' + (tone ? ' ' + tone : ''); }
+  }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+  function stamp(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).slice(0, 16).replace('T', ' ');
+    const p = n => String(n).padStart(2, '0');
+    return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate())
+      + ' ' + p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + 'Z';
+  }
+  // The stored vector has been written in two shapes (a JSON array of pairs). Tolerate
+  // both and a stringified one: this view's job is to show what is there, and refusing to
+  // render an older shape would hide exactly the history it exists to show.
+  function pairs(raw) {
+    if (!raw) return [];
+    let v = raw;
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { return []; } }
+    if (!Array.isArray(v)) return [];
+    return v.map(function (x) {
+      if (Array.isArray(x)) return [String(x[0]), Number(x[1])];
+      if (x && typeof x === 'object') return [String(x.label || x.task || '?'), Number(x.score)];
+      return [String(x), NaN];
+    }).filter(p => p[0] && !isNaN(p[1]));
+  }
+
+  async function load() {
+    note('loading…');
+    try {
+      const r = await fetch('/api/routing/status', { credentials: 'same-origin' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const rows = d.recent_decisions || [];
+      if (!rows.length) {
+        listEl.innerHTML = '<tr><td colspan="6" class="empty">No decision recorded yet.</td></tr>';
+        note('nothing recorded');
+        return;
+      }
+      let withVector = 0;
+      listEl.innerHTML = rows.map(function (r) {
+        const vec = pairs(r.semantic_json);
+        if (vec.length) withVector++;
+        const assigned = r.base_intent || r.task || '';
+        const board = r.arena_board || '';
+        const how = r.path || '';
+        const evidence = vec.length
+          ? vec.slice(0, 5).map(function (p) {
+              return '<span class="chip">' + esc(p[0]) + ' ' + p[1].toFixed(3) + '</span>';
+            }).join(' ')
+          : '<span class="muted">— no vector (keyword fallback)</span>';
+        return '<tr>' +
+          '<td class="nowrap">' + esc(stamp(r.ts)) + '</td>' +
+          '<td>' + esc(r.profile) + '</td>' +
+          '<td><strong>' + esc(assigned || '—') + '</strong></td>' +
+          '<td>' + (board ? '<code>' + esc(board) + '</code>' : '<span class="muted">—</span>') + '</td>' +
+          '<td>' + esc(how) + '</td>' +
+          '<td>' + evidence + '</td>' +
+        '</tr>';
+      }).join('');
+      note(rows.length + ' recorded decision(s); ' + withVector + ' with a stored vector');
+    } catch (e) {
+      note('could not load: ' + e.message, 'error');
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load);
+  else load();
+})();
+</script>
+{% endif %}
