@@ -2660,6 +2660,10 @@ def routing_status(config: Optional[object] = None) -> dict:
         "policy": policy,
         "min_score": min_score,
         "route_by": route_by,
+        # The Arena tier's readiness, on the GLOBAL block too — the selector may read
+        # either the global snapshot or a `?profile=` block, and a readiness that is on
+        # only one of them is a readiness the operator sometimes cannot see.
+        "arena": _arena_label_space(router.db_path),
         "rules": router._rules(config),
         "per_task": per_task,
         "recent_decisions": router.recent_decisions(25),

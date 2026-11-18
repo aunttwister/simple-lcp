@@ -114,6 +114,16 @@ def test_the_status_payload_carries_the_label_space():
     assert '"arena": ' in src
 
 
+def test_the_readiness_is_on_BOTH_status_blocks():
+    """`/api/routing/status` answers with the global snapshot AND with a `?profile=` block.
+    A readiness present on only one of them is a readiness the operator cannot see half
+    the time — and the first version of this shipped on one block only, which is how it
+    was caught (the selector's own fetch got None)."""
+    src = open(os.path.join(REPO, "src", "api", "router.py")).read()
+    assert src.count('"arena": _arena_label_space(') >= 2, \
+        "the label space is not on both the global block and the per-profile block"
+
+
 def test_saving_route_by_arena_without_a_label_space_is_refused():
     """400 with the reason, not accepted-and-inert.
 
