@@ -415,19 +415,21 @@ function buildCharts(view) {
     costOpts.plugins.tooltip.callbacks.afterBody = function(items) {
       return '\nClick bar for the day breakdown';
     };
+    // MERGE RESOLUTION (2026-11-19). Commit 0c8735a resolved this hunk by keeping BOTH
+    // sides: a per-chart IIFE copy of darkOpts, and prod's `costOpts`. Two `options:` keys
+    // with no comma between them is a SyntaxError — `Unexpected identifier 'options'` — and
+    // because a script block is parsed as a unit it killed this ENTIRE block, so the whole
+    // Overview home page was inert. Caught by node-checking the SERVED page, which nothing
+    // had done.
+    //
+    // The resolution keeps prod's side, because `costOpts` carries the click-to-breakdown
+    // (onClick) and the tooltip hint (afterBody) that the copy would drop, and folds in the
+    // one thing the other side wanted that it lacked: the smaller legend swatch. Its "$
+    // y-ticks" intent is already what _moneyTick does.
+    costOpts.plugins.legend.labels.boxWidth = 8;
     costChart = new Chart(ctx1, {
       type: 'bar',
       data: { labels: labels, datasets: costDatasets },
-      options: (() => {
-        // Cost chart gets $ y-ticks and a legend swatch that matches the bar
-        // fill; the latency chart must keep plain ms ticks, so this is a
-        // per-chart copy, never a mutation of the shared darkOpts.
-        var o = JSON.parse(JSON.stringify(darkOpts));
-        o.scales.y.ticks.callback = function (v) { return '$' + v; };
-        o.plugins.legend.labels.usePointStyle = true;
-        o.plugins.legend.labels.boxWidth = 8;
-        return o;
-      })()
       options: costOpts
     });
   }
