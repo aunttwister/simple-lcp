@@ -4402,3 +4402,58 @@ tr.log-row-failed td.num { opacity: 0.55; }
   color: hsl(var(--muted-foreground)); background: hsl(var(--secondary) / 0.95);
   padding: 0.2rem 0.5rem; border-bottom: 1px solid hsl(var(--card-border));
 }
+
+/* ── the capability comparison matrix (Routing definitions → Capability matrix) ──────────
+   Rows are the axes routing speaks; columns are the models. These classes shipped in the
+   markup from 2026-11-18 with NO rules behind them, so "the best score on this row" was
+   marked in the DOM and completely invisible on screen — and the table did not read as a
+   table at all. Operator, 2026-11-19: "we can highlight the highest number in capability
+   matrix just to catch the attention easier". */
+#matrixCompare { width: 100%; }
+#matrixCompare thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: hsl(var(--card));
+}
+/* The model name is the column head. It wraps rather than truncating: two models can differ
+   in nothing but a suffix, and an ellipsis would make them look identical. */
+#matrixCompare th.matrix-col {
+  text-align: center;
+  vertical-align: bottom;
+  max-width: 8.5rem;
+  font-weight: 600;
+  font-size: 0.75rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#matrixCompare th.matrix-col:first-child { text-align: left; }
+#matrixCompare th.matrix-axis {
+  text-align: left;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  padding-right: 0.875rem;
+}
+#matrixCompare td.matrix-cell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: hsl(var(--foreground));
+}
+#matrixCompare td.matrix-cell.empty { color: hsl(var(--muted-foreground)); }
+
+/* The highest score on each row. Weight AND a tinted wash, never colour alone: the house
+   rule is that colour never carries meaning by itself (a colour-blind reader or a
+   greyscale print must still see it), and the tint is what makes the row's winner findable
+   at a glance. */
+#matrixCompare td.matrix-cell.best {
+  font-weight: 700;
+  color: hsl(var(--green-fg));
+  background: hsl(var(--green-bg));
+  box-shadow: inset 0 0 0 1px hsl(var(--green-fg) / 0.35);
+}
+
+/* The lane's empty state: ✕ leaves column 3 saying nothing, rather than holding the rows
+   that were open when it was pressed. */
+#mpEmpty { padding: 0.75rem 0.25rem; }

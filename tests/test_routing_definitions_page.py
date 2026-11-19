@@ -194,6 +194,96 @@ def test_a_model_appears_as_ONE_column_however_many_spellings_it_has(cfg, engine
     assert "g.names.join(' / ')" in script
 
 
+# ── the lane's mechanics: the four defects reported 2026-11-19 ─────────────────
+
+def _js_section(name):
+    return open(os.path.join(REPO, "src", "ui", "templates", "jinja", "sections", name)).read()
+
+
+def test_the_lane_does_not_call_itself_back(cfg, engine):
+    """Operator, 2026-11-19: "Manage Taxonomy and Import scores doesn't work, nothing opens
+    in column 3".
+
+    The pair recursed: mpShow() called mpSyncViewport(), which calls mpShow() on desktop, so
+    every pane button died inside `RangeError: Maximum call stack size exceeded`. The symptom
+    was silent — no console error reached the page's own handler, the pane simply never
+    changed, and each nested call re-applied the OLD pane on its way back out, which is why
+    ✕ also appeared to do nothing but close the width.
+
+    This asserts the DIRECTION: mpShow must not call mpSyncViewport. The pre-rework code
+    never did; the call was added when the function was generalised.
+    """
+    js = _js_section("sec_lane_js.html")
+    show = js.split("function mpSetPane(pane) {", 1)[1].split("\nfunction mpShow(", 1)[0]
+    assert "mpSyncViewport(" not in show, \
+        "mpShow calls mpSyncViewport, which calls mpShow: unbounded recursion"
+    # and the reverse direction is the one that is allowed
+    sync = js.split("function mpSyncViewport(mq) {", 1)[1]
+    assert "mpSetPane(" in sync or "mpShow(" in sync
+
+
+def test_closing_the_lane_clears_what_was_open(cfg, engine):
+    """Operator: "the models which was open before i clicked X remains (it should disappear
+    and default column 3 no info should be shown)".
+
+    ✕ must EMPTY the lane, not just release its width — and it must not remove the reserved
+    column on desktop, where the operator's own rule is that column 2 never reflows.
+    """
+    js = _js_section("sec_lane_js.html")
+    close = js.split("function mpClose() {", 1)[1].split("\n}", 1)[0]
+    assert "mpClear()" in close, "✕ does not clear the lane"
+    assert "mpHide()" in close and "MP_DESKTOP.matches" in close, \
+        "✕ must close the slide-over only BELOW the desktop breakpoint"
+    # the empty state exists in both lanes, and mpSetPane is what drives it
+    assert "mpEmpty" in js and "empty.hidden = !!pane" in js
+    assert 'id="mpEmpty"' in _js_section("sec_routingdefs_matrix.html")
+    assert 'id="mpEmpty"' in _js_section("sec_routingdefs_boards.html")
+
+
+def test_the_desktop_lane_has_no_full_screen_backdrop(cfg, engine):
+    """The 2026-11-07 bug, which the generalisation reintroduced: a backdrop over the reserved
+    desktop lane swallows clicks aimed at column 2, so the panel looked like a modal."""
+    js = _js_section("sec_lane_js.html")
+    body = js.split("function mpSetPane(pane) {", 1)[1].split("\nfunction mpShow(", 1)[0]
+    assert "classList.toggle('open', !MP_DESKTOP.matches)" in body, \
+        "the backdrop is not scoped to the sub-1100px overlay"
+
+
+def test_the_highest_score_on_a_row_is_actually_styled(cfg, engine):
+    """Operator: "we can highlight the highest number in capability matrix just to catch the
+    attention easier".
+
+    The markup marked it (`.matrix-cell.best`) from the start and the stylesheet had NO rule
+    for it — or for any other matrix class — so the marking was invisible on screen and the
+    table did not read as a table at all. A class in the DOM is not a highlight.
+    """
+    css = open(os.path.join(REPO, "src", "ui", "templates", "jinja", "static",
+                            "dashboard.css")).read()
+    for rule in ("#matrixCompare td.matrix-cell.best", "#matrixCompare th.matrix-col",
+                 "#matrixCompare td.matrix-cell", "#matrixCompare th.matrix-axis"):
+        assert rule in css, "no stylesheet rule for %s" % rule
+    best = css.split("#matrixCompare td.matrix-cell.best", 1)[1].split("}", 1)[0]
+    # weight + wash, never colour alone: the house rule for a colour-blind reader
+    assert "font-weight" in best and "background" in best
+
+
+def test_the_configured_filter_also_filters_the_matrix(cfg, engine):
+    """Operator: "'Configured' filter should also filter only configured models in the
+    matrix". It narrowed the LIST only, so the table beside it kept showing models the filter
+    had just excluded — the two surfaces disagreed on screen."""
+    script = _js_section("sec_routingdefs_matrix_script.html")
+    assert "function passesConfigured(" in script
+    assert "function matrixVisible(" in script
+    assert "if (!matrixVisible(m)) continue;" in script, \
+        "the matrix does not honour the Configured filter"
+    # and the toggle re-renders the table, not just the list
+    toggle = script.split("STATE.configuredOnly = !STATE.configuredOnly;", 1)[1].split("\n}", 1)[0]
+    assert "renderMatrix()" in toggle, "the toggle does not re-render the matrix"
+    assert "renderModelList()" in toggle
+    # the count says which set it counted
+    assert "configured' : ' registered') + ' model(s) compared" in script
+
+
 # ── tab 2: the Arena boards — the poll, MOVED here 2026-11-17 ────────────────
 
 def test_boards_tab_carries_the_poll(cfg, engine):

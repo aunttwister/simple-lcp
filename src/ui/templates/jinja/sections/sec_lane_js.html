@@ -4,33 +4,53 @@
     both would be two `const API` declarations and a SyntaxError that kills the page.
     A page includes this ONE piece if all it needs is the lane. -#}
 // ── the shared detail lane ─────────────────────────────────────────────────
-// Used by the Models page, Routing definitions → Arena boards and → Capability matrix.
-// One implementation: the lane mechanics (reserved width, drag handle, slide-over under
-// 1100px) are shared with overview and conversations and are not ours to redesign.
+// Used by Routing definitions → Arena boards and → Capability matrix.
 const PANE_TITLES = {};
-// ── the shared detail panel: poll | manage taxonomy ─────────────────────────
 const MP_DESKTOP = window.matchMedia('(min-width: 1100px)');
 
 function mpPanel() { return document.getElementById('modelsPanel'); }
 
-function mpShow(pane) {
+// Show one pane (or none) and keep the lane's own state in step.
+//
+// DO NOT call mpSyncViewport() from here. mpSyncViewport() calls mpShow() on desktop, so the
+// pair recursed — mpShow → mpSyncViewport → mpShow → … — until `RangeError: Maximum call
+// stack size exceeded`. The symptom was silent and thoroughly misleading: every pane button
+// read as dead, and ✕ left the pane it was meant to clear, because each nested call
+// re-applied the OLD pane on its way back out. The pre-rework code never made this call; it
+// was added when this function was generalised, and the `mq = mq || MP_DESKTOP` guard further
+// down was a patch for the symptom rather than the cause.
+function mpSetPane(pane) {
   const panel = mpPanel();
   if (!panel) return;
-  // Every pane in the lane carries `dp-pane` and `data-pane=<name>`: this hides them ALL
-  // and reveals the one asked for. A hardcoded pair of pane names cannot serve
-  // two tabs whose panes differ — which is exactly what broke when the taxonomy pane moved
-  // to the Capability matrix tab and left this function setting `hidden` on nothing.
+  pane = pane || '';
+  // Every pane carries `dp-pane` + `data-pane=<name>`, so this hides them ALL before
+  // revealing one. Two tabs have different pane sets, and a hardcoded pair of names cannot
+  // serve both — which is what broke when the taxonomy pane moved to the matrix tab.
   panel.querySelectorAll('.dp-pane').forEach(el => {
     el.hidden = el.dataset.pane !== pane;
   });
-  mpSyncViewport();
+  // The lane's own empty state: the operator's rule is that ✕ leaves column 3 saying
+  // NOTHING, rather than holding the rows that were open when it was pressed.
+  const empty = document.getElementById('mpEmpty');
+  if (empty) empty.hidden = !!pane;
   const t = document.getElementById('mpTitle');
-  if (t) t.textContent = PANE_TITLES[pane] || pane;
+  if (t) t.textContent = pane ? (PANE_TITLES[pane] || pane) : '';
   panel.dataset.pane = pane;
   panel.classList.add('open');
-  const bd = document.getElementById('mpBackdrop');
-  if (bd) bd.classList.add('open');
+  // The backdrop is a MOBILE affordance: below 1100px the lane overlays the page and needs a
+  // tap-target to dismiss. On desktop the lane is a reserved column, and a full-screen
+  // backdrop there swallows clicks meant for column 2 — the bug reported on 2026-11-07
+  // ("clicking empty space made column 3 disappear"). Scoped to !desktop, as it was before.
+  const back = document.getElementById('mpBackdrop');
+  if (back) back.classList.toggle('open', !MP_DESKTOP.matches);
 }
+
+function mpShow(pane) { mpSetPane(pane); }
+
+// Clear the CONTENT without deciding the lane's width. On desktop the lane is the reserved
+// column the operator asked for, so clearing is what ✕ means; column 2 must not reflow into
+// the freed space just because the panel was emptied.
+function mpClear() { mpSetPane(null); }
 
 function mpHide() {
   const panel = mpPanel();
@@ -41,13 +61,10 @@ function mpHide() {
 }
 
 function mpClose() {
-  // ✕ CLOSES the lane on both breakpoints. It used to call mpShow('tax') on
-  // desktop — a no-op whenever taxonomy was already the open pane, which is the
-  // state this page now loads in, so the button read as broken. Closing is the
-  // honest meaning for a control shaped like a close button; the two buttons in
-  // column 2 bring the lane back, and a closed lane releases its reserved width
-  // (see the #modelsPanel rule in dashboard.css) so nothing is wasted.
-  mpHide();
+  // ✕ = "clear this panel". Desktop keeps the reserved lane (emptied, showing the hint);
+  // below 1100px the lane is a slide-over, so ✕ also closes it.
+  mpClear();
+  if (!MP_DESKTOP.matches) mpHide();
 }
 
 // ── drag handle (file-explorer splitter), the shared lane mechanics ────────
@@ -98,15 +115,19 @@ function on(id, ev, fn) {
   const el = document.getElementById(id);
   if (el) el.addEventListener(ev, fn);
 }
+
+// Re-apply the lane's state for the viewport. Called by the matchMedia listener, which passes
+// the event — hence `mq` rather than a required query. ONE DIRECTION ONLY: this may call
+// mpShow/mpHide, and neither of those may call it back.
 function mpSyncViewport(mq) {
-  // The media query is a DEFAULT, not a required argument: mpShow/mpHide/mpClose call this
-  // with none, and `mq.matches` on undefined threw — which aborted mpShow BEFORE it set the
-  // title or added .open, so the lane opened to an empty, closed panel.
-  mq = mq || MP_DESKTOP;
+  const query = (mq && typeof mq.matches === 'boolean') ? mq : MP_DESKTOP;
   const panel = mpPanel();
   if (!panel) return;
-  // Growing to desktop must not force the lane open over an operator who closed
-  // it; it restores the lane only if the pane was already chosen.
-  if (mq.matches && panel.dataset.pane) mpShow(panel.dataset.pane);
-  else mpHide();
+  if (query.matches) {
+    // Desktop: the lane is the reserved column, so it stays — showing whichever pane is
+    // chosen, or the empty state if the operator cleared it.
+    mpSetPane(panel.dataset.pane || null);
+  } else {
+    mpHide();   // mobile: a fresh load shows the content, not a sheet over it
+  }
 }

@@ -245,6 +245,15 @@
 
     {% include "sections/sec_taxonomy_pane.html" %}
 
+    <!-- ── The lane's empty state. Shown by ✕: the operator's rule is that closing leaves
+         column 3 saying NOTHING rather than holding whatever was open. ── -->
+    <div id="mpEmpty" hidden>
+      <p class="dp-note">
+        Nothing selected. <strong>Models</strong> picks the columns, <strong>Import
+        scores</strong> loads a file, <strong>Manage taxonomy</strong> maps the boards.
+      </p>
+    </div>
+
   </div>
 </aside>
 <div class="dp-backdrop" id="mpBackdrop"></div>

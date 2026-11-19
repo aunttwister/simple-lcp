@@ -236,6 +236,7 @@ function toggleConfiguredOnly() {
     btn.setAttribute('aria-pressed', STATE.configuredOnly ? 'true' : 'false');
   }
   renderModelList();
+  renderMatrix();       // the same toggle governs the table beside the list
 }
 
 function selectModel(model) {
@@ -940,6 +941,19 @@ function isRegistered(name) {
   return reg.has(s) || reg.has(String(canonicalName(name)).toLowerCase());
 }
 
+// The "Configured" toggle. Operator, 2026-11-19: "'Configured' filter should ALSO filter
+// only configured models in the matrix" — it narrowed the LIST only, so the table beside it
+// kept showing models the filter had just excluded, and the two disagreed on screen.
+// One predicate, applied to both, so they cannot drift apart again.
+function passesConfigured(name) {
+  return !STATE.configuredOnly || activeModels().has(name);
+}
+
+// What the matrix may show: registered AND (when the toggle is on) configured.
+function matrixVisible(name) {
+  return isRegistered(name) && passesConfigured(name);
+}
+
 // ONE COLUMN PER PHYSICAL MODEL.
 //
 // `qwen-3.8-max` and `qwen3.8-max` are the same model — the first is a provider spelling
@@ -958,7 +972,7 @@ function columnGroups() {
   const groups = new Map();
   for (const axis of Object.keys(tasks)) {
     for (const [m, sc] of Object.entries(tasks[axis])) {
-      if (!isRegistered(m)) continue;
+      if (!matrixVisible(m)) continue;   // registered, and "Configured" honoured here too
       const id = compareId(m);
       let g = groups.get(id);
       if (!g) { g = {id, names: [], regName: null, cands: {}}; groups.set(id, g); }
@@ -1058,7 +1072,8 @@ function renderMatrix() {
   const note = document.getElementById('matrixNote');
   if (note) {
     const without = axes.filter(a => !cols.some(g => a in g.scores));
-    note.textContent = cols.length + ' of ' + groups.length + ' registered model(s) compared'
+    note.textContent = cols.length + ' of ' + groups.length
+      + (STATE.configuredOnly ? ' configured' : ' registered') + ' model(s) compared'
       + (without.length
          ? ' — no scores on: ' + without.map(a => AXIS_LABEL[a] || a).join(', ')
          : '');
