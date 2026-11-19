@@ -162,6 +162,38 @@ def test_the_list_does_not_hide_everything_when_there_is_no_registry(cfg, engine
     assert "if (!reg || !reg.size) return sorted;" in html
 
 
+def test_a_model_appears_as_ONE_column_however_many_spellings_it_has(cfg, engine):
+    """Found on prod 2026-11-19 by reading the RENDERED table: `qwen-3.8-max` and
+    `qwen3.8-max` both rendered as columns, the same six numbers twice.
+
+    They are one model — the hyphenated name is a provider spelling that resolves to the
+    registered slug through the alias map. Both legitimately PASS the registration filter
+    (an alias of a registered model is registered), so filtering cannot be the fix: the
+    columns have to be keyed on the model's IDENTITY, not on the name that reported it.
+
+    No unit test caught it because every one of them inspects a single partial and none of
+    them ever saw two spellings of one model side by side.
+    """
+    script = open(os.path.join(REPO, "src", "ui", "templates", "jinja", "sections",
+                              "sec_routingdefs_matrix_script.html")).read()
+    assert "function columnGroups(" in script, "the columns are not grouped by identity"
+    assert "compareModels(" not in script, "the un-deduped grouping is still in use"
+    # the identity is the canonical name, and it is applied everywhere a model is named
+    assert "function compareId(" in script
+    assert "const id = compareId(m);" in script, "grouping does not use the canonical id"
+    assert "const cols = groups.filter(g => STATE.compare.has(g.id));" in script
+    assert "STATE.compare.has(compareId(m))" in script, \
+        "the list's tick is not keyed on the same identity as the column"
+    assert "const id = compareId(model);" in script, \
+        "ticking a name does not record the canonical id"
+    # one column per identity: the group takes the REGISTERED spelling's own number
+    assert "if (isReg(m) && !g.regName) g.regName = m;" in script
+    assert "a[0] - b[0] || a[1].localeCompare(b[1])" in script, \
+        "which spelling wins is left to payload order"
+    # and the column says which spellings it stands for
+    assert "g.names.join(' / ')" in script
+
+
 # ── tab 2: the Arena boards — the poll, MOVED here 2026-11-17 ────────────────
 
 def test_boards_tab_carries_the_poll(cfg, engine):

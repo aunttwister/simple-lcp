@@ -199,7 +199,7 @@ function renderModelList() {
     // The tick picks what the comparison table shows as a COLUMN. It is separate from the
     // click that selects a model for editing, so comparing twelve models does not mean
     // opening twelve detail panes.
-    const ticked = STATE.compare.has(m) ? ' checked' : '';
+    const ticked = STATE.compare.has(compareId(m)) ? ' checked' : '';
     // A scoreless model cannot be a column: it would render an all-dash column that looks
     // like a measurement failure rather than missing data. The tick is DISABLED and says
     // why, so ticking it is not a click that does nothing.
@@ -940,21 +940,63 @@ function isRegistered(name) {
   return reg.has(s) || reg.has(String(canonicalName(name)).toLowerCase());
 }
 
-// The registered models that carry a score, best average first — so the table leads with
-// the models worth comparing rather than with whichever sorted first alphabetically.
-function compareModels() {
+// ONE COLUMN PER PHYSICAL MODEL.
+//
+// `qwen-3.8-max` and `qwen3.8-max` are the same model — the first is a provider spelling
+// that resolves to the second through the alias map. Both passed the registration filter
+// (by design: an alias of a registered model IS registered), and both then rendered as
+// COLUMNS, putting the same six numbers in two columns: double the width, and it reads as
+// two models with identical results. Found 2026-11-19 by reading the RENDERED prod table —
+// every unit test passed because each one inspects a single partial.
+ //
+// The identity is the canonical name; the column is labelled with the spelling that IS a
+// registered slug.
+function columnGroups() {
   const tasks = (STATE.matrix && STATE.matrix.tasks) || {};
-  const avg = {};
-  for (const a of Object.keys(tasks)) {
-    for (const [m, sc] of Object.entries(tasks[a])) {
+  const reg = STATE.registered;
+  const isReg = n => !!(reg && reg.has(String(n).toLowerCase()));
+  const groups = new Map();
+  for (const axis of Object.keys(tasks)) {
+    for (const [m, sc] of Object.entries(tasks[axis])) {
       if (!isRegistered(m)) continue;
-      (avg[m] = avg[m] || []).push(Number(sc));
+      const id = compareId(m);
+      let g = groups.get(id);
+      if (!g) { g = {id, names: [], regName: null, cands: {}}; groups.set(id, g); }
+      if (!g.names.includes(m)) g.names.push(m);
+      if (isReg(m) && !g.regName) g.regName = m;
+      (g.cands[axis] = g.cands[axis] || []).push([isReg(m) ? 0 : 1, String(m), Number(sc)]);
     }
   }
-  return Object.keys(avg)
-    .map(m => [m, avg[m].reduce((x, y) => x + y, 0) / avg[m].length])
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(x => x[0]);
+  const out = [];
+  for (const g of groups.values()) {
+    const scores = {};
+    for (const axis of Object.keys(g.cands)) {
+      // If two spellings of one model disagree on a number, the REGISTERED row is the
+      // model's own: taking the other would put in the table a figure belonging to a name
+      // the operator never chose. Ties break alphabetically, so the column cannot depend on
+      // the order the payload happened to arrive in.
+      const pick = g.cands[axis].slice()
+        .sort((a, b) => a[0] - b[0] || a[1].localeCompare(b[1]))[0];
+      scores[axis] = pick[2];
+    }
+    const vals = Object.values(scores);
+    out.push({
+      id: g.id,
+      name: g.regName || g.names.slice().sort()[0],
+      names: g.names.slice().sort(),
+      scores,
+      avg: vals.length ? vals.reduce((x, y) => x + y, 0) / vals.length : 0,
+    });
+  }
+  // Best average first — the table should lead with the models worth comparing, not with
+  // whichever sorted first alphabetically.
+  return out.sort((a, b) => b.avg - a.avg || a.name.localeCompare(b.name));
+}
+
+// The ticked set holds CANONICAL ids, so a tick on EITHER spelling of one model is one
+// column, and the list's checkbox and the table's column cannot disagree about it.
+function compareId(name) {
+  return String(canonicalName(name) || name).toLowerCase();
 }
 
 // The ticked set IS what the table shows, so it must start as the default set rather than
@@ -971,17 +1013,16 @@ function hasScores(name) {
 
 function seedCompare() {
   if (STATE.compare.size) return;
-  compareModels().slice(0, MATRIX_DEFAULT_COLUMNS).forEach(m => STATE.compare.add(m));
+  columnGroups().slice(0, MATRIX_DEFAULT_COLUMNS).forEach(g => STATE.compare.add(g.id));
 }
 
 function renderMatrix() {
   const head = document.getElementById('matrixHead');
   const body = document.getElementById('matrixBody');
   if (!head || !body) return;
-  const tasks = (STATE.matrix && STATE.matrix.tasks) || {};
-  const all = compareModels();
-  const cols = all.filter(m => STATE.compare.has(m));
   const axes = axesForMatrix();
+  const groups = columnGroups();
+  const cols = groups.filter(g => STATE.compare.has(g.id));
 
   if (!cols.length) {
     head.innerHTML = '';
@@ -990,20 +1031,21 @@ function renderMatrix() {
     return;
   }
 
-  head.innerHTML = '<tr><th scope="col">axis</th>' + cols.map(m =>
-    `<th scope="col" class="matrix-col" title="${esc(m)}">`
-    + `<span class="matrix-model">${esc(m)}</span></th>`).join('') + '</tr>';
+  // The title carries every spelling this column stands for, so a reader can see WHY one
+  // column answers to a name they did not type.
+  head.innerHTML = '<tr><th scope="col">axis</th>' + cols.map(g =>
+    `<th scope="col" class="matrix-col" title="${esc(g.names.join(' / '))}">`
+    + `<span class="matrix-model">${esc(g.name)}</span></th>`).join('') + '</tr>';
 
   body.innerHTML = axes.map(axis => {
-    const row = tasks[axis] || {};
-    const vals = cols.map(m => (m in row ? Number(row[m]) : null));
+    const vals = cols.map(g => (axis in g.scores ? g.scores[axis] : null));
     const scored = vals.filter(v => v !== null);
     const best = scored.length ? Math.max(...scored) : -Infinity;
     // A row where NOTHING is scored is a finding, not an empty row: that is an axis with
     // no measurement anywhere, and hiding it would hide the gap. On prod, debugging and
     // unit_tests are exactly that — and they are the two busiest axes in real traffic.
     return `<tr><th scope="row" class="matrix-axis">${esc(AXIS_LABEL[axis] || axis)}</th>`
-      + cols.map((m, i) => {
+      + cols.map((g, i) => {
           const v = vals[i];
           if (v === null) return '<td class="matrix-cell empty" title="not scored">—</td>';
           const isBest = scored.length > 1 && v === best;
@@ -1015,8 +1057,8 @@ function renderMatrix() {
 
   const note = document.getElementById('matrixNote');
   if (note) {
-    const without = axes.filter(a => !Object.keys(tasks[a] || {}).some(m => cols.indexOf(m) !== -1));
-    note.textContent = cols.length + ' of ' + all.length + ' registered model(s) compared'
+    const without = axes.filter(a => !cols.some(g => a in g.scores));
+    note.textContent = cols.length + ' of ' + groups.length + ' registered model(s) compared'
       + (without.length
          ? ' — no scores on: ' + without.map(a => AXIS_LABEL[a] || a).join(', ')
          : '');
@@ -1024,7 +1066,8 @@ function renderMatrix() {
 }
 
 function toggleCompare(model, on_) {
-  if (on_) STATE.compare.add(model); else STATE.compare.delete(model);
+  const id = compareId(model);
+  if (on_) STATE.compare.add(id); else STATE.compare.delete(id);
   renderMatrix();
   renderModelList();
 }
