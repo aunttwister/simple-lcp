@@ -240,3 +240,57 @@ def test_blank_lines_are_not_errors(db):
                                      "glm-5.3-flash,planning,0.9\n"
                                      "\n")
     assert out["written"] == 1 and not out["errors"] and not out["aborted"]
+
+
+# ── provenance: an import can declare a real source, and a bad one aborts ──────
+
+def test_a_file_can_declare_its_real_source(db):
+    """Found 2026-11-19 importing published LiveBench numbers: the importer wrote
+    `source='import'`, which is NOT in `GRADING_SOURCES`, so the grading view DROPS those
+    rows — the operator imports a file and the matrix does not change, with nothing
+    saying why. Published-leaderboard values ARE `livebench`, and that is also what makes
+    them visible and gradeable, so the file can name it."""
+    con = db
+    text = ("model,task_type,score,release,source\n"
+            "glm-5.3-flash,code_generation,79.0,2026-06-25,livebench\n")
+    rep = cc.import_capabilities(con, text)
+    assert rep["written"] == 1 and not rep["aborted"], rep
+    assert rep["sources"] == ["livebench"]
+    src = con.execute("select source from model_capabilities where model='glm-5.3-flash'"
+                      " and task_type='code_generation'").fetchone()[0]
+    assert src == "livebench", "the declared source was not written"
+
+
+def test_a_source_the_grading_view_would_drop_aborts_the_file(db):
+    """Same rule as an unknown axis: a typo must not produce rows that exist and are
+    invisible. Writing them would make the operator believe the import landed."""
+    con = db
+    text = ("model,task_type,score,source\n"
+            "glm-5.3-flash,code_generation,79.0,livebnech\n")
+    rep = cc.import_capabilities(con, text)
+    assert rep["aborted"] and rep["written"] == 0
+    assert any("livebnech" in e and "invisible" in e for e in rep["errors"]), rep["errors"]
+    assert con.execute("select count(*) from model_capabilities").fetchone()[0] == 0
+
+
+def test_without_a_source_column_nothing_changes(db):
+    """The default stays `import`: an import must not silently start clobbering the
+    benchmark rows or the hand-entered ones just because a column became optional."""
+    con = db
+    rep = cc.import_capabilities(con, "model,task_type,score\n"
+                                      "glm-5.3-flash,code_generation,79.0\n")
+    assert rep["written"] == 1 and rep["sources"] == ["import"]
+    assert con.execute("select source from model_capabilities").fetchone()[0] == "import"
+
+
+def test_the_source_column_takes_aliases_and_only_grading_sources():
+    """`provenance` is accepted as the header, and the allowlist is the real one — read
+    from GRADING_SOURCES rather than a copy that can drift from it."""
+    assert "provenance" in cc.SOURCE_COLS
+    allowed = cc.allowed_sources()
+    assert "livebench" in allowed and "manual" in allowed and "lcp_benchmark" in allowed
+    # 'import' is NOT a grading source — that is exactly why the column exists.
+    assert "import" not in allowed, (
+        "if 'import' ever becomes a grading source this whole dance is unnecessary")
+    # ...but it is still accepted as the default, or no source-less file could import.
+    assert "import" in tuple(allowed) + (cc.SOURCE,)

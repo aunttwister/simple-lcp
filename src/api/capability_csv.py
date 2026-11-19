@@ -18,9 +18,17 @@ Two gates, both the operator's standing rules:
 
 Scores accept 0–100 or 0–1 and are normalised to 0–1, matching the manual editor.
 
-Rows are written ``source='import'``, a source of their own: an import must not clobber
+Rows default to ``source='import'``, a source of their own: an import must not clobber
 the benchmark rows (``livebench``/``lmarena``/``lcp_benchmark``) nor the hand-entered
 ones (``manual``), and none of those may clobber it.
+
+**An optional ``source`` column names the provenance instead, when the file IS that
+source.** Found 2026-11-19: ``'import'`` is not in ``GRADING_SOURCES``, so an imported row
+is dropped by the grading view — the operator imports a file, the matrix does not change,
+and nothing says why. Published-leaderboard numbers ARE ``livebench``, and that is also
+what makes them visible and gradeable, so the column allows an explicit, ALLOWLISTED
+source. An unknown source is a whole-file ERROR for the same reason an unknown axis is:
+a typo would make every row invisible while the operator believes it landed.
 """
 from __future__ import annotations
 
@@ -36,6 +44,8 @@ MODEL_COLS = ("model", "model_slug", "logical_name", "slug")
 TASK_COLS = ("task_type", "task", "axis", "intent")
 SCORE_COLS = ("score", "value", "capability")
 RELEASE_COLS = ("release", "release_label")
+#: Optional provenance. Absent → ``SOURCE`` (the safe default).
+SOURCE_COLS = ("source", "provenance")
 
 
 def routing_axes() -> tuple:
@@ -51,7 +61,14 @@ def _pick(fields: dict, names: tuple) -> Optional[str]:
     return None
 
 
-def parse(text: str, registered: set, axes: tuple) -> dict:
+def allowed_sources() -> tuple:
+    """The sources that may grade a model. Import must never invent one."""
+    from .seed_capabilities import GRADING_SOURCES
+    return tuple(GRADING_SOURCES)
+
+
+def parse(text: str, registered: set, axes: tuple,
+          sources: Optional[tuple] = None) -> dict:
     """Validate a capability CSV against the registry and the routing axes.
 
     Pure: no writes, no connection. Returns what WOULD be written plus every row that
@@ -67,6 +84,12 @@ def parse(text: str, registered: set, axes: tuple) -> dict:
     task_col = _pick(fields, TASK_COLS)
     score_col = _pick(fields, SCORE_COLS)
     release_col = _pick(fields, RELEASE_COLS)
+    source_col = _pick(fields, SOURCE_COLS)
+    # The default (`import`) is accepted even though it cannot GRADE: it is the
+    # no-provenance default and an import must stay possible without naming a source.
+    # Anything else must be a grading source, because a row a reader cannot see is a
+    # row that did not land.
+    allowed = tuple(sources) if sources is not None else tuple(allowed_sources()) + (SOURCE,)
 
     missing = [name for name, col in (("model", model_col), ("task_type", task_col),
                                       ("score", score_col)) if not col]
@@ -91,6 +114,14 @@ def parse(text: str, registered: set, axes: tuple) -> dict:
         if not model or not task or not score:
             errors.append(f"line {i}: empty model/task_type/score")
             continue
+        # A provenance the grading view would DROP is not a warning: it is a file that
+        # writes rows nobody can see. Refuse it, and name the ones that work.
+        row_source = ((raw.get(source_col) or "").strip() if source_col else "") or SOURCE
+        if row_source not in allowed:
+            errors.append(f"line {i}: source '{row_source}' is not a grading source "
+                          f"(one of: {', '.join(allowed)}) — rows with it would be "
+                          f"invisible on the matrix and unused by the router")
+            continue
         if task not in axes:
             errors.append(f"line {i}: '{task}' is not a routing axis "
                           f"(one of: {', '.join(axes)})")
@@ -110,6 +141,7 @@ def parse(text: str, registered: set, axes: tuple) -> dict:
             "score": round(max(0.0, min(1.0, normalized)), 4),
             "raw_score": raw_score,
             "release_label": (raw.get(release_col) or "").strip() if release_col else "",
+            "source": row_source,
         })
     return {"rows": rows, "skipped": skipped, "errors": errors}
 
@@ -138,10 +170,11 @@ def import_capabilities(con: sqlite3.Connection, text: str, *,
     written = 0
     for r in out["rows"]:
         label = r["release_label"] or now[:10]
+        src = r.get("source") or SOURCE
         existing = con.execute(
             "SELECT id FROM model_capabilities"
             " WHERE model = ? AND task_type = ? AND source = ? AND release_label = ?",
-            (r["model"], r["task_type"], SOURCE, label)).fetchone()
+            (r["model"], r["task_type"], src, label)).fetchone()
         if existing:
             con.execute(
                 "UPDATE model_capabilities SET score = ?, raw_score = ?,"
@@ -152,7 +185,7 @@ def import_capabilities(con: sqlite3.Connection, text: str, *,
                 "INSERT INTO model_capabilities"
                 " (model, task_type, score, source, raw_score, release_label, updated_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (r["model"], r["task_type"], r["score"], SOURCE, r["raw_score"],
+                (r["model"], r["task_type"], r["score"], src, r["raw_score"],
                  label, now))
         written += 1
     con.commit()
@@ -160,6 +193,7 @@ def import_capabilities(con: sqlite3.Connection, text: str, *,
         "written": written,
         "models": sorted({r["model"] for r in out["rows"]}),
         "axes": sorted({r["task_type"] for r in out["rows"]}),
+        "sources": sorted({(r.get("source") or SOURCE) for r in out["rows"]}),
         "skipped": out["skipped"],
         "errors": [],
         "aborted": False,
@@ -176,5 +210,5 @@ def template() -> str:
             f"glm-5.3-flash,{second},87,2026-11-17\n")
 
 
-__all__ = ["parse", "import_capabilities", "template", "routing_axes", "SOURCE",
-           "MODEL_COLS", "TASK_COLS", "SCORE_COLS", "RELEASE_COLS"]
+__all__ = ["parse", "import_capabilities", "template", "routing_axes", "allowed_sources",
+           "SOURCE", "MODEL_COLS", "TASK_COLS", "SCORE_COLS", "RELEASE_COLS", "SOURCE_COLS"]
