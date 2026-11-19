@@ -489,17 +489,23 @@ def test_only_the_panes_own_button_polls(cfg, engine):
 
 
 def test_the_two_panes_are_never_both_shown(cfg, engine):
-    """mpShow hides the other pane; a screenshot of both at once is a harness
-    artifact, but the code has to make it impossible."""
+    """Showing a pane hides all the others; a screenshot of both at once is a harness
+    artifact, but the code has to make it impossible.
+
+    2026-11-19: the body lives in `mpSetPane` now — `mpShow` is a one-line delegate to it,
+    because that body was where the mpShow/mpSyncViewport recursion started. The CONTRACT is
+    unchanged, so this asserts it where it now lives rather than being relaxed."""
     script = LANE_JS
-    body = script.split("function mpShow(pane)", 1)[1].split("\n}", 1)[0]
+    body = script.split("function mpSetPane(pane)", 1)[1].split("\nfunction mpShow(", 1)[0]
     # Generic by construction: every pane declares .dp-pane + data-pane, and the loop hides
     # ALL of them before the named one is revealed, so two panes can never be shown at once
     # — whatever panes a given tab happens to carry.
     assert "querySelectorAll('.dp-pane')" in body
     assert "el.hidden = el.dataset.pane !== pane" in body
     assert "pollPane" not in body and "taxPane" not in body, \
-        "mpShow must not name panes; the lane serves tabs with different pane sets"
+        "the lane must not name panes; it serves tabs with different pane sets"
+    # and the delegate exists, so the name every page binds to still works
+    assert "function mpShow(pane) { mpSetPane(pane); }" in script
 
 
 # ── 11. the two defects the operator reported on the shipped panel ─────────
