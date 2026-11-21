@@ -72,15 +72,18 @@ _BROWSER_UA = (
 )
 
 #: Source names used in ``model_intel.sources``. ``provider_catalog`` is discovery from
-#: a provider's own ``/models``; ``lmarena`` is the public capability leaderboard.
+#: a provider's own ``/models``; ``lmarena`` is the public capability leaderboard;
+#: ``livebench`` is the public LiveBench leaderboard (static release artifacts).
 SOURCE_PROVIDER_CATALOG = "provider_catalog"
 SOURCE_LMARENA = "lmarena"
+SOURCE_LIVEBENCH = "livebench"
 
 DEFAULTS: dict = {
     "poller_enabled": False,          # master switch — nothing polls until this is true
     "sources": {
         SOURCE_PROVIDER_CATALOG: {"accepted": False},
         SOURCE_LMARENA: {"accepted": False},
+        SOURCE_LIVEBENCH: {"accepted": False},
     },
     "guard": {"max_shrink_pct": 50},  # a listing this much shorter looks truncated
     "min_interval_s": 300,            # floor between two non-forced runs
@@ -428,6 +431,17 @@ def poll_all(db_path: Optional[str] = None, con: Optional[sqlite3.Connection] = 
     own = con is None
     c = mi_connect(db_path) if own else con  # type: ignore[assignment]
     try:
+        # Capability sources run first: one HTTPS fetch each, touching no endpoint table, so
+        # a failure here cannot affect discovery below. Each is gated by its own accepted
+        # switch and the default is False — a fresh install polls nothing.
+        capabilities: dict = {}
+        if source_accepted(cfg, SOURCE_LIVEBENCH):
+            try:
+                from .livebench_ingest import ingest as _livebench_ingest
+                capabilities[SOURCE_LIVEBENCH] = _livebench_ingest(c)
+            except Exception as exc:  # noqa: BLE001 — one source must never sink the poll
+                logger.warning("livebench ingest failed: %s", exc)
+                capabilities[SOURCE_LIVEBENCH] = {"error": str(exc)}
         eps = c.execute(
             "SELECT endpoint_id, slug, base_url FROM mi_endpoints"
             " WHERE status='active' AND poll_enabled=1 ORDER BY endpoint_id"
@@ -455,7 +469,8 @@ def poll_all(db_path: Optional[str] = None, con: Optional[sqlite3.Connection] = 
             duration = int((time.monotonic() - t0) * 1000)
             results.append(_diff_and_stage(c, r["endpoint_id"], slug, ok, status,
                                            ids, err, duration, cfg.get("guard")))
-        return {"polled_at": _now(), "enabled": True, "endpoints": results}
+        return {"polled_at": _now(), "enabled": True, "endpoints": results,
+                "capabilities": capabilities}
     finally:
         if own:
             c.close()

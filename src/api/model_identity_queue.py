@@ -38,6 +38,9 @@ from .model_identity import normalise_model_string
 #: Where an observation came from.
 SOURCE_LMARENA = "lmarena"
 SOURCE_PROVIDER_CATALOG = "provider_catalog"
+#: The public LiveBench leaderboard. Its rows are read from the release's static
+#: artifacts rather than an API — see ``livebench_ingest``.
+SOURCE_LIVEBENCH = "livebench"
 
 #: What kind of thing was observed.
 KIND_CAPABILITY_NAME = "capability_name"
