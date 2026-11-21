@@ -24,6 +24,7 @@
 </p>
 
 <div class="lb-actions" style="margin-bottom:0.625rem">
+  <button class="btn btn-outline btn-sm" id="pollOpenBtn">Poll latest data</button>
   <button class="btn btn-outline btn-sm" id="importOpenBtn">Import scores</button>
   <button class="btn btn-outline btn-sm" id="listOpenBtn">Models</button>
   <button class="btn btn-outline btn-sm" id="taxOpenBtn">Manage taxonomy</button>
@@ -238,6 +239,70 @@
       score nothing consults. A file with any error writes <em>nothing</em>; fix the file
       and re-import. Imported rows are tagged <code>import</code>, so they never overwrite
       benchmark or hand-entered scores, and those never overwrite them.
+    </div>
+  </div>
+</div>
+    </div>
+
+    <!-- ── Pane: poll latest data — the ONE benchmark this matrix is polled from ── -->
+    <div id="pollPane" class="dp-pane" data-pane="poll" hidden>
+<div class="panel-section" style="margin-top:1.5rem">
+  <h3 class="section-title">Poll latest data</h3>
+  <p class="subtitle">
+    Reads <strong>LiveBench</strong>'s own published files — the release table and the suite
+    definitions that sit beside it — and writes the six axes it can measure. Nothing is
+    scraped and no site is rendered: those two files are what livebench.ai itself displays.
+    LiveBench is the only benchmark this matrix is polled from.
+  </p>
+
+  <div class="mp-actions">
+    <button class="btn btn-primary btn-sm" id="pollRunBtn">Poll LiveBench</button>
+    <span class="form-help" id="pollStamp">Not polled in this page yet.</span>
+  </div>
+  <div class="mp-msg" id="pollMsg"></div>
+  <div id="pollResults" hidden></div>
+
+  <div class="mp-cols" style="margin-top:0.875rem">
+    <div class="mp-cols-title">What a poll does — and does not — touch</div>
+    <table class="dp-table">
+      <thead><tr><th scope="col">a score that came from</th>
+        <th scope="col">after a poll</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge badge-src">manual</span> typed here, or <em>Edit</em></td>
+          <td><strong>still served.</strong> A hand-entered score outranks a polled one, so a
+            poll can never overwrite a number you set.</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-src">import</span> a CSV you loaded</td>
+          <td><strong>untouched, but it does not grade.</strong> A file that names no
+            <code>source</code> is tagged <code>import</code>, which is stored and never
+            served — name <code>manual</code> or <code>livebench</code> in the file to have
+            it count.</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-src">livebench</span> a previous poll</td>
+          <td><strong>replaced</strong> by the newer value — that is the point of polling.</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-src">lmarena</span> the arena boards</td>
+          <td><strong>untouched, and never served.</strong> An arena percentile is a rank
+            within a field, not a measurement, so it is stored and queryable but does not
+            grade.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mp-cols" style="margin-top:0.875rem">
+    <div class="mp-cols-title">If LiveBench has no row for a model</div>
+    <div class="form-help">
+      The poll writes only a model it can resolve to a registry entry, through the slug,
+      the benchmark key, an alias or a served id. Names it cannot resolve are queued for
+      review instead of being written against a spelling nothing reads — the count is in
+      the result. LiveBench names models by <em>version and effort setting</em>
+      (<code>…-max-effort</code>), so a model whose registry key lacks that suffix is
+      queued rather than silently mismatched.
     </div>
   </div>
 </div>

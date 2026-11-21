@@ -389,7 +389,10 @@ function renderDetail(model) {
           return `
           <div class="score-item">
             <div class="score-row${clickable}" data-task="${s.task}" tabindex="0">
-              <span class="score-task" title="${s.task}">${s.task.replace(/_/g, ' ')}</span>
+              <span class="score-task-cell">
+                <span class="score-task" title="${s.task}">${s.task.replace(/_/g, ' ')}</span>
+                <span class="badge badge-src" title="where this number came from">${s.source}</span>
+              </span>
               <div class="score-track"><div class="score-fill ${s.score >= 0.8 ? 'hi' : s.score >= 0.6 ? 'mid' : 'lo'}" style="width:${(s.score * 100).toFixed(0)}%"></div></div>
               <span class="score-pct">${(s.score * 100).toFixed(1)}%</span>
               ${chev}
@@ -1092,9 +1095,142 @@ function toggleCompare(model, on_) {
 // ══════════════════════════════════════════════════════════════════════════════
 PANE_TITLES.list = 'Models';
 PANE_TITLES.detail = 'Scores';
+PANE_TITLES.poll = 'Poll latest data';
 PANE_TITLES.import = 'Import scores';
 PANE_TITLES.tax = 'Manage taxonomy';
 
+// ── Poll latest data ────────────────────────────────────────────────────────
+// LiveBench is the one benchmark this matrix is polled from. The button runs the poll,
+// re-reads the matrix, and reports what MOVED — a poll that reports only "done" cannot be
+// checked, and the operator has no other visible record of the run (a capability poll
+// writes no audit row and logs nothing).
+//
+// The stamp lives in sessionStorage, not in a request: the operator's rule is that a poll
+// happens when he presses again, never on page load or on a timer.
+
+const POLL_STAMP_KEY = 'lcpCapabilityPolledAt';
+
+function snapshotScores() {
+  const snap = {};
+  for (const [task, models] of Object.entries(STATE.matrix.tasks || {})) {
+    snap[task] = Object.assign({}, models);
+  }
+  return snap;
+}
+
+function setPollStamp() {
+  const el = document.getElementById('pollStamp');
+  if (!el) return;
+  const at = sessionStorage.getItem(POLL_STAMP_KEY);
+  if (!at) { el.textContent = 'Not polled in this page yet.'; return; }
+  const d = new Date(at);
+  const p = n => String(n).padStart(2, '0');
+  el.textContent = `Polled ${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
+    `${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC — press again to refresh.`;
+}
+
+function renderPollResults(before, cap) {
+  const box = document.getElementById('pollResults');
+  if (!box) return;
+  const after = snapshotScores();
+  const moved = [];
+  const axes = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const task of axes) {
+    const models = new Set([...Object.keys(before[task] || {}), ...Object.keys(after[task] || {})]);
+    for (const m of models) {
+      const was = (before[task] || {})[m];
+      const now = (after[task] || {})[m];
+      if (was !== now) moved.push({ task, model: m, was, now });
+    }
+  }
+  moved.sort((a, b) => a.task.localeCompare(b.task) || a.model.localeCompare(b.model));
+
+  const wrote = cap.rows !== undefined ? cap.rows : '—';
+  const matched = cap.models_matched !== undefined ? cap.models_matched : '—';
+  const inRelease = cap.models_in_release !== undefined ? cap.models_in_release : '—';
+  const queued = cap.queued !== undefined ? cap.queued : '—';
+  const failed = cap.error ? `<div class="mp-msg error">LiveBench: ${esc(cap.error)}</div>` : '';
+
+  box.hidden = false;
+  box.innerHTML = `
+    ${failed}
+    <div class="poll-summary">
+      <span class="poll-stat"><b>${inRelease}</b> models in LiveBench release
+        <code>${esc(cap.release || '—')}</code></span>
+      <span class="poll-stat"><b>${matched}</b> resolved to a registered model</span>
+      <span class="poll-stat"><b>${wrote}</b> score rows written</span>
+      <span class="poll-stat"><b>${queued}</b> names queued for review</span>
+    </div>
+    ${moved.length ? `
+      <div class="mp-cols-title" style="margin-top:0.75rem">
+        ${moved.length} value${moved.length === 1 ? '' : 's'} moved
+      </div>
+      <table class="dp-table poll-moved">
+        <thead><tr><th scope="col">axis</th><th scope="col">model</th>
+          <th scope="col">was</th><th scope="col">now</th></tr></thead>
+        <tbody>
+          ${moved.map(r => `<tr>
+            <td class="mono">${esc(r.task)}</td>
+            <td class="mono">${esc(r.model)}</td>
+            <td>${r.was === undefined ? '<span class="muted">absent</span>' : (r.was * 100).toFixed(1) + '%'}</td>
+            <td class="poll-new">${r.now === undefined ? '<span class="muted">absent</span>' : (r.now * 100).toFixed(1) + '%'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` : `
+      <div class="mp-msg" style="margin-top:0.75rem">
+        Nothing moved — every score LiveBench publishes for a registered model is already
+        what the matrix holds. That is a valid result, not a failure.
+      </div>`}
+  `;
+}
+
+async function pollLatest() {
+  const btn = document.getElementById('pollRunBtn');
+  const msg = document.getElementById('pollMsg');
+  if (!btn || btn.disabled) return;
+  const before = snapshotScores();
+  btn.disabled = true;
+  btn.textContent = 'Polling…';
+  msg.className = 'mp-msg';
+  msg.textContent = 'Reading livebench.ai…';
+  try {
+    const r = await fetch('/api/model-intel/poll', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+    });
+    let body = {};
+    try { body = await r.json(); } catch (e) { body = {error: 'HTTP ' + r.status}; }
+    if (!r.ok || body.ok === false) {
+      throw new Error(body.error || body.skipped || ('HTTP ' + r.status));
+    }
+    const s = body.summary || {};
+    const cap = (s.capabilities || {}).livebench || {};
+    if (s.enabled === false || !s.capabilities || !s.capabilities.livebench) {
+      // Being explicit here matters: an unaccepted source is the common cause, and the old
+      // poll blamed provider_catalog for it, which pointed at the wrong switch.
+      throw new Error(s.skipped
+        ? 'the poll did nothing — ' + s.skipped
+        : 'LiveBench is not an accepted poll source, so nothing was fetched');
+    }
+    // Re-read so the table, the columns and the open detail pane all show the new values.
+    STATE.matrix = await API.matrix();
+    renderModelList();
+    renderMatrix();
+    if (STATE.selected && allModels().includes(STATE.selected)) renderDetail(STATE.selected);
+    renderPollResults(before, cap);
+    sessionStorage.setItem(POLL_STAMP_KEY, new Date().toISOString());
+    setPollStamp();
+    msg.textContent = '';
+  } catch (e) {
+    msg.className = 'mp-msg error';
+    msg.textContent = 'Poll failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Poll LiveBench';
+  }
+}
+
+on('pollOpenBtn', 'click', () => { mpShow('poll'); setPollStamp(); });
+on('pollRunBtn', 'click', pollLatest);
 on('importOpenBtn', 'click', () => mpShow('import'));
 on('listOpenBtn', 'click', () => mpShow('list'));
 on('taxOpenBtn', 'click', () => mpShow('tax'));
