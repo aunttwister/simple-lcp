@@ -232,9 +232,17 @@ class ModelCapability(Base):
     Populated from public benchmarks (LiveBench, Arena), runtime benchmark
     runs (``lcp_benchmark``), and manual user entry (``manual``).
 
-    ``release_label`` separates scores for different releases of the SAME
-    logical model (e.g. ``deepseek-v4-pro`` 2026-06-25 vs 2026-08-13). The
-    registry's ``active_release`` picks which release feeds the router.
+    ``release_label`` names the VINTAGE of the scores in the row — which snapshot
+    they were read from, so that a newer snapshot supersedes an older one (e.g.
+    ``deepseek-v4-pro`` 2026-06-25 vs 2026-08-13). The registry's
+    ``active_release`` pins which vintage feeds the router; with nothing pinned,
+    the newest label for that model wins. ``None`` = unversioned/legacy.
+
+    It is NOT the model's release date, and must not be read as one: the
+    LiveBench values come from the LiveBench release they were read off, and the
+    LMArena ingest writes the leaderboard publish date. So a September model
+    legitimately carries the June release it was scored in — the label describes
+    the measurement, not the model.
     """
     __tablename__ = "model_capabilities"
 
