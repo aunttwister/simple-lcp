@@ -132,10 +132,46 @@ def test_poll_does_nothing_while_the_master_switch_is_off(db):
     assert db.execute("select count(*) from mi_polls").fetchone()[0] == 0
 
 
-def test_poll_does_nothing_when_the_source_is_not_accepted(db):
+def test_poll_names_the_sources_it_skipped(db):
+    """Superseded 2026-11-19. It used to assert the whole poll switched itself off when
+    provider_catalog was unaccepted — which meant a config that wanted LiveBench but not
+    provider discovery could never run, and reported a reason that pointed at the wrong
+    switch. The master switch governs `enabled`; each source governs its own work, and a run
+    that did nothing must SAY which switches were off."""
     cfg = _Cfg({"poller_enabled": True})
     out = mip.poll_all(con=db, config=cfg)
-    assert out["enabled"] is False and "not accepted" in out["skipped"]
+    assert out["enabled"] is True, "the master switch is on, so polling is on"
+    assert out["endpoints"] == [] and out["capabilities"] == {}
+    assert out["sources_accepted"] == []
+    assert "livebench" in out["sources_skipped"]
+    assert "nothing to poll" in out["skipped"]
+
+
+def test_livebench_runs_without_provider_catalog_being_accepted(db, monkeypatch):
+    """The defect this pins: the provider_catalog gate returned early for the WHOLE poll."""
+    from src.api import livebench_ingest as li
+    monkeypatch.setattr(li, "ingest", lambda con, **kw: {"rows": 6, "models_matched": 1})
+    cfg = _Cfg({"poller_enabled": True, "sources": {"livebench": {"accepted": True}}})
+    out = mip.poll_all(con=db, config=cfg, force=True)
+    assert out["enabled"] is True
+    assert out["capabilities"]["livebench"]["rows"] == 6
+    assert out["endpoints"] == [], "provider discovery was not asked for"
+    assert "provider_catalog" in out["sources_skipped"]
+
+
+def test_a_failing_livebench_source_does_not_sink_the_poll(db, monkeypatch):
+    """One HTTPS source failing must not take down discovery, and must surface as an error
+    rather than as silence."""
+    from src.api import livebench_ingest as li
+
+    def boom(con, **kw):
+        raise RuntimeError("503 from livebench")
+
+    monkeypatch.setattr(li, "ingest", boom)
+    cfg = _Cfg({"poller_enabled": True, "sources": {"livebench": {"accepted": True}}})
+    out = mip.poll_all(con=db, config=cfg, force=True)
+    assert out["enabled"] is True
+    assert "503" in out["capabilities"]["livebench"]["error"]
 
 
 def test_poll_skips_an_endpoint_that_is_not_opted_in(db):

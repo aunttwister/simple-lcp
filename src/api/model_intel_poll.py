@@ -424,16 +424,23 @@ def poll_all(db_path: Optional[str] = None, con: Optional[sqlite3.Connection] = 
     if not cfg.get("poller_enabled"):
         return {"polled_at": _now(), "enabled": False, "endpoints": [],
                 "skipped": "polling is switched off in settings"}
-    if not source_accepted(cfg, SOURCE_PROVIDER_CATALOG):
-        return {"polled_at": _now(), "enabled": False, "endpoints": [],
-                "skipped": "the provider_catalog source is not accepted"}
+
+    # Each source is gated by its OWN accepted switch — there is deliberately no
+    # cross-source gate. `provider_catalog` returning early here (as it did) meant a
+    # configuration that wanted LiveBench but not provider discovery could never run at
+    # all: the poll reported "the provider_catalog source is not accepted" and skipped the
+    # work the operator HAD asked for. A switch that does nothing reads as broken.
+    accepted = [s for s in (SOURCE_PROVIDER_CATALOG, SOURCE_LMARENA, SOURCE_LIVEBENCH)
+                if source_accepted(cfg, s)]
+    skipped_sources = [s for s in (SOURCE_PROVIDER_CATALOG, SOURCE_LMARENA, SOURCE_LIVEBENCH)
+                       if not source_accepted(cfg, s)]
 
     own = con is None
     c = mi_connect(db_path) if own else con  # type: ignore[assignment]
     try:
         # Capability sources run first: one HTTPS fetch each, touching no endpoint table, so
-        # a failure here cannot affect discovery below. Each is gated by its own accepted
-        # switch and the default is False — a fresh install polls nothing.
+        # a failure here cannot affect discovery below. Default is False — a fresh install
+        # polls nothing.
         capabilities: dict = {}
         if source_accepted(cfg, SOURCE_LIVEBENCH):
             try:
@@ -442,35 +449,40 @@ def poll_all(db_path: Optional[str] = None, con: Optional[sqlite3.Connection] = 
             except Exception as exc:  # noqa: BLE001 — one source must never sink the poll
                 logger.warning("livebench ingest failed: %s", exc)
                 capabilities[SOURCE_LIVEBENCH] = {"error": str(exc)}
-        eps = c.execute(
-            "SELECT endpoint_id, slug, base_url FROM mi_endpoints"
-            " WHERE status='active' AND poll_enabled=1 ORDER BY endpoint_id"
-        ).fetchall()
         results = []
-        # An explicit run bypasses the interval: the operator asked for it, the process
-        # lock guards against overlap, and the UI disables the button. The interval only
-        # paces the unattended scheduler.
-        floor = 0.0 if force else float(cfg.get("min_interval_s", 300))
-        for r in eps:
-            slug, base = r["slug"], r["base_url"]
-            if not base:
-                results.append({"endpoint": slug, "ok": False, "model_count": 0,
-                                "new": [], "stale": [], "suspect": False,
-                                "error": "no base_url"})
-                continue
-            age = _last_poll_age(c, r["endpoint_id"])
-            if age is not None and age < floor:
-                results.append({"endpoint": slug, "ok": True, "model_count": 0,
-                                "new": [], "stale": [], "suspect": False,
-                                "skipped": f"last polled {int(age)}s ago"})
-                continue
-            t0 = time.monotonic()
-            ok, status, ids, err = _fetch_endpoint(c, slug, base)
-            duration = int((time.monotonic() - t0) * 1000)
-            results.append(_diff_and_stage(c, r["endpoint_id"], slug, ok, status,
-                                           ids, err, duration, cfg.get("guard")))
-        return {"polled_at": _now(), "enabled": True, "endpoints": results,
-                "capabilities": capabilities}
+        if source_accepted(cfg, SOURCE_PROVIDER_CATALOG):
+            eps = c.execute(
+                "SELECT endpoint_id, slug, base_url FROM mi_endpoints"
+                " WHERE status='active' AND poll_enabled=1 ORDER BY endpoint_id"
+            ).fetchall()
+            # An explicit run bypasses the interval: the operator asked for it, the process
+            # lock guards against overlap, and the UI disables the button. The interval only
+            # paces the unattended scheduler.
+            floor = 0.0 if force else float(cfg.get("min_interval_s", 300))
+            for r in eps:
+                slug, base = r["slug"], r["base_url"]
+                if not base:
+                    results.append({"endpoint": slug, "ok": False, "model_count": 0,
+                                    "new": [], "stale": [], "suspect": False,
+                                    "error": "no base_url"})
+                    continue
+                age = _last_poll_age(c, r["endpoint_id"])
+                if age is not None and age < floor:
+                    results.append({"endpoint": slug, "ok": True, "model_count": 0,
+                                    "new": [], "stale": [], "suspect": False,
+                                    "skipped": f"last polled {int(age)}s ago"})
+                    continue
+                t0 = time.monotonic()
+                ok, status, ids, err = _fetch_endpoint(c, slug, base)
+                duration = int((time.monotonic() - t0) * 1000)
+                results.append(_diff_and_stage(c, r["endpoint_id"], slug, ok, status,
+                                               ids, err, duration, cfg.get("guard")))
+        out = {"polled_at": _now(), "enabled": True, "endpoints": results,
+               "capabilities": capabilities,
+               "sources_accepted": accepted, "sources_skipped": skipped_sources}
+        if not accepted:
+            out["skipped"] = "no source is accepted — nothing to poll"
+        return out
     finally:
         if own:
             c.close()
