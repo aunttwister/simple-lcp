@@ -972,7 +972,7 @@ def settings_payload(config=None) -> dict:
     try:
         from ..api.routing_sources import (
             SOURCE_LIVEBENCH, SOURCE_LMARENA, TIER_LABEL, TIER_REQUIRES,
-            enabled_sources, gating_sources, tier_availability,
+            enabled_sources, gating_sources, read_states, tier_availability,
         )
         section_mi = None
         try:
@@ -987,25 +987,36 @@ def settings_payload(config=None) -> dict:
         on = enabled_sources(config)
         off = gating_sources(config)
         tiers = tier_availability(off)
+        # `state` is THREE-valued and the page must say which it is. Verified on prod
+        # 2026-11-22: LMArena rendered as a plain "off" while the arena tier read
+        # "available" — it had never been configured (no gate) — and pressing Save would
+        # have flipped it to explicitly OFF, disabling a tier nobody asked to disable. A
+        # two-valued control cannot express three states, so the third is labelled and the
+        # save sends only what the operator actually changed.
+        states = read_states(config) or {}
         # `on is None` = the switches could not be read. Then the answers are genuinely
         # unknown, so the page says so rather than claiming every source is off (which
         # would read as a decision the operator never made).
         if on is None:
             sources = {}
         else:
+            def _state(name, label, feeds, tier):
+                st = states.get(name)
+                return {
+                    "on": name in on,
+                    "state": "unset" if st is None else ("on" if st else "off"),
+                    "label": label,
+                    "feeds": feeds,
+                    "tier": tier,
+                }
+
             sources = {
-                SOURCE_LIVEBENCH: {
-                    "on": SOURCE_LIVEBENCH in on,
-                    "label": "LiveBench",
-                    "feeds": "the capability matrix (six of the eight routing axes)",
-                    "tier": "intent",
-                },
-                SOURCE_LMARENA: {
-                    "on": SOURCE_LMARENA in on,
-                    "label": "LMArena",
-                    "feeds": "the Arena boards and the board leaderboard",
-                    "tier": "arena",
-                },
+                SOURCE_LIVEBENCH: _state(
+                    SOURCE_LIVEBENCH, "LiveBench",
+                    "the capability matrix (six of the eight routing axes)", "intent"),
+                SOURCE_LMARENA: _state(
+                    SOURCE_LMARENA, "LMArena",
+                    "the Arena boards and the board leaderboard", "arena"),
             }
         tier_rows = [
             {"name": t, "needs": TIER_REQUIRES[t], "label": TIER_LABEL[t],

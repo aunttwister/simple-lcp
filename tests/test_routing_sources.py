@@ -233,6 +233,32 @@ def test_settings_save_uses_the_endpoint_that_owns_the_switch(cfg, engine):
         "and routing could disagree about whether a source is on")
 
 
+def test_a_never_configured_source_is_LABELLED_not_shown_as_off(cfg, engine):
+    """A two-valued control cannot express three states. Found on prod 2026-11-22: LMArena
+    rendered a plain "off" while the arena tier read "available", and pressing Save would
+    have flipped it to explicitly OFF — disabling a tier nobody asked to disable."""
+    cfg.raw = {"model_intel": {"sources": {"livebench": {"accepted": True}}}}
+    from src.ui.pages import render_settings_page
+    html = render_settings_page(cfg, engine, {})
+    assert "LMArena — not configured" in html
+    assert "LiveBench — ON" in html
+    block = html[html.index('id="srcRow-lmarena"'):]
+    assert "only an explicit OFF" in block[:900], "the third state must be explained"
+
+
+def test_the_save_sends_ONLY_what_changed(cfg, engine):
+    """Otherwise a plain Save writes accepted:false for a never-configured source and
+    silently disables its tier."""
+    from src.ui.pages import render_settings_page
+    html = render_settings_page(cfg, engine, {})
+    body = html[html.index('id="sourcesSave"'):]
+    assert "data-initial=" in html
+    assert "dataset.initial" in body and "changed++" in body
+    assert "No changes." in body
+    # and the save must not re-assert the master switch it does not own
+    assert "poller_enabled" not in body
+
+
 def test_settings_says_what_turning_a_source_off_DOES(cfg, engine):
     """Turning it off stops polling AND makes its tier unavailable — not a no-op."""
     from src.ui.pages import render_settings_page

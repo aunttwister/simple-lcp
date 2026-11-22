@@ -100,15 +100,23 @@
   {% for name, s in payload['sources'].items() %}
   <div class="form-field" id="srcRow-{{ name }}">
     <label class="toggle">
-      <input type="checkbox" class="srcToggle" data-source="{{ name }}"{% if s.on %} checked{% endif %}>
+      <input type="checkbox" class="srcToggle" data-source="{{ name }}"
+             data-initial="{% if s.state == 'on' %}on{% else %}off{% endif %}"
+             {% if s.state == 'on' %} checked{% endif %}>
       <span class="toggle-track" aria-hidden="true"></span>
-      <span class="toggle-label">{{ s.label }}{% if s.on %} — ON{% else %} — OFF{% endif %}</span>
+      <span class="toggle-label">{{ s.label }} — {% if s.state == 'on' %}ON{% elif s.state == 'off' %}OFF{% else %}not configured{% endif %}</span>
     </label>
     <div class="form-help">
       Feeds {{ s.feeds }}.
+      {% if s.state == 'unset' %}
+      It has never been switched on, so it is not being polled — and the
+      <b>{{ s.tier }}</b> tier is <b>not</b> disabled by that (only an explicit OFF
+      disables a tier). Tick it to start polling.
+      {% else %}
       Turning it off stops it being polled and makes the
       <b>{{ s.tier }}</b> tier unavailable; profiles set to {{ s.tier }} fall back to
       <b>static</b> until it is switched back on (their choice is kept, not deleted).
+      {% endif %}
     </div>
   </div>
   {% endfor %}
@@ -239,17 +247,32 @@
   if (!btn) return;
   var status = document.getElementById('sourcesStatus');
   btn.addEventListener('click', function () {
+    // Send ONLY the switches the operator actually changed.
+    //
+    // Sending all of them was a trap: a never-configured source renders unchecked, so a
+    // plain Save would write `accepted: false` for it — turning "never configured" (no
+    // gate) into an explicit OFF (tier disabled), a change nobody asked for. Verified on
+    // prod 2026-11-22 where LMArena was in exactly that state.
     var sources = {};
+    var changed = 0;
     var boxes = document.querySelectorAll('.srcToggle');
     for (var i = 0; i < boxes.length; i++) {
-      sources[boxes[i].dataset.source] = {accepted: !!boxes[i].checked};
+      var now = boxes[i].checked ? 'on' : 'off';
+      if (now !== boxes[i].dataset.initial) {
+        sources[boxes[i].dataset.source] = {accepted: boxes[i].checked};
+        changed++;
+      }
+    }
+    if (!changed) {
+      status.textContent = 'No changes.';
+      return;
     }
     btn.disabled = true;
-    status.textContent = 'Saving…';
+    status.textContent = 'Saving ' + changed + ' change(s)…';
     fetch('/api/model-intel/settings', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({poller_enabled: true, sources: sources})
+      body: JSON.stringify({sources: sources})
     }).then(function (r) {
       return r.json().then(function (d) { return {ok: r.ok, data: d}; });
     }).then(function (res) {
