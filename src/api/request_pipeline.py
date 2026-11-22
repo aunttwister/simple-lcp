@@ -70,6 +70,24 @@ def _provider_needs_key(name: str) -> bool:
     return name in _KEYED_PROVIDERS
 
 
+def _needs_session_header(provider_name: str, base_url: str) -> bool:
+    """True when the destination REQUIRES the ``x-opencode-session`` header.
+
+    OpenCode's inference routes are the only ones that do, and they differ: the
+    Go route (``/inference/go/v1``) rejects a request without it (400
+    ``MissingSessionID``), while the pay-as-you-go Models route tolerates the
+    absence. The requirement is the vendor's, so it is keyed on the destination
+    host, with the provider name as the fallback for a step whose ``base_url``
+    override points at a proxy in front of the same route.
+
+    Deliberately narrow: the OpenAI wire is asserted byte-identical to the
+    pre-Anthropic implementation (``tests/test_wire_anthropic.py``), so no other
+    provider's headers may change.
+    """
+    return ("opencode.ai" in (base_url or "").lower()
+            or provider_name.startswith("opencode"))
+
+
 def _upstream_read_timeout() -> float:
     """Return the upstream relay read timeout (seconds).
 
@@ -735,9 +753,21 @@ def forward_request(provider_cfg: dict, body: dict, config, session_id: str | No
     its service; requests missing it may error (from 2026-09-06). The caller
     (handler) passes the client's header when present, else a stable per-profile
     ID so every outbound request carries it.
+
+    A caller that passes NO session — the conversation titler does — would send
+    no header at all, and OpenCode's Go route REJECTS that outright (400
+    ``MissingSessionID``; the pay-as-you-go Models route tolerated it). For an
+    OpenCode destination a per-provider default is therefore applied here rather
+    than at each caller, so a request is never unroutable because a caller
+    forgot. No other provider's headers change: the client handler already
+    supplies a session on every round trip, and the default is gated on the
+    destination (``_needs_session_header``).
     """
     api_key = ""
     provider_name = provider_cfg["provider"]
+    if not session_id and _needs_session_header(provider_name,
+                                                provider_cfg.get("base_url", "")):
+        session_id = f"lcp-{provider_name}"
     # 1. Encrypted credential stored via the UI (sole source for provider keys)
     from .credential_store import get_credential_store
     store = resolve_service("credential_store", fallback=get_credential_store)

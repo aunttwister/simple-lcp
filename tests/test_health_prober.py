@@ -292,6 +292,46 @@ def test_the_probe_uses_the_chain_step_model_not_an_empty_string():
     assert out["ok"] is True and out["latency_ms"] >= 0
 
 
+def test_the_probe_carries_the_opencode_session_only_to_opencode():
+    """OpenCode's Go route refuses a request with no ``x-opencode-session`` (400
+    ``MissingSessionID``), and a bare 400 with no fault hint is recorded
+    REACHABLE — so a probe that omitted the header would report a false green on
+    a pair nothing had actually proved. No other provider's probe gains it."""
+    seen = []
+
+    class Resp:
+        status = 200
+
+        def read(self):
+            return b"{}"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None, context=None):
+        seen.append(dict(req.headers))
+        return Resp()
+
+    def probe(t):
+        p = HealthProber(FakeConfig({}), settings=FakeSettings(),
+                         breaker=FakeBreaker(),
+                         credential_store=FakeCreds({t["provider"]: "k"}))
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            return p._probe(t, 5)
+
+    probe({"provider": "opencode", "base_url": "https://opencode.ai/inference/go/v1",
+           "profile": "l2", "model": "deepseek-v4.1-flash"})
+    probe({"provider": "deepseek", "base_url": "https://api.deepseek.com/v1",
+           "profile": "l2", "model": "deepseek-flash"})
+
+    assert seen[0]["X-opencode-session"] == "lcp-probe-l2"
+    assert "X-opencode-session" not in seen[1], \
+        "the OpenAI wire for every other provider must stay as it was"
+
+
 @pytest.mark.parametrize("code,body,expect_ok", [
     (400, '{"error":{"message":"Upstream request failed: Model is unavailable."}}', False),
     (400, '{"error":{"message":"Upstream request failed: Insufficient account funds"}}', False),
