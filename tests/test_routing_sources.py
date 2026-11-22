@@ -152,6 +152,17 @@ def test_the_router_gate_is_wired_into_route_by():
         "the router must apply the source gate, not only the UI")
 
 
+def test_the_status_reports_the_tier_IN_FORCE_not_just_the_pin():
+    """A monitoring surface must not read `intent` for a profile that is routing `static`
+    because its source is off — a tier that cannot fire reading as one that has not fired
+    yet is the same lie as "Arena selected, static behaviour"."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "src", "api", "router.py")).read()
+    assert src.count('"route_by_effective": eff') == 2, "both the per-profile and global blocks"
+    assert src.count('"route_by_note": why') == 2
+    # the helper's own `def` line also matches the naive substring, so count the calls
+    assert src.count("= _tier_in_force(router, config") == 2
+
+
 # ── 4. Manage taxonomy is gone; its data is not ────────────────────────────
 
 @pytest.fixture

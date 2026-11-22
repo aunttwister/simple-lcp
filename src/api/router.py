@@ -2557,6 +2557,24 @@ class RouterComponent(Component):
         return None
 
 
+def _tier_in_force(router, config, profile, pinned: str) -> tuple[str, str]:
+    """(tier in force, why it differs from the pin) for a status block.
+
+    `route_by` in the status is the PIN — what the operator set. It is not necessarily what
+    the router will use: a tier whose source is switched off in Settings falls back to
+    `static`. Reporting only the pin to a monitoring surface is the same lie as showing
+    "Arena" selected while every message walks the static chain — a tier that cannot fire
+    must not read as a tier that has not fired yet.
+
+    So both are reported, and the reason is carried, not implied.
+    """
+    try:
+        from .routing_sources import effective_tier, gating_sources
+        return effective_tier(pinned, gating_sources(config))
+    except Exception:  # noqa: BLE001 — never break a status read
+        return pinned, ""
+
+
 def _status_for_profile(router, config, profile: Optional[str]) -> dict:
     """Build one profile-scoped routing-status block."""
     policy, min_score = router._effective_policy(config, profile)
@@ -2568,11 +2586,18 @@ def _status_for_profile(router, config, profile: Optional[str]) -> dict:
             route_by = s.get_route_by(profile=profile)
     except Exception:  # noqa: BLE001
         pass
+    eff, why = _tier_in_force(router, config, profile, route_by)
     return {
         "enabled": router.is_enabled(config, profile),
         "policy": policy,
         "min_score": min_score,
         "route_by": route_by,
+        # What the router will ACTUALLY use, and why it differs from the pin. Without this
+        # the status reads `intent` for a profile that is really routing `static` because
+        # LiveBench is switched off — a tier that cannot fire reading as one that has not
+        # fired yet.
+        "route_by_effective": eff,
+        "route_by_note": why,
         # The Arena tier's readiness. The selector shows this because Arena with no
         # label space is INDISTINGUISHABLE from Arena working: every message falls back
         # to the static chain, so a tier that can never fire looks like a tier that has
@@ -2671,12 +2696,15 @@ def routing_status(config: Optional[object] = None) -> dict:
             route_by = s.get_route_by()
     except Exception:  # noqa: BLE001
         pass
+    eff, why = _tier_in_force(router, config, None, route_by)
     per_profile = {p: _status_for_profile(router, config, p) for p in profile_names}
     return {
         "enabled": router.is_enabled(config),
         "policy": policy,
         "min_score": min_score,
         "route_by": route_by,
+        "route_by_effective": eff,
+        "route_by_note": why,
         # The Arena tier's readiness, on the GLOBAL block too — the selector may read
         # either the global snapshot or a `?profile=` block, and a readiness that is on
         # only one of them is a readiness the operator sometimes cannot see.
