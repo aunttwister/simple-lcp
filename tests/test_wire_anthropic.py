@@ -801,6 +801,30 @@ class TestOpenAIPathUnchanged:
         assert [n for n, _ in captured["headers"]] == [
             "Content-type", "User-agent", "X-opencode-session", "Authorization"]
 
+    def test_a_caller_with_no_session_still_reaches_opencode_but_touches_nobody_else(self):
+        """The conversation titler calls forward_request with no session at all.
+        OpenCode's Go route refuses such a request (400 MissingSessionID), so an
+        OpenCode destination gets a defaulted one — while every other provider's
+        wire stays exactly as the legacy assertion above requires."""
+        oc_cfg = {"provider": "opencode",
+                  "base_url": "https://opencode.ai/inference/go/v1"}
+        captured, _ = _capture_request(oc_cfg, dict(self.BODY))
+        assert ("X-opencode-session", "lcp-opencode") in captured["headers"]
+
+        # A client-supplied session still wins over the default.
+        captured, _ = _capture_request(oc_cfg, dict(self.BODY), session_id="sess-9")
+        assert ("X-opencode-session", "sess-9") in captured["headers"]
+
+        # A step whose base_url override points at the Models route is OpenCode too.
+        captured, _ = _capture_request(
+            {"provider": "custom-proxy",
+             "base_url": "https://opencode.ai/inference/openai/v1"}, dict(self.BODY))
+        assert ("X-opencode-session", "lcp-custom-proxy") in captured["headers"]
+
+        # Anywhere else: unchanged.
+        captured, _ = _capture_request(self.CFG, dict(self.BODY))
+        assert "X-opencode-session" not in [n for n, _ in captured["headers"]]
+
     def test_keyless_provider_sends_no_authorization(self):
         cfg = {"provider": "llamacpp", "base_url": "http://localhost:8080/v1"}
         captured, _ = _capture_request(cfg, dict(self.BODY), fallback_key="")

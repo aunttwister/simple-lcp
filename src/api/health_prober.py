@@ -443,6 +443,14 @@ class HealthProber:
                 key = ""
 
         model = t.get("model") or ""
+        # The probe must carry the same session identity the chat path sends.
+        # OpenCode's Go route refuses a request without it (400
+        # ``MissingSessionID``) — and a bare 400 with no fault hint is recorded
+        # REACHABLE by the branch below, so omitting it here would paint a false
+        # green over a pair nothing had actually proved. Gated on the
+        # destination, like the chat path, so no other provider's probe changes.
+        probe_session = (f"lcp-probe-{prof}"
+                         if "opencode.ai" in (base or "").lower() else "")
         # Claude models answer 403 on /chat/completions and only speak the
         # Anthropic Messages API, so a Claude step would otherwise be reported
         # dead by this prober even when it works. Select the wire the same way
@@ -466,6 +474,8 @@ class HealthProber:
             }, model)).encode()
             headers = _browser_headers(base)
             headers["anthropic-version"] = ANTHROPIC_API_VERSION
+            if probe_session:
+                headers["x-opencode-session"] = probe_session
             if key:
                 headers["x-api-key"] = key
             url = f"{base}{ANTHROPIC_MESSAGES_PATH}"
@@ -474,6 +484,8 @@ class HealthProber:
                                "messages": [{"role": "user", "content": _PROBE_PROMPT}],
                                "max_tokens": _PROBE_MAX_TOKENS}).encode()
             headers = _browser_headers(base)
+            if probe_session:
+                headers["x-opencode-session"] = probe_session
             if key:
                 headers["Authorization"] = f"Bearer {key}"
             url = f"{base}/chat/completions"
