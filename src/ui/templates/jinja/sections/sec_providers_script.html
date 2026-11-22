@@ -320,6 +320,20 @@ function phRender(){
   hh += '<th scope="col" title="Providers registered in this profile\'s chain">Chain</th>';
   head.innerHTML = hh;
 
+  // State the column set's provenance and size, so an ABSENT provider reads as
+  // "it is not registered" rather than "the columns are hardcoded and this one
+  // was forgotten". A provider that was just deleted is the case that misleads:
+  // its column disappears correctly, and nothing on the page says why.
+  var cap = document.getElementById('phCaption');
+  if(cap){
+    var reg = Object.keys(PH.pmeta || {}).length;
+    var orphans = PH.provs.filter(function(x){ return !(PH.pmeta || {})[x]; }).length;
+    cap.innerHTML = 'Columns are <b>every provider registered in this gateway</b> ('
+      + reg + ') — read live from <code>/api/providers</code>, not a fixed list'
+      + (orphans ? ', plus <b>' + orphans + '</b> still holding health rows with no config behind them' : '')
+      + '. A provider you deleted has no column; one that no chain names is tagged <span class="ph-tag ph-tag-warn">unused</span>.';
+  }
+
   PH.index = {};
   var unassessed = 0, rows = '';
 

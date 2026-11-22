@@ -58,6 +58,16 @@ def test_a_provider_with_no_config_is_labelled():
         "the warning tag needs a style, or it reads as ordinary metadata")
 
 
+def test_the_page_states_where_the_columns_come_from():
+    """A column that disappears because its provider was DELETED is correct and
+    indistinguishable from a hardcoded list unless the page says so."""
+    src = _src()
+    assert "phCaption" in src, "the caption must be populated by phRender"
+    assert "every provider registered in this gateway" in src
+    assert "phCaption" in MARKUP.read_text(encoding="utf-8"), (
+        "the caption element must exist in the markup")
+
+
 def test_matrix_cell_states_are_unchanged():
     """The four cell states are the page's contract; a column change must not
     quietly drop one of them."""

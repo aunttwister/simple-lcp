@@ -69,6 +69,11 @@ button.ph-cell[aria-pressed="true"]{background:hsl(var(--secondary));box-shadow:
    chain step, or left behind by a delete/rename. Quieter than a status colour
    on purpose: it is a configuration fact, not a health state. */
 .ph-tag.ph-tag-warn{color:hsl(var(--destructive,0 72% 51%));border:1px solid currentColor;border-radius:3px;padding:0 3px}
+/* Says where the columns come from. Provenance on the page, because a missing
+   column is otherwise indistinguishable from a hardcoded one. */
+.ph-caption{font-size:0.6875rem;color:hsl(var(--muted-foreground));margin:0 0 0.4rem}
+.ph-caption b{color:hsl(var(--foreground));font-weight:600}
+.ph-caption code{font-size:0.65rem}
 .ph-legend{display:flex;gap:1rem;flex-wrap:wrap;font-size:0.6875rem;color:hsl(var(--muted-foreground));margin:0.6rem 0 0}
 .ph-legend span{display:inline-flex;align-items:center;gap:0.3rem}
 .ph-cellpanel{margin-top:0.75rem;background:hsl(var(--card));border:1px solid hsl(var(--card-border));border-radius:var(--radius);padding:0.75rem 1rem}
@@ -101,6 +106,11 @@ button.ph-cell[aria-pressed="true"]{background:hsl(var(--secondary));box-shadow:
 </style>
 
 <!-- The matrix. Profiles x providers; click a cell for that pair's actions. -->
+<!-- The caption states WHERE the column set comes from and how many columns it
+     produced. Without it, a provider vanishing from the matrix (because it was
+     deleted) is indistinguishable from a hardcoded column list — read as a
+     rendering bug rather than as "that provider is gone". -->
+<div class="ph-caption" id="phCaption"></div>
 <div class="ph-wrap">
 <table class="ph-matrix" id="providerHealthMatrix">
   <thead><tr id="phHead"><th scope="col" class="ph-rowhead">Profile</th></tr></thead>
