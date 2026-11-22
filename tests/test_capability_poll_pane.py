@@ -296,7 +296,13 @@ def test_the_lane_markup_is_div_balanced(cfg, engine):
     """A cheaper guard on the same failure: an unbalanced div is what nested the panes."""
     import re
     html = matrix_page(cfg, engine)
-    lane = html[html.index('id="modelsPanel"'):html.index("</aside>")]
+    # Search for the closing tag AFTER the lane opens: the page has its own earlier </aside>,
+    # and slicing to that one yields an empty string — a check that then passes 0 == 0 and can
+    # never fail. Measured: with the missing </div> restored, this test did NOT fail until the
+    # slice was fixed, i.e. it was vacuous as first written.
+    i = html.index('id="modelsPanel"')
+    lane = html[i:html.index("</aside>", i)]
+    assert lane, "the lane slice is empty — the assertion below would be vacuous"
     opens = len(re.findall(r"<div\b", lane))
     closes = len(re.findall(r"</div>", lane))
     assert opens == closes, f"the lane has {opens} <div> and {closes} </div>"
