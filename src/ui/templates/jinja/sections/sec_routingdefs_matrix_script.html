@@ -1097,7 +1097,6 @@ PANE_TITLES.list = 'Models';
 PANE_TITLES.detail = 'Scores';
 PANE_TITLES.poll = 'Poll latest data';
 PANE_TITLES.import = 'Import scores';
-PANE_TITLES.tax = 'Manage taxonomy';
 
 // ── Poll latest data ────────────────────────────────────────────────────────
 // LiveBench is the one benchmark this matrix is polled from. The button runs the poll,
@@ -1233,7 +1232,6 @@ on('pollOpenBtn', 'click', () => { mpShow('poll'); setPollStamp(); });
 on('pollRunBtn', 'click', pollLatest);
 on('importOpenBtn', 'click', () => mpShow('import'));
 on('listOpenBtn', 'click', () => mpShow('list'));
-on('taxOpenBtn', 'click', () => mpShow('tax'));
 on('mpClose', 'click', mpClose);
 on('mpBackdrop', 'click', mpHide);
 document.addEventListener('keydown', ev => {

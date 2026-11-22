@@ -50,15 +50,38 @@
         <div>
           <label class="prou-label">Routing type</label>
           <select id="prouRouteBy">
-            <option value="static"{% if routing.route_by == 'static' %} selected{% endif %}>Static &mdash; pool order; hard rules only</option>
-            <option value="intent"{% if routing.route_by == 'intent' %} selected{% endif %}>Intent &mdash; classify each request, reorder by capability</option>
-            <option value="arena"{% if routing.route_by == 'arena' %} selected{% endif %}>Arena &mdash; classify to an LMArena board, walk its ranking</option>
+            {% for t in routing.tiers %}
+            <option value="{{ t.name }}"
+                    {% if t.selected %} selected{% endif %}
+                    {% if not t.available %} disabled{% endif %}>{{ t.name | capitalize }} &mdash;
+              {% if t.name == 'static' %}pool order; hard rules only
+              {% elif t.name == 'intent' %}classify each request, reorder by capability
+              {% else %}classify to an LMArena board, walk its ranking
+              {% endif %}{% if not t.available %} (unavailable: needs {{ t.needs }}){% endif %}</option>
+            {% endfor %}
           </select>
+          <p class="pd-note" id="prouTierNote">
+            {% if routing.tiers %}
+              {% for t in routing.tiers %}{% if not t.available %}{{ t.reason }}. {% endif %}{% endfor %}
+            {% endif %}
+            A tier's source is switched in <a href="/settings">Settings &rarr; Routing sources</a>.
+          </p>
         </div>
         <div class="prou-grid-action">
           <button class="btn-sm btn-primary" onclick="prouSaveRouteBy()">Save route-by</button>
         </div>
       </div>
+      {% if routing.route_by_note %}
+      <p class="pd-note" id="prouTierEffective">
+        <b>In force: {{ routing.route_by_effective }}</b> &mdash; {{ routing.route_by_note }}.
+        Your choice is kept, so switching the source back on restores it.
+      </p>
+      {% elif routing.route_by_effective %}
+      <p class="pd-note" id="prouTierEffective">
+        In force: <b>{{ routing.route_by_effective }}</b>
+        {% if routing.has_override %}(set for this profile){% else %}(the global default){% endif %}.
+      </p>
+      {% endif %}
       <p class="pd-note" id="prouRouteByStatus"></p>
     </div>
   </details>

@@ -27,7 +27,6 @@
   <button class="btn btn-outline btn-sm" id="pollOpenBtn">Poll latest data</button>
   <button class="btn btn-outline btn-sm" id="importOpenBtn">Import scores</button>
   <button class="btn btn-outline btn-sm" id="listOpenBtn">Models</button>
-  <button class="btn btn-outline btn-sm" id="taxOpenBtn">Manage taxonomy</button>
   <span class="seed-status" id="matrixNote"></span>
 </div>
 
@@ -309,14 +308,25 @@
 </div>
     </div>
 
-    {% include "sections/sec_taxonomy_pane.html" %}
+    <!-- ── The taxonomy EDITOR was removed 2026-11-21 (operator): "remove manage taxonomy as its
+         unnecessary complicates the process. Just keep livebench and lmarena".
+
+         The mapping it edited survives and is still authoritative — `model_ratings.mapped_in`
+         reads `taxonomy_map`, and the 16 seeded rows are the vocabulary routing already
+         speaks. Only the EDITOR is gone: the source set is now a fixed pair with no
+         per-board curation, so there was nothing left for the operator to curate.
+
+         `renderTaxList()` remains defined (its partial is still included in the matrix
+         script) because the leaderboard and boards scripts call it; it returns early when
+         the pane's container is absent, so it is a no-op now. -->
 
     <!-- ── The lane's empty state. Shown by ✕: the operator's rule is that closing leaves
          column 3 saying NOTHING rather than holding whatever was open. ── -->
     <div id="mpEmpty" hidden>
       <p class="dp-note">
         Nothing selected. <strong>Models</strong> picks the columns, <strong>Import
-        scores</strong> loads a file, <strong>Manage taxonomy</strong> maps the boards.
+        scores</strong> loads a file, <strong>Poll latest data</strong> refreshes from
+        LiveBench.
       </p>
     </div>
 

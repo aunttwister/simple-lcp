@@ -543,11 +543,73 @@ def _profile_routing_view(config, name, status=None) -> dict:
         rules.append({k: (_str(v) if not isinstance(v, (int, float, bool)) else v)
                       for k, v in r.items()})
 
+    # ── Routing type: the chosen tier and the one actually in force ───────────
+    # Added 2026-11-21 with the source switches. Two facts, deliberately separate:
+    #
+    #   route_by           what is SET for this profile (kept even when unusable)
+    #   route_by_effective what the router will actually use, after the source gate
+    #
+    # Before this the template read `routing.route_by`, which nothing ever set — so the
+    # selector showed no current value and the summary chip read "ON · " with nothing
+    # after it. The router has always had the value; the view simply never carried it.
+    #
+    # Read via the raw keys (`routing_route_by:<profile>` then `routing_route_by`) with the
+    # store's own `get`, the same way the routing endpoints read scoped overrides. NOT via
+    # `get_route_by()`: `get_settings()` can hand back a store that does not implement it,
+    # and a missing method would silently become "tier unknown" rather than a value.
+    route_by, route_by_effective, route_by_note = "", "", ""
+    tiers: list = []
+    try:
+        from ..api.cost_cache import get_settings
+        from ..api.routing_sources import effective_tier, gating_sources, tier_availability
+
+        chosen = ""
+        st = get_settings()
+        if st is not None:
+            for key in (f"routing_route_by:{name}", "routing_route_by"):
+                raw = None
+                try:
+                    raw = st.get(key, None)
+                except Exception:  # noqa: BLE001
+                    raw = None
+                if raw:
+                    norm = None
+                    try:
+                        norm = st.normalize_route_by(raw)
+                    except Exception:  # noqa: BLE001
+                        norm = None
+                    chosen = norm or str(raw)
+                    break
+        off = gating_sources(config)
+        eff, why = effective_tier(chosen or "intent", off)
+        route_by = chosen or "intent"
+        route_by_effective = eff
+        route_by_note = why
+        avail = tier_availability(off)
+        for t, needs in (("static", None), ("intent", "livebench"), ("arena", "lmarena")):
+            tiers.append({
+                "name": t,
+                "needs": needs or "",
+                "available": avail[t]["available"],
+                "reason": avail[t]["reason"],
+                "selected": t == route_by,
+            })
+    except Exception as e:  # noqa: BLE001 — the tab must render, not 500
+        # Logged, not swallowed: an empty tier list looks identical to "no sources", and
+        # that is exactly the kind of silent degradation that hides a real bug.
+        import logging as _logging
+        _logging.getLogger(__name__).warning("route-by tiers unavailable: %r", e)
+        tiers = []
+
     out.update({
         "available": True,
         "enabled": bool(per_profile.get("enabled")),
         "policy": _str(per_profile.get("policy")),
         "min_score": _num(per_profile.get("min_score")),
+        "route_by": route_by,
+        "route_by_effective": route_by_effective,
+        "route_by_note": route_by_note,
+        "tiers": tiers,
         "rules": rules,
         "rules_scope": "profile" if per_profile.get("has_override") else "shared",
         "rules_other_scoped": rules_other_scoped,
@@ -897,6 +959,64 @@ def settings_payload(config=None) -> dict:
         except (TypeError, ValueError):
             return default
 
+    # ── Routing sources (operator, 2026-11-21) ────────────────────────────────
+    # "Just keep livebench and lmarena and have it configurable which one to turn on in
+    #  global settings and then if both enabled have them chooseable in the profile."
+    #
+    # Rendered server-side like the titling switch, and saved through the EXISTING
+    # `POST /api/model-intel/settings` — that endpoint already owns
+    # `sources.<name>.accepted`, which is the same switch the poller reads, so polling and
+    # the routing tiers cannot disagree about whether a source is on.
+    on = None
+    tiers: dict = {}
+    try:
+        from ..api.routing_sources import (
+            SOURCE_LIVEBENCH, SOURCE_LMARENA, TIER_LABEL, TIER_REQUIRES,
+            enabled_sources, gating_sources, tier_availability,
+        )
+        section_mi = None
+        try:
+            raw_mi = getattr(config, "model_intel", None)
+            if isinstance(raw_mi, dict):
+                section_mi = raw_mi
+        except Exception:  # noqa: BLE001
+            section_mi = None
+        # `on` drives the toggles; `off` drives the tiers. They are different questions:
+        # the toggle shows what is switched on, while only an EXPLICIT off disables a tier
+        # (a source nobody has ever switched on must not disable anything).
+        on = enabled_sources(config)
+        off = gating_sources(config)
+        tiers = tier_availability(off)
+        # `on is None` = the switches could not be read. Then the answers are genuinely
+        # unknown, so the page says so rather than claiming every source is off (which
+        # would read as a decision the operator never made).
+        if on is None:
+            sources = {}
+        else:
+            sources = {
+                SOURCE_LIVEBENCH: {
+                    "on": SOURCE_LIVEBENCH in on,
+                    "label": "LiveBench",
+                    "feeds": "the capability matrix (six of the eight routing axes)",
+                    "tier": "intent",
+                },
+                SOURCE_LMARENA: {
+                    "on": SOURCE_LMARENA in on,
+                    "label": "LMArena",
+                    "feeds": "the Arena boards and the board leaderboard",
+                    "tier": "arena",
+                },
+            }
+        tier_rows = [
+            {"name": t, "needs": TIER_REQUIRES[t], "label": TIER_LABEL[t],
+             "available": tiers[t]["available"], "reason": tiers[t]["reason"]}
+            for t in ("static", "intent", "arena")
+        ]
+    except Exception:  # noqa: BLE001 — the page must render, not 500
+        sources = {}
+        tier_rows = []
+        on, tiers = None, {}
+
     return {
         "titling": {
             "enabled": bool(section.get("enabled", True)),
@@ -909,6 +1029,9 @@ def settings_payload(config=None) -> dict:
         },
         "models": models,
         "models_json": _json.dumps(models),
+        "sources": sources,
+        "sources_enabled": sorted(on or []),
+        "tier_rows": tier_rows,
     }
 
 

@@ -1896,23 +1896,40 @@ class CapabilityRouter:
         return scored[0][1] - scored[1][1], scored[0][0], scored[1][0]
 
     def _route_by(self, profile, config) -> str:
-        """What the dynamic redirect keys on for this scope.
+        """The tier in force for this scope — AFTER the source switches are applied.
 
-        Reads the settings store (``routing_route_by``, per-profile override
-        wins); 'intent' is the default and the safe fallback if the store is
-        unavailable — rules-only must be an explicit choice, never an accident
-        of a missing store.
+        Reads the settings store (``routing_route_by``, per-profile override wins), then
+        checks the chosen tier against the globally enabled sources: `intent` needs
+        LiveBench, `arena` needs LMArena (``routing_sources``). A tier whose source is off
+        falls back to `static`, which consults no source and therefore cannot be wrong about
+        data that was switched off — the pin is left in the store, so turning the source back
+        on restores the tier exactly as it was.
+
+        Enforced HERE and not only in the UI: a stored `intent` from before the switch was
+        flipped must not keep routing on a disabled source. The UI is a courtesy; this is the
+        rule.
         """
+        chosen = None
         try:
             from .cost_cache import get_settings
             s = get_settings()
             if s is not None:
-                norm = self._normalize_route_by(s.get_route_by(profile=profile))
-                if norm is not None:
-                    return norm
-        except Exception:  # noqa: BLE001
-            pass
-        return "intent"
+                chosen = self._normalize_route_by(s.get_route_by(profile=profile))
+        except Exception:  # noqa: BLE001 — an unreadable store falls through to the gate
+            chosen = None
+        if chosen is None:
+            # 'intent' is the default and the safe fallback if the store is unavailable —
+            # rules-only must be an explicit choice, never an accident of a missing store.
+            # It still has to pass the source gate below.
+            chosen = "intent"
+        try:
+            from .routing_sources import effective_tier, gating_sources
+            tier, why = effective_tier(chosen, gating_sources(config))
+            if why:
+                logger.warning("route_by %s -> %s: %s", profile, tier, why)
+            return tier
+        except Exception:  # noqa: BLE001 — never let the gate break routing
+            return chosen
 
     @staticmethod
     def _normalize_route_by(value: Optional[str]) -> Optional[str]:

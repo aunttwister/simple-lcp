@@ -302,8 +302,6 @@ on('taxTemplateBtn', 'click', () => {
 
 // ── wiring for this pane's own controls ────────────────────────────────────
 // `on` comes from the shared JS: every control is bound only if it is on the page.
-PANE_TITLES.tax = 'Manage taxonomy';
-on('taxOpenBtn', 'click', () => mpShow('tax'));
 on('mpClose', 'click', mpClose);
 on('mpBackdrop', 'click', mpHide);
 on('taxDefineBtn', 'click', defineTaxonomy);

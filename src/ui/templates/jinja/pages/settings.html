@@ -87,10 +87,60 @@
   </div>
 </div>
 
+<h2 style="margin-top:2rem">Routing sources</h2>
+<p class="muted">
+  The two benchmarks LCP can route on. Each switch turns the source on for
+  <b>polling</b> and for the <b>routing tier</b> that reads it — one switch, so a source
+  cannot be off for one and on for the other.
+  With both on, a profile picks its tier per profile (§ Routing type on the profile's
+  Routing tab).
+</p>
+<div class="card" style="max-width:36rem">
+  {% if payload['sources'] %}
+  {% for name, s in payload['sources'].items() %}
+  <div class="form-field" id="srcRow-{{ name }}">
+    <label class="toggle">
+      <input type="checkbox" class="srcToggle" data-source="{{ name }}"{% if s.on %} checked{% endif %}>
+      <span class="toggle-track" aria-hidden="true"></span>
+      <span class="toggle-label">{{ s.label }}{% if s.on %} — ON{% else %} — OFF{% endif %}</span>
+    </label>
+    <div class="form-help">
+      Feeds {{ s.feeds }}.
+      Turning it off stops it being polled and makes the
+      <b>{{ s.tier }}</b> tier unavailable; profiles set to {{ s.tier }} fall back to
+      <b>static</b> until it is switched back on (their choice is kept, not deleted).
+    </div>
+  </div>
+  {% endfor %}
+  <div class="form-help" style="margin-top:0.5rem">
+    <b>Tiers and what they need:</b>
+    <ul style="margin:0.375rem 0 0 1.1rem;padding:0">
+      {% for t in payload['tier_rows'] %}
+      <li>
+        <span class="mono">{{ t.name }}</span> —
+        {{ t.label }}{% if t.needs %} <span class="muted">(needs {{ t.needs }})</span>{% endif %}
+        {% if not t.available %}<span class="badge badge-error">unavailable</span>
+        <span class="muted">{{ t.reason }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="form-field" style="margin-top:0.75rem">
+    <button type="button" class="btn-sm btn-primary" id="sourcesSave">Save routing sources</button>
+    <span class="muted" id="sourcesStatus" role="status" aria-live="polite"></span>
+  </div>
+  {% else %}
+  <div class="empty">The source switches could not be read.</div>
+  {% endif %}
+</div>
+
 <!-- Model-intelligence polling/model settings were REMOVED 2026-11-15 on the
      operator's direction: those controls now live on the Models page, where the
      poll results render, and only the titling job keeps its settings here.
-     The model-intel API and poller are unchanged. -->
+     The model-intel API and poller are unchanged.
+     RESTORED 2026-11-21 for the SOURCES only, not the poller controls: the operator
+     asked for "configurable which one to turn on in global settings", and this is the
+     estate-level settings page. The save goes to the same model-intel endpoint. -->
 
 {% endblock %}
 
@@ -177,6 +227,45 @@
     }).catch(function () {
       status.textContent = 'Titling failed.';
     }).finally(function () { runBtn.disabled = false; });
+  });
+})();
+
+// ── Routing sources (2026-11-21) ───────────────────────────────────────────
+// Saved through the model-intel settings endpoint, which already owns
+// `sources.<name>.accepted` — the same switch the poller reads. One writer, so polling
+// and the routing tiers cannot disagree about whether a source is on.
+(function () {
+  var btn = document.getElementById('sourcesSave');
+  if (!btn) return;
+  var status = document.getElementById('sourcesStatus');
+  btn.addEventListener('click', function () {
+    var sources = {};
+    var boxes = document.querySelectorAll('.srcToggle');
+    for (var i = 0; i < boxes.length; i++) {
+      sources[boxes[i].dataset.source] = {accepted: !!boxes[i].checked};
+    }
+    btn.disabled = true;
+    status.textContent = 'Saving…';
+    fetch('/api/model-intel/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({poller_enabled: true, sources: sources})
+    }).then(function (r) {
+      return r.json().then(function (d) { return {ok: r.ok, data: d}; });
+    }).then(function (res) {
+      if (res.ok && res.data.ok) {
+        // A reload is the honest confirmation: the tier list, the profile pages and the
+        // disabled options are all server-rendered from this value.
+        status.textContent = 'Saved — reloading…';
+        location.reload();
+      } else {
+        status.textContent = (res.data && res.data.error) || 'Save failed.';
+        btn.disabled = false;
+      }
+    }).catch(function () {
+      status.textContent = 'Save failed.';
+      btn.disabled = false;
+    });
   });
 })();
 

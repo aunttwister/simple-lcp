@@ -208,8 +208,12 @@ def test_each_tab_owns_the_panes_it_opens(cfg, engine):
 
     matrix = lane_page(cfg, engine, tab="matrix")
     mbody = matrix.split('id="mpBody"')[1]
-    for pane in ("listPane", "detailPane", "importPane", "taxPane"):
+    for pane in ("listPane", "detailPane", "importPane", "pollPane"):
         assert 'id="%s"' % pane in mbody, "the matrix lane is missing %s" % pane
+    # The taxonomy editor was removed 2026-11-21 (operator: "remove manage taxonomy as its
+    # unnecessary complicates the process"). Its mapping DATA is still read by
+    # model_ratings.mapped_in; only the editor went.
+    assert 'id="taxPane"' not in matrix and 'id="taxOpenBtn"' not in matrix
 
 
 # ── 4. the usage widget is gone from this page ──────────────────────────────
@@ -392,13 +396,16 @@ def test_the_boards_lane_opens_on_the_poll_now(cfg, engine):
 
 def test_the_csv_control_is_a_file_input(cfg, engine):
     """Operator: "import csv should be a file import, the necessary columns should
-    be shown below". Rendered on the matrix tab — the import's home since 2026-11-18."""
+    be shown below". Rendered on the matrix tab.
+
+    Re-pointed 2026-11-21 from the removed taxonomy pane's `taxFile` to the capability
+    import's own `matrixFile` — same rule, the control that survives."""
     html = lane_page(cfg, engine, tab="matrix")
-    assert 'id="taxFile"' in html
+    assert 'id="matrixFile"' in html
     assert 'type="file"' in html
-    assert 'id="taxCsv"' not in html          # the paste box is gone
-    # the FILE READER lives with the control that owns it (taxFile), i.e. the taxonomy pane
-    assert "FileReader" in TAX_JS
+    assert 'accept=".csv,text/csv"' in html
+    # the reader lives with the control that owns it
+    assert "f.text()" in _sec("sec_routingdefs_matrix_import_script.html")
 
 
 def test_the_columns_table_lists_what_a_file_may_carry(cfg, engine):
@@ -410,19 +417,20 @@ def test_the_columns_table_lists_what_a_file_may_carry(cfg, engine):
     assert "<td>yes</td>" in block and "<td>no</td>" in block
 
 
-def test_the_import_can_use_the_selected_custom_board_as_its_fallback(cfg, engine):
-    """A file with no `taxonomy` column lands on the board being looked at —
-    but only when that board is one of the operator's own."""
-    script = TAX_JS
-    assert "indexOf('custom:') === 0" in script
-    assert "taxonomy: fallback" in script
+def test_the_custom_board_fallback_is_gone_with_its_editor(cfg, engine):
+    """The `custom:` taxonomies were curated in the pane removed 2026-11-21, so this
+    fallback is unreachable — asserted rather than assumed so it cannot quietly come
+    back as a half-wired control."""
+    html = lane_page(cfg, engine, tab="matrix")
+    assert 'id="taxOpenBtn"' not in html
 
 
 def test_a_template_download_is_offered(cfg, engine):
+    """Re-pointed 2026-11-21: the removed pane's `taxTemplateBtn` -> the capability
+    import's `matrixTemplateBtn`, which serves the real endpoint."""
     html = lane_page(cfg, engine, tab="matrix")
-    assert 'id="taxTemplateBtn"' in html
-    script = TAX_JS
-    assert "taxonomy-template.csv" in script
+    assert 'id="matrixTemplateBtn"' in html
+    assert "/api/models/capability/template" in html
 
 
 def test_a_tick_survives_a_reload(cfg, engine):
