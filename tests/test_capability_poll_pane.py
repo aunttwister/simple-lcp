@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 
 import pytest
+from html.parser import HTMLParser
 from unittest.mock import MagicMock
 
 TEMPLATES = os.path.join(os.path.dirname(__file__), "..", "src", "ui", "templates", "jinja")
@@ -236,3 +237,76 @@ def test_the_pane_explains_why_a_model_is_queued_rather_than_written(cfg, engine
     html = matrix_page(cfg, engine)
     assert "max-effort" in html
     assert "queued" in html
+
+
+# ── the pane must be a SIBLING, not nested inside another pane ─────────────
+
+class _LaneTree(HTMLParser):
+    """Track each div's parent so a pane's NESTING can be asserted, not just its presence."""
+
+    VOID = {"br", "img", "input", "meta", "link", "hr", "source", "area", "base", "col"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack = []
+        self.pane_parent = {}
+
+    def handle_starttag(self, tag, attrs):
+        d = dict(attrs)
+        ident = d.get("id") or ""
+        cls = d.get("class") or ""
+        if tag == "div" and "dp-pane" in cls and ident:
+            self.pane_parent[ident] = self.stack[-1][1] if self.stack else None
+        if tag in self.VOID:
+            return
+        self.stack.append((tag, ident or (("." + cls.split()[0]) if cls else tag)))
+
+    def handle_endtag(self, tag):
+        for i in range(len(self.stack) - 1, -1, -1):
+            if self.stack[i][0] == tag:
+                del self.stack[i:]
+                return
+
+
+def test_every_pane_is_a_SIBLING_inside_the_lane(cfg, engine):
+    """The defect this exists for (found 2026-11-21 by the operator: "Poll latest data column is
+    empty on prod").
+
+    `#detailPane` was never closed, so import / poll / tax were its CHILDREN. The lane toggles
+    panes with `el.hidden`, so clicking their buttons set `hidden = false` — every DOM check
+    passed — while the pane measured 0x0 on screen and inherited the parent's `display:none`.
+    A text search for `id="pollPane"` cannot see this: the markup IS present. Only the NESTING is
+    wrong, so the assertion has to be structural.
+
+    This also explains the operator's 2026-11-19 report that "Manage Taxonomy and Import scores
+    doesnt work, nothing opens in column 3": the recursion fix was real but not the whole cause.
+    """
+    html = matrix_page(cfg, engine)
+    t = _LaneTree()
+    t.feed(html)
+    panes = t.pane_parent
+    assert panes, "no dp-pane found at all"
+    for pane, parent in panes.items():
+        assert parent == "mpBody", (
+            f"#{pane} is nested inside {parent!r} instead of being a sibling in #mpBody — "
+            f"hiding that ancestor makes this pane invisible while its own `hidden` reads false")
+
+
+def test_the_lane_markup_is_div_balanced(cfg, engine):
+    """A cheaper guard on the same failure: an unbalanced div is what nested the panes."""
+    import re
+    html = matrix_page(cfg, engine)
+    lane = html[html.index('id="modelsPanel"'):html.index("</aside>")]
+    opens = len(re.findall(r"<div\b", lane))
+    closes = len(re.findall(r"</div>", lane))
+    assert opens == closes, f"the lane has {opens} <div> and {closes} </div>"
+
+
+def test_the_poll_pane_is_not_inside_the_detail_pane(cfg, engine):
+    """Named explicitly, because this is the exact shape that shipped broken."""
+    html = matrix_page(cfg, engine)
+    t = _LaneTree()
+    t.feed(html)
+    assert t.pane_parent.get("pollPane") != "detailPane"
+    assert t.pane_parent.get("importPane") != "detailPane"
+    assert t.pane_parent.get("taxPane") != "detailPane"
