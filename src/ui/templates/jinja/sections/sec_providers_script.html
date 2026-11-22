@@ -215,7 +215,7 @@ function toggleProviderState(provider, profile, action){
 // probes a provider that is not being called, which is why a pair can sit here
 // at "no data" indefinitely and why a six-week-old last success can still show
 // 100% uptime.
-var PH = {cells:{}, chains:{}, provs:[], profs:[], index:{}, sel:null, summary:{}, notice:null};
+var PH = {cells:{}, chains:{}, provs:[], profs:[], index:{}, sel:null, summary:{}, notice:null, pmeta:{}};
 
 function phEsc(s){
   return String(s == null ? '' : s)
@@ -247,6 +247,11 @@ function loadProviderHealth(){
     api('GET','/api/providers/health').then(function(h){
       PH.chains = (p && p.profile_chains) || {};
       PH.provs  = Object.keys((p && p.providers) || {});
+      // The per-provider metadata the column HEADER is built from. The column
+      // set must never come from a literal list here: a provider registered a
+      // minute ago has to get a column with no code change, and a provider
+      // removed from the config must lose its column the same way.
+      PH.pmeta  = (p && p.providers) || {};
       PH.profs  = Object.keys(PH.chains);
       var hp = (h && h.providers) || {};
       var cells = {};
@@ -281,9 +286,36 @@ function phRender(){
   var body = document.getElementById('providerHealthBody');
   if(!head || !body) return;
 
+  // Which providers any profile's chain actually names. A provider that is
+  // registered but in no chain still gets a column — it exists, it can be
+  // called by nothing, and that is exactly the state worth seeing — but it is
+  // labelled, because otherwise it reads as a working option.
+  var inAnyChain = {};
+  Object.keys(PH.chains || {}).forEach(function(prof){
+    (PH.chains[prof] || []).forEach(function(s){
+      if(s && s.provider) inAnyChain[s.provider] = true;
+    });
+  });
+
   var hh = '<th scope="col" class="ph-rowhead">Profile</th>';
   PH.provs.forEach(function(pr){
-    hh += '<th scope="col" title="' + phEsc(pr) + '">' + phEsc(pr) + '</th>';
+    var m = (PH.pmeta || {})[pr] || null;
+    var tip = pr;
+    var tags = '';
+    if(m){
+      var models = (m.models || []).length;
+      tip = pr + ' \u2014 ' + (m.type || 'untyped') + ' \u00b7 ' + (m.api_base || 'no base url')
+          + ' \u00b7 ' + models + ' model' + (models === 1 ? '' : 's')
+          + ' \u00b7 key ' + (m.has_api_key ? 'stored' : 'MISSING');
+      tags = ' <span class="ph-tag">' + phEsc(m.type || 'untyped') + '</span>';
+      if(!inAnyChain[pr]) tags += ' <span class="ph-tag ph-tag-warn" title="Registered, but no profile chain names it — nothing can call it">unused</span>';
+    } else {
+      // A column that exists only in health data has no config behind it: it is
+      // a remnant of a renamed or deleted provider, and it must say so.
+      tip = pr + ' \u2014 no provider config (deleted or renamed); health rows only';
+      tags = ' <span class="ph-tag ph-tag-warn" title="No provider config behind this column">unconfigured</span>';
+    }
+    hh += '<th scope="col" title="' + phEsc(tip) + '">' + phEsc(pr) + tags + '</th>';
   });
   hh += '<th scope="col" title="Providers registered in this profile\'s chain">Chain</th>';
   head.innerHTML = hh;
