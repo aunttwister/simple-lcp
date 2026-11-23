@@ -13,12 +13,17 @@ Covers the big uncovered blocks in src/server/endpoints.py:
 import json
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.server import LCPHandler
+from src.server.endpoints import (
+    _derive_engine_metrics,
+    _ENGINE_COUNTER_NAMES,
+    _ENGINE_METRIC_FALLBACKS,
+)
 from src.api.models import get_engine, Base, Request as RequestModel, get_session
 
 
@@ -853,3 +858,194 @@ class TestChainReorder:
         assert result["chain"][0]["base_url"] == "https://new/v1"
         # New entry for opencode inherits the preserved base_url from old chain
         assert result["chain"][1]["base_url"] == "https://old/v1"
+
+
+# ── Engine-metric derivation: two sources (health, then /metrics) ──────────
+
+class TestEngineMetricFallbacks:
+    """TensorFold 1.3.0 answers /health with {"status": "ok"} alone and publishes
+    every counter on /metrics (tensorfold:*), which left the Usage panel's engine
+    cards as five em-dashes on a healthy box. Both sources are read now, and a
+    figure absent from BOTH must stay None — the panel renders that as an em-dash,
+    and 0.0 would claim a measurement nobody made.
+    """
+
+    METRICS = {
+        "tensorfold:prompt_tokens_total": 9_064_391.0,
+        "tensorfold:prompt_tokens_cached_total": 7_712_768.0,
+        "tensorfold:generation_tokens_total": 183_077.0,
+        "tensorfold:request_prefill_seconds_sum": 1_306.268816,
+        "tensorfold:request_decode_seconds_sum": 3_893.65238,
+        "tensorfold:mtp_drafted_total": 191_016.0,
+        "tensorfold:mtp_accepted_total": 127_022.0,
+        "tensorfold:kv_pool_capacity_tokens": 2_240_000.0,
+        "tensorfold:kv_pool_available_tokens": 2_238_976.0,
+        "tensorfold:prompt_cache_bytes": 5_368_709_120.0,
+        "tensorfold:prompt_cache_budget_bytes": 5_368_709_120.0,
+        "tensorfold:requests_started_total": 1_434.0,
+        "tensorfold:requests_running": 2.0,
+        "tensorfold:requests_waiting": 0.0,
+        "tensorfold:lanes": 8.0,
+    }
+
+    def test_health_only_is_unchanged(self):
+        """An engine that still puts the counters in /health reads as before."""
+        health = {
+            "status": "ok",
+            "prompt_tokens_total": 1000, "completion_tokens_total": 500,
+            "prefill_seconds_total": 2, "decode_seconds_total": 10,
+            "drafted_total": 100, "accepted_total": 60,
+            "pool_tokens": 1000, "pool_free_tokens": 750,
+            "kept_bytes": 2048, "kept_bytes_cap": 4096,
+            "requests_total": 7, "streams": {"max": 8},
+        }
+        d = _derive_engine_metrics(health, {})
+        assert d["ok"] is True
+        assert d["decode_tokens_per_s"] == 50.0    # 500 / 10
+        assert d["prefill_tokens_per_s"] == 500.0  # 1000 / 2
+        assert d["mtp_accept_pct"] == 60.0
+        assert d["pool_used_pct"] == 25.0
+        assert d["kept_cap_used_pct"] == 50.0
+        assert d["requests_total"] == 7.0
+        assert d["lanes"] == 8
+
+    def test_metrics_only_fills_every_card(self):
+        """/health carries nothing but status; the five dashes get real numbers."""
+        d = _derive_engine_metrics({"status": "ok"}, dict(self.METRICS))
+        assert d["ok"] is True
+        assert d["decode_tokens_per_s"] == pytest.approx(183_077 / 3_893.65238, abs=0.05)
+        assert d["prefill_tokens_per_s"] == pytest.approx(9_064_391 / 1_306.268816, abs=0.05)
+        assert d["mtp_accept_pct"] == pytest.approx(127_022 / 191_016 * 100, abs=0.05)
+        assert d["pool_used_pct"] == pytest.approx(1_024 / 2_240_000 * 100, abs=0.05)
+        assert d["kept_cap_used_pct"] == 100.0
+        assert d["requests_total"] == 1_434.0
+        assert d["requests_running"] == 2.0
+        assert d["requests_waiting"] == 0.0
+        assert d["lanes"] == 8.0
+        # the three token counters the panel also prints
+        assert d["prompt_tokens_total"] == 9_064_391.0
+        assert d["completion_tokens_total"] == 183_077.0
+        assert d["cached_tokens_total"] == 7_712_768.0
+        assert d["prompt_cache_hit_pct"] == pytest.approx(7_712_768 / 9_064_391 * 100, abs=0.05)
+
+    def test_health_wins_where_both_have_the_key(self):
+        d = _derive_engine_metrics(
+            {"status": "ok", "prompt_tokens_total": 111}, dict(self.METRICS))
+        assert d["prompt_tokens_total"] == 111.0
+
+    def test_absent_from_both_is_none_never_zero(self):
+        d = _derive_engine_metrics({"status": "ok"}, {})
+        for key in ("decode_tokens_per_s", "prefill_tokens_per_s", "mtp_accept_pct",
+                    "pool_used_pct", "kept_cap_used_pct", "requests_total", "lanes",
+                    "requests_running", "requests_waiting", "kv_cache_usage_pct"):
+            assert d[key] is None, key
+
+    def test_the_fallback_map_is_what_supplies_the_numbers(self):
+        """Control: with the map empty (exactly the pre-fix behaviour) every card
+        goes back to a dash. Without this, the suite would still pass if the map
+        were dropped — the tests would then only be proving the constants exist.
+        """
+        with patch.dict("src.server.endpoints._ENGINE_METRIC_FALLBACKS", {}, clear=True):
+            d = _derive_engine_metrics({"status": "ok"}, dict(self.METRICS))
+        assert d["decode_tokens_per_s"] is None
+        assert d["prefill_tokens_per_s"] is None
+        assert d["mtp_accept_pct"] is None
+        assert d["pool_used_pct"] is None
+        assert d["kept_cap_used_pct"] is None
+        assert d["requests_total"] is None
+
+    def test_requested_counter_names_cover_every_fallback(self):
+        """The endpoint asks for exactly the names the map can read — a name the
+        map knows but the request omits would read as absent on a live engine."""
+        assert set(_ENGINE_COUNTER_NAMES) >= {
+            f"tensorfold:{name}" for name in _ENGINE_METRIC_FALLBACKS.values()}
+        for extra in ("tensorfold:requests_waiting", "tensorfold:kv_cache_usage_ratio",
+                      "tensorfold:requests_running", "tensorfold:lanes"):
+            assert extra in _ENGINE_COUNTER_NAMES
+
+
+# ── The cards and the chart above them must describe the SAME period ───────
+
+_FROZEN_NOW = datetime(2026, 11, 23, 11, 0, 0)  # naive UTC, mid-day on purpose
+
+
+class _FrozenDateTime(datetime):
+    """Pin the handler's clock so a boundary row's side is deterministic."""
+
+    @classmethod
+    def utcnow(cls):
+        return _FROZEN_NOW
+
+
+class TestUsageWindowAlignment:
+    """`totals`/`by_model`/`by_profile` are scoped by the same first CALENDAR day
+    as the `daily` series. Before this, they used a rolling utcnow-days window
+    while the chart filled calendar days, so at days=7 the cards counted rows the
+    chart could not show (8.8M tokens live; 94.5M at 30d).
+    """
+
+    # Frozen clock 2026-11-23T11:00Z: the rolling window would start 11-16T11:00,
+    # the calendar window starts 11-17T00:00 — the gap between them is the bug.
+    GAP_ROW = "2026-11-16T20:00:00+00:00"     # rolling-only: must be excluded
+    INSIDE_7D = "2026-11-17T00:30:00+00:00"   # in both: counted
+    TODAY = "2026-11-23T06:00:00+00:00"       # in both: counted
+
+    def _seed(self, engine):
+        with get_session(engine) as s:
+            s.add_all([
+                RequestModel(timestamp=self.GAP_ROW, profile="l1", model="glm-5.3-flash-exl3",
+                             provider="local-sparks", prompt_tokens=10_000_000,
+                             completion_tokens=0, cache_hit_tokens=0,
+                             cache_miss_tokens=10_000_000, cost=0.0, latency_ms=1, success=1),
+                RequestModel(timestamp=self.INSIDE_7D, profile="l1", model="glm-5.3-flash-exl3",
+                             provider="local-sparks", prompt_tokens=1000, completion_tokens=500,
+                             cache_hit_tokens=400, cache_miss_tokens=600, cost=0.0,
+                             latency_ms=1, success=1),
+                RequestModel(timestamp=self.TODAY, profile="l2", model="glm-5.3-flash-exl3",
+                             provider="local-sparks", prompt_tokens=200, completion_tokens=100,
+                             cache_hit_tokens=0, cache_miss_tokens=200, cost=0.0,
+                             latency_ms=1, success=1),
+            ])
+            s.commit()
+
+    def _get(self, temp_db, query):
+        h = TestHandler(path=f"/api/usage/stats?{query}", engine=temp_db)
+        with patch("src.server.endpoints.datetime", _FrozenDateTime):
+            h.do_GET()
+        assert _status(h) == 200
+        return _json_body(h)
+
+    def test_7_days_cards_equal_the_chart(self, temp_db):
+        self._seed(temp_db)
+        body = self._get(temp_db, "provider=local-sparks&days=7")
+        assert len(body["daily"]) == 7
+        assert body["totals"]["tokens"] == sum(d["tokens"] for d in body["daily"]) == 1800
+        assert body["totals"]["requests"] == sum(d["requests"] for d in body["daily"]) == 2
+        assert body["totals"]["cost"] == sum(d["cost"] for d in body["daily"])
+        # Negative control for this test: the gap row IS inside the legacy rolling
+        # window (utcnow-7d == 11-16T11:00Z), which is why the old filter counted
+        # it while the chart could not show it.
+        assert self.GAP_ROW >= (_FROZEN_NOW - timedelta(days=7)).isoformat()
+        assert self.GAP_ROW < "2026-11-17"
+        # the rolling-only row is in NEITHER, not just the chart
+        assert body["totals"]["tokens"] != 10_001_800
+
+    def test_model_and_profile_breakdowns_use_the_same_window(self, temp_db):
+        self._seed(temp_db)
+        body = self._get(temp_db, "provider=local-sparks&days=7")
+        assert sum(m["prompt_tokens"] + m["completion_tokens"]
+                   for m in body["by_model"].values()) == body["totals"]["tokens"]
+        assert sum(p["prompt_tokens"] + p["completion_tokens"]
+                   for p in body["by_profile"].values()) == body["totals"]["tokens"]
+
+    def test_30_days_includes_the_gap_row_in_both(self, temp_db):
+        self._seed(temp_db)
+        body = self._get(temp_db, "provider=local-sparks&days=30")
+        assert len(body["daily"]) == 30
+        assert body["totals"]["tokens"] == sum(d["tokens"] for d in body["daily"]) == 10_001_800
+
+    def test_explicit_range_still_wins(self, temp_db):
+        """start/end is unchanged: it scopes both the chart and the totals."""
+        self._seed(temp_db)
+        body = self._get(temp_db, "provider=local-sparks&start=2026-11-23&end=2026-11-23")
+        assert body["totals"]["tokens"] == sum(d["tokens"] for d in body["daily"]) == 300

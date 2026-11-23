@@ -1109,8 +1109,11 @@ function buildPage(providers) {
                 var cloudEq = (hitT / 1e6) * CLOUD_REF.hit + (missT / 1e6) * CLOUD_REF.miss + (outT / 1e6) * CLOUD_REF.out;
                 var cacheTot = hitT + missT;
                 var hitPct = cacheTot > 0 ? (hitT / cacheTot * 100) : null;
+                var lcost = Number(lt.cost || 0);
                 panelsHtml += '<div class="stat-cards">' +
-                    statCard('Marginal cost', '$0.00', 'own hardware — no credits, no allowance') +
+                    statCard('Marginal cost', '$' + lcost.toFixed(2),
+                             lcost > 0 ? 'own hardware; a cloud rate resolved for a model this engine serves'
+                                       : 'own hardware — no credits, no allowance') +
                     statCard('Cloud equivalent', '$' + cloudEq.toFixed(2), 'these tokens on the reference rate below') +
                     statCard('Tokens served', formatTokens(lt.tokens || 0), (lt.requests || 0).toLocaleString() + ' requests') +
                     statCard('Tokens in / out', formatTokens(lt.prompt_tokens || 0) + ' / ' + formatTokens(outT), 'prompt / completion') +
@@ -1128,7 +1131,7 @@ function buildPage(providers) {
                       '</div>';
                 }
                 panelsHtml += '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-bottom:1rem">' +
-                    'Cost is $0 by construction (own hardware); every cost axis below is replaced by tokens. The cloud-equivalent figure is a counterfactual at '
+                    'Cost is $0.00 on own hardware unless a cloud pricing row resolved for a model this engine serves; every cost axis below is replaced by tokens. The cloud-equivalent figure is a counterfactual at '
                     + CLOUD_REF.label + ' — a comparison, not spend. Engine figures are cumulative since the engine started, not per window. '
                     + 'Throughput is read from the engine\u2019s own counters because the gateway\u2019s latency column is a single HTTP hop and, for a streamed reply, '
                     + 'records time to first byte — it cannot measure local tokens/second.' +

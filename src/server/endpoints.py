@@ -319,6 +319,40 @@ def _rate(numerator, denominator, digits: int = 1):
     return round(n / d, digits)
 
 
+# Health keys a self-hosted engine may omit from /health, and the /metrics name
+# that carries the same figure. TensorFold 1.3.0 answers /health with
+# {"status": "ok"} alone and publishes every counter on /metrics instead, which
+# is why this map exists: read both, so the panel shows the engine's own numbers
+# on either shape. A key with no source in EITHER still resolves to None and
+# renders as an em-dash — absent must stay distinguishable from empty.
+_ENGINE_METRIC_FALLBACKS = {
+    "prompt_tokens_total": "prompt_tokens_total",
+    "completion_tokens_total": "generation_tokens_total",
+    "cached_tokens_total": "prompt_tokens_cached_total",
+    "prefill_seconds_total": "request_prefill_seconds_sum",
+    "decode_seconds_total": "request_decode_seconds_sum",
+    "drafted_total": "mtp_drafted_total",
+    "accepted_total": "mtp_accepted_total",
+    "pool_tokens": "kv_pool_capacity_tokens",
+    "pool_free_tokens": "kv_pool_available_tokens",
+    "kept_bytes": "prompt_cache_bytes",
+    "kept_bytes_cap": "prompt_cache_budget_bytes",
+    "requests_total": "requests_started_total",
+}
+
+# Every /metrics name _derive_engine_metrics may read, plus the gauges this
+# endpoint already asked for. Exactly these are requested, so a new metric in the
+# engine's exposition cannot change the payload's shape.
+_ENGINE_COUNTER_NAMES = tuple(sorted(
+    {
+        "tensorfold:requests_waiting",
+        "tensorfold:kv_cache_usage_ratio",
+        "tensorfold:requests_running",
+        "tensorfold:lanes",
+    } | {f"tensorfold:{name}" for name in _ENGINE_METRIC_FALLBACKS.values()}
+))
+
+
 def _derive_engine_metrics(health: Any, counters: dict) -> dict:
     """Normalise a self-hosted engine's own /health into the fields the UI shows.
 
@@ -327,10 +361,22 @@ def _derive_engine_metrics(health: Any, counters: dict) -> dict:
     dict with the same shape and `None`s where it has no counterpart, so the
     panel degrades instead of breaking — and nothing here is invented: a value
     with no source is None, which the panel renders as an em-dash.
+
+    Two sources, in that order: the /health payload (older engines put the
+    counters there), then the /metrics exposition via ``counters`` (TensorFold
+    1.3.0 moved them there). Health wins where it has the key, so an engine that
+    publishes both is read the same way as before.
     """
     def num(key):
         v = health.get(key)
-        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return float(v)
+        alt = _ENGINE_METRIC_FALLBACKS.get(key)
+        if alt is not None:
+            got = counters.get(f"tensorfold:{alt}")
+            if isinstance(got, (int, float)) and not isinstance(got, bool):
+                return float(got)
+        return None
 
     streams = health.get("streams") if isinstance(health.get("streams"), dict) else {}
     decoding = streams.get("decoding")
@@ -338,6 +384,13 @@ def _derive_engine_metrics(health: Any, counters: dict) -> dict:
     running = health.get("requests_running")
     if running is None and (isinstance(decoding, (int, float)) or isinstance(prefilling, (int, float))):
         running = (decoding or 0) + (prefilling or 0)
+    # The engine's own gauge, when the health payload carries no running count.
+    if running is None and "tensorfold:requests_running" in counters:
+        running = counters["tensorfold:requests_running"]
+
+    lanes = streams.get("max")
+    if lanes is None and "tensorfold:lanes" in counters:
+        lanes = counters["tensorfold:lanes"]
 
     waiting = counters.get("tensorfold:requests_waiting")
 
@@ -366,7 +419,7 @@ def _derive_engine_metrics(health: Any, counters: dict) -> dict:
         "requests_running": running,
         "requests_waiting": waiting,
         "requests_total": num("requests_total"),
-        "lanes": streams.get("max"),
+        "lanes": lanes,
         "context_length": num("context_length"),
         "decode_tokens_per_s": _rate(completion, decode_s),
         "prefill_tokens_per_s": _rate(prompt, prefill_s),
@@ -1421,10 +1474,7 @@ class ProviderEndpoints:
             out["error"] = err or "engine returned no JSON health payload"
             self._send_json(out)
             return
-        counters = _engine_get_counters(
-            f"{root}/metrics",
-            ("tensorfold:requests_waiting", "tensorfold:kv_cache_usage_ratio"),
-        )
+        counters = _engine_get_counters(f"{root}/metrics", _ENGINE_COUNTER_NAMES)
         out["reachable"] = True
         out["health"] = health
         out["derived"] = _derive_engine_metrics(health, counters)
@@ -3748,7 +3798,14 @@ class UsageEndpoints:
                 # while the chart showed the window, so deepseek read $234 in
                 # the table and $0 in the chart at once. Scope them the same.
                 # while the chart showed the window. Scope them the same.
-                window = [RequestModel.timestamp >= (datetime.utcnow() - timedelta(days=days)).isoformat()] if not (start_str and end_str) else []
+                # Same first day as the daily chart above. The chart fills CALENDAR
+                # days (date_start..date_end), while this filter used to be a
+                # rolling utcnow-days window — so at days=7 the totals and both
+                # breakdown tables described 11/16 06:00 onward while the chart and
+                # its min/max described 11/17 onward, and the cards read 8.8M
+                # tokens the chart could not show (30d: 94.5M / 7.3%). One range,
+                # named once.
+                window = [RequestModel.timestamp >= date_start.isoformat()] if not (start_str and end_str) else []
                 model_q = (
                     session.query(
                         RequestModel.model,
