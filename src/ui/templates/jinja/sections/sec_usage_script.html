@@ -108,73 +108,118 @@ function statCard(label, value, sub) {
   return '<div class="stat-card"><div class="label">' + label + '</div><div class="value">' + value + '</div>'
     + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
 }
-function engineCell(label, value, sub) {
-  return '<div style="background:hsl(var(--background));border:1px solid hsl(var(--card-border));'
-    + 'border-radius:var(--radius);padding:0.55rem 0.7rem">'
-    + '<div class="label" style="margin-bottom:0.15rem">' + label + '</div>'
-    + '<div style="font-size:1.05rem;font-weight:700;font-variant-numeric:tabular-nums">' + value + '</div>'
-    + (sub ? '<div class="sub" style="font-size:0.625rem">' + sub + '</div>' : '') + '</div>';
-}
 function stateDot(color) {
   return '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:hsl(var(--' + color + '-fg))"></span>';
 }
 
-// ── The local engine strip ───────────────────────────────────────────────
-// A cloud provider's card reads the vendor's billing API. A self-hosted engine
-// has none, so the first thing this panel answers is "what is the box doing
-// right now", read from the engine's own /health + /metrics through
-// /api/providers/<name>/engine. Absent payload = the provider has no box in the
-// gateway config; unreachable payload = the box is down and the strip says so
-// while every gateway-side number below stays valid.
-function engineStripHtml(prov, eng) {
+// ── The local panel ──────────────────────────────────────────────────────
+// A self-hosted engine answers two questions: what did it serve in the window,
+// and what is the box doing right now. It used to answer them with eighteen
+// bordered boxes (engine strip + 6 inner cells + trend card + 5 traffic + 5
+// throughput), which is why the page read as a wall. Same figures, grouped by
+// question, separated by hairlines: two cards.
+//
+// Windowed figures come from the gateway's ledger; the engine's velocity is
+// cumulative since it started and says so, because the two cannot be mixed
+// without lying about the time base.
+function lpItem(k, v, titleText) {
+  return '<span class="lp-item"' + (titleText ? ' title="' + escC(titleText) + '"' : '') + '>'
+    + '<span class="lp-k">' + k + '</span><span class="lp-v">' + v + '</span></span>';
+}
+
+function localPanelHtml(prov, stats, eng, label) {
+  stats = stats || {};
+  var lt = stats.totals || {};
+  var lcache = stats.cache || {hit_tokens: 0, miss_tokens: 0};
+  var hitT = lcache.hit_tokens || 0;
+  var missT = lcache.miss_tokens || 0;
+  var outT = lt.completion_tokens || 0;
+  var cloudEq = (hitT / 1e6) * CLOUD_REF.hit + (missT / 1e6) * CLOUD_REF.miss + (outT / 1e6) * CLOUD_REF.out;
+  var cacheTot = hitT + missT;
+  var hitPct = cacheTot > 0 ? (hitT / cacheTot * 100) : null;
+  var lcost = Number(lt.cost || 0);
+
+  // ── Card 1: what it served ──
+  // No sparkline here: the panel already carries a dated bar chart of the same
+  // series two rows below, and a second picture of it was the redundancy that
+  // made the old panel read as a wall. The chart is the trend surface.
+  var html = '<div class="lp-card">' +
+    '<div class="lp-head">' +
+      '<div class="lp-caption">Served &middot; ' + escC(label || '7 days') + '</div>' +
+      '<div class="lp-note">' + (lt.requests || 0).toLocaleString() + ' requests</div>' +
+    '</div>' +
+    '<div class="lp-big" style="margin-top:0.15rem">' + formatTokens(lt.tokens || 0) + ' tokens</div>' +
+    '<div class="lp-row">' +
+      lpItem('in', formatTokens(lt.prompt_tokens || 0), 'prompt tokens in the window') +
+      lpItem('out', formatTokens(outT), 'completion tokens in the window') +
+      (hitPct != null
+        ? lpItem('cache hit', hitPct.toFixed(1) + '%', formatTokens(hitT) + ' of ' + formatTokens(cacheTot) + ' prompt tokens were prefix-cache hits')
+        : '') +
+      lpItem('cost', '$' + lcost.toFixed(2), lcost > 0
+        ? 'own hardware — a cloud rate resolved for a model this engine serves'
+        : 'own hardware: no credits and no allowance') +
+      lpItem('cloud equivalent', '$' + cloudEq.toFixed(2),
+        'counterfactual at ' + CLOUD_REF.label + ' — a comparison, not spend') +
+    '</div>' +
+  '</div>';
+
+  // ── Card 2: what the box is doing ──
   if (!eng) {
-    return '<div class="stat-card" style="margin-bottom:1rem">'
-      + '<div class="label">Engine</div>'
-      + '<div class="value" style="font-size:0.85rem;font-weight:400">No engine to read — this provider is not in the gateway config.</div>'
-      + '</div>';
+    return html + '<div class="lp-card"><div class="lp-caption">Engine</div>' +
+      '<div class="lp-note" style="margin-top:0.25rem">No engine to read — this provider is not in the gateway config.</div></div>';
   }
   if (!eng.reachable) {
-    return '<div class="stat-card" style="border-left:3px solid #f97316;margin-bottom:1rem">'
-      + '<div class="label" style="color:#f97316">Engine unreachable</div>'
-      + '<div class="value" style="font-size:0.85rem;font-weight:400">' + escC(eng.engine || '')
-      + ' &mdash; ' + escC(eng.error || 'no response') + '</div>'
-      + '<div class="sub">Tokens, requests and the breakdowns below come from the gateway\u2019s own records and stay valid.</div>'
-      + '<div style="margin-top:0.5rem"><button class="btn btn-outline btn-sm" onclick="refreshEngine(\'' + prov + '\')">Retry</button></div>'
-      + '</div>';
+    return html + '<div class="lp-card" style="border-left:3px solid #f97316">' +
+      '<div class="lp-head"><div class="lp-caption" style="color:#f97316">Engine unreachable</div>' +
+      '<button class="btn btn-outline btn-sm" onclick="refreshEngine(\'' + prov + '\')">Retry</button></div>' +
+      '<div class="lp-note" style="margin-top:0.35rem">' + escC(eng.engine || '') + ' &mdash; ' + escC(eng.error || 'no response') +
+      '. Tokens and requests above come from the gateway\u2019s own records and stay valid.</div></div>';
   }
   var d = eng.derived || {};
   var state = d.ok ? (d.busy ? 'generating' : 'idle') : 'failed';
   var color = !d.ok ? 'red' : (d.busy ? 'amber' : 'green');
-  var lanes = (d.lanes != null) ? String(d.lanes) : '\u2014';
-  return '<div class="stat-card" style="margin-bottom:1rem">'
-    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem">'
-      + '<div class="label" style="margin:0">Engine &middot; ' + escC(eng.engine || '') + '</div>'
-      + '<div style="display:flex;align-items:center;gap:0.6rem;font-size:0.65rem">'
-        + '<span style="display:flex;align-items:center;gap:0.35rem">' + stateDot(color) + '<b>' + state + '</b></span>'
-        + '<span class="muted">as of ' + escC(String(eng.fetched_at || '').replace('T', ' ').slice(0, 19)) + '</span>'
-        + '<button class="btn btn-outline btn-sm" onclick="refreshEngine(\'' + prov + '\')">Refresh</button>'
-      + '</div>'
-    + '</div>'
-    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:0.5rem">'
-      + engineCell('In flight', fmtNum(d.requests_running, 0), 'decoding or prefilling')
-      + engineCell('Queued', fmtNum(d.requests_waiting, 0), 'held until a lane frees')
-      + engineCell('Lanes', lanes, 'concurrent streams')
-      + engineCell('Context', d.context_length != null ? formatTokens(d.context_length) : '\u2014', 'tokens per request')
-      + engineCell('Model', escC((eng.declared_models || [])[0] || 'not declared'), 'declared on this provider')
-      + engineCell('Served', formatTokens(d.requests_total || 0), 'requests since engine start')
-    + '</div>'
-    + '</div>';
+  var live = [];
+  if (d.requests_running != null) live.push(lpItem('in flight', fmtNum(d.requests_running, 0), 'decoding or prefilling'));
+  if (d.requests_waiting != null) live.push(lpItem('queued', fmtNum(d.requests_waiting, 0), 'held until a lane frees'));
+  if (d.lanes != null) live.push(lpItem('lanes', fmtNum(d.lanes, 0), 'concurrent streams'));
+  if (d.context_length != null) live.push(lpItem('context', formatTokens(d.context_length), 'tokens per request'));
+  var model = (eng.declared_models || [])[0];
+  if (model) live.push(lpItem('model', escC(model), 'declared on this provider'));
+
+  var speed = [];
+  if (d.decode_tokens_per_s != null) speed.push(lpItem('decode', fmtNum(d.decode_tokens_per_s) + ' tok/s', 'engine lifetime average'));
+  if (d.prefill_tokens_per_s != null) speed.push(lpItem('prefill', fmtNum(d.prefill_tokens_per_s, 0) + ' tok/s', 'engine lifetime average'));
+  if (d.mtp_accept_pct != null) speed.push(lpItem('draft accept', fmtNum(d.mtp_accept_pct) + '%', 'speculative tokens kept'));
+  if (d.pool_used_pct != null) speed.push(lpItem('kv pool', fmtNum(d.pool_used_pct) + '%', 'shared attention pool'));
+  if (d.kept_cap_used_pct != null) speed.push(lpItem('kept cache', fmtNum(d.kept_cap_used_pct) + '%', fmtGB(d.kept_bytes) + ' of ' + fmtGB(d.kept_bytes_cap) + ' held for prompt reuse'));
+  if (d.requests_total != null) speed.push(lpItem('served since start', formatTokens(d.requests_total), 'requests since the engine started'));
+
+  return html + '<div class="lp-card">' +
+    '<div class="lp-head">' +
+      '<div class="lp-caption">Engine &middot; ' + escC(eng.engine || '') + '</div>' +
+      '<div style="display:flex;align-items:center;gap:0.6rem;font-size:0.65rem">' +
+        '<span style="display:flex;align-items:center;gap:0.35rem">' + stateDot(color) + '<b>' + state + '</b></span>' +
+        '<span class="lp-k">as of ' + escC(String(eng.fetched_at || '').replace('T', ' ').slice(0, 19)) + '</span>' +
+        '<button class="btn btn-outline btn-sm" onclick="refreshEngine(\'' + prov + '\')">Refresh</button>' +
+      '</div>' +
+    '</div>' +
+    (live.length ? '<div class="lp-row">' + live.join('') + '</div>' : '') +
+    (speed.length ? '<div class="lp-row">' + speed.join('') + '</div>' : '') +
+    '<div class="lp-note" style="margin-top:0.5rem">Velocity is the engine\u2019s own counter and cumulative since it started, not per window \u2014 ' +
+      'the gateway\u2019s latency column is one HTTP hop and records time to first byte, so it cannot measure local tokens/second.</div>' +
+  '</div>';
 }
 
 window.refreshEngine = function (prov) {
-  var host = document.getElementById('engineStrip-' + prov);
+  var host = document.getElementById('localCards-' + prov);
   if (!host) return;
-  host.innerHTML = '<div class="stat-card" style="margin-bottom:1rem"><div class="label">Engine</div>'
-    + '<div class="value" style="font-size:0.85rem;font-weight:400">Reading\u2026</div></div>';
   fetch('/api/providers/' + encodeURIComponent(prov) + '/engine')
     .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (d) { host.innerHTML = engineStripHtml(prov, d); })
-    .catch(function () { host.innerHTML = engineStripHtml(prov, null); });
+    .then(function (d) {
+      _engineCache[prov] = d;
+      host.innerHTML = localPanelHtml(prov, _localStats[prov], d, _localLabel[prov]);
+    })
+    .catch(function () {});
 };
 
 function loadEngine(prov) {
@@ -409,6 +454,11 @@ var INITIAL_DAYS = 7;
 // DOM. A <pre> or <canvas> cannot be filled while it is still a string.
 var _sparkSeries = {};
 var _gaugeSeries = {};
+// The local panel is re-rendered whole on a range change or an engine refresh,
+// so it keeps the three inputs it is built from.
+var _engineCache = {};
+var _localStats = {};
+var _localLabel = {};
 
 // Draw the trend sparklines and the subscription gauges for every provider
 // panel. Called once after panelsDiv.innerHTML, and again on a range change so
@@ -813,10 +863,18 @@ function buildPage(providers) {
             // view.
             panelsHtml += typeBanner(prov);
 
-            // ── Engine strip (self-hosted only) ──
-            if (vType === 'local') {
-                panelsHtml += '<div id="engineStrip-' + prov + '">' + engineStripHtml(prov, eng) + '</div>';
-            }
+            // ── The window control, above everything it governs ──
+            // These pills scope the cards AND the chart AND both breakdowns, so
+            // they sit above the first number rather than below the last one.
+            panelsHtml += '<div class="date-filters" id="dateFilt-' + prov + '">' +
+                '<button class="date-pill active" data-range="7" onclick="applyDateRange(this,\'' + prov + '\',7)">7 days</button>' +
+                '<button class="date-pill" data-range="30" onclick="applyDateRange(this,\'' + prov + '\',30)">30 days</button>' +
+                '<button class="date-pill" data-range="month" onclick="applyDateRange(this,\'' + prov + '\',\'month\')">This month</button>' +
+                '<button class="date-pill" data-range="last" onclick="applyDateRange(this,\'' + prov + '\',\'last\')">Last month</button>' +
+                '<input class="date-pill-input" type="date" id="dsFrom-' + prov + '" title="Start" aria-label="' + esc(prov) + ' window start date">' +
+                '<input class="date-pill-input" type="date" id="dsTo-' + prov + '" title="End" aria-label="' + esc(prov) + ' window end date">' +
+                '<button class="date-pill" data-range="custom" onclick="applyDateRange(this,\'' + prov + '\',\'custom\')">Apply</button>' +
+                '</div>';
 
             // ── Trend card ──
             // Every provider panel gets its daily series as a text sparkline.
@@ -829,15 +887,24 @@ function buildPage(providers) {
                 return isLocalProv ? (d.tokens || 0) : (d.cost || 0);
             });
             _sparkSeries[prov] = trendSeries;
-            var trendUnit = isLocalProv ? 'tokens/day' : 'USD/day';
-            var trendName = isLocalProv ? 'Daily tokens' : 'Daily spend';
-            panelsHtml += '<div class="stat-cards" style="margin-bottom:1rem">' +
-                '<div class="stat-card" style="grid-column:1/-1">' +
-                  '<div class="label">' + trendName + ' · last ' + trendSeries.length + ' days</div>' +
-                  '<pre class="spark" id="spark-trend-' + prov + '" aria-label="' + trendName + ' trend, ' + trendSeries.length + ' days"></pre>' +
-                  '<div class="spark-sum" id="spark-sum-' + prov + '"></div>' +
-                '</div>' +
-              '</div>';
+            // The local panel folds the sparkline into its own first card, so it
+            // does not get a separate trend box.
+            if (vType === 'local') {
+                _localStats[prov] = stats;
+                _localLabel[prov] = 'last ' + trendSeries.length + ' days';
+                _engineCache[prov] = eng;
+                panelsHtml += '<div id="localCards-' + prov + '">'
+                    + localPanelHtml(prov, stats, eng, _localLabel[prov]) + '</div>';
+            } else {
+                var trendName = 'Daily spend';
+                panelsHtml += '<div class="stat-cards" style="margin-bottom:1rem">' +
+                    '<div class="stat-card" style="grid-column:1/-1">' +
+                      '<div class="label">' + trendName + ' · last ' + trendSeries.length + ' days</div>' +
+                      '<pre class="spark" id="spark-trend-' + prov + '" aria-label="' + trendName + ' trend, ' + trendSeries.length + ' days"></pre>' +
+                      '<div class="spark-sum" id="spark-sum-' + prov + '"></div>' +
+                    '</div>' +
+                  '</div>';
+            }
 
             // A vendor family with no payload for THIS account: the vendor
             // readers are registered per vendor, so a second account of a
@@ -1094,63 +1161,16 @@ function buildPage(providers) {
                     }
                 }
             } else if (vType === 'local') {
-                // ── Local panel ──
-                // A self-hosted engine has no credits, no allowance and no
-                // vendor bill, so the money cards are replaced rather than
-                // zeroed: marginal cost is $0 by construction, and the only
-                // figure that means anything in money is what these tokens
-                // would have cost on a cloud lane.
-                var lt = stats.totals || {};
-                var lcache = stats.cache || {hit_tokens: 0, miss_tokens: 0};
-                var engD = (eng && eng.reachable && eng.derived) ? eng.derived : null;
-                var hitT = lcache.hit_tokens || 0;
-                var missT = lcache.miss_tokens || 0;
-                var outT = lt.completion_tokens || 0;
-                var cloudEq = (hitT / 1e6) * CLOUD_REF.hit + (missT / 1e6) * CLOUD_REF.miss + (outT / 1e6) * CLOUD_REF.out;
-                var cacheTot = hitT + missT;
-                var hitPct = cacheTot > 0 ? (hitT / cacheTot * 100) : null;
-                var lcost = Number(lt.cost || 0);
-                panelsHtml += '<div class="stat-cards">' +
-                    statCard('Marginal cost', '$' + lcost.toFixed(2),
-                             lcost > 0 ? 'own hardware; a cloud rate resolved for a model this engine serves'
-                                       : 'own hardware — no credits, no allowance') +
-                    statCard('Cloud equivalent', '$' + cloudEq.toFixed(2), 'these tokens on the reference rate below') +
-                    statCard('Tokens served', formatTokens(lt.tokens || 0), (lt.requests || 0).toLocaleString() + ' requests') +
-                    statCard('Tokens in / out', formatTokens(lt.prompt_tokens || 0) + ' / ' + formatTokens(outT), 'prompt / completion') +
-                    (hitPct != null ? statCard('Prompt cache hit', hitPct.toFixed(1) + '%', formatTokens(hitT) + ' of ' + formatTokens(cacheTot)) : '') +
-                  '</div>';
-                if (engD) {
-                    // The engine's own throughput and capacity, which the
-                    // gateway cannot measure (see the note below).
-                    panelsHtml += '<div class="stat-cards">' +
-                        statCard('Decode', fmtNum(engD.decode_tokens_per_s) + ' tok/s', 'engine lifetime average') +
-                        statCard('Prefill', fmtNum(engD.prefill_tokens_per_s, 0) + ' tok/s', 'engine lifetime average') +
-                        statCard('Draft accept', engD.mtp_accept_pct != null ? fmtNum(engD.mtp_accept_pct) + '%' : '\u2014', 'speculative tokens kept') +
-                        statCard('KV pool used', engD.pool_used_pct != null ? fmtNum(engD.pool_used_pct) + '%' : '\u2014', 'shared attention pool') +
-                        statCard('Kept prompt cache', engD.kept_cap_used_pct != null ? fmtNum(engD.kept_cap_used_pct) + '%' : '\u2014', fmtGB(engD.kept_bytes) + ' of ' + fmtGB(engD.kept_bytes_cap)) +
-                      '</div>';
-                }
-                panelsHtml += '<div style="font-size:0.625rem;color:hsl(var(--muted-foreground));margin-bottom:1rem">' +
-                    'Cost is $0.00 on own hardware unless a cloud pricing row resolved for a model this engine serves; every cost axis below is replaced by tokens. The cloud-equivalent figure is a counterfactual at '
-                    + CLOUD_REF.label + ' — a comparison, not spend. Engine figures are cumulative since the engine started, not per window. '
-                    + 'Throughput is read from the engine\u2019s own counters because the gateway\u2019s latency column is a single HTTP hop and, for a streamed reply, '
-                    + 'records time to first byte — it cannot measure local tokens/second.' +
-                    '</div>';
+                // ── Local panel: built above, in two cards ──
+                // The figures (tokens served, in/out, cache hit, cost, cloud
+                // equivalent, and the engine's live state and velocity) are
+                // rendered by localPanelHtml() so a range change or an engine
+                // refresh rebuilds them from the same inputs.
             } else {
                 panelsHtml += '<div class="stat-cards">' +
                     '<div class="stat-card"><div class="label">Gateway Spend (30d)</div><div class="value">$' + stats.totals.cost.toFixed(4) + '</div><div class="sub">' + stats.totals.requests + ' requests</div></div>' +
                     '</div>';
             }
-
-            panelsHtml += '<div class="date-filters" id="dateFilt-' + prov + '">' +
-                '<button class="date-pill active" data-range="7" onclick="applyDateRange(this,\'' + prov + '\',7)">7 days</button>' +
-                '<button class="date-pill" data-range="30" onclick="applyDateRange(this,\'' + prov + '\',30)">30 days</button>' +
-                '<button class="date-pill" data-range="month" onclick="applyDateRange(this,\'' + prov + '\',\'month\')">This month</button>' +
-                '<button class="date-pill" data-range="last" onclick="applyDateRange(this,\'' + prov + '\',\'last\')">Last month</button>' +
-                '<input class="date-pill-input" type="date" id="dsFrom-' + prov + '" title="Start" aria-label="' + esc(prov) + ' window start date">' +
-                '<input class="date-pill-input" type="date" id="dsTo-' + prov + '" title="End" aria-label="' + esc(prov) + ' window end date">' +
-                '<button class="date-pill" data-range="custom" onclick="applyDateRange(this,\'' + prov + '\',\'custom\')">Apply</button>' +
-                '</div>';
 
             panelsHtml += '<div class="chart-wrap"><h3 style="font-size:0.85rem;margin-bottom:0.5rem" id="chartTitle-' + prov + '">' + (isLocalProv ? 'Daily Tokens (7 days)' : 'Daily Spending (7 days)') + '</h3><div style="height:250px"><canvas id="' + dailyChartId + '"></canvas></div></div>';
 
@@ -1264,6 +1284,15 @@ window.applyDateRange = function(btnEl, provider, range) {
             _sparkSeries[provider] = (stats.daily || []).map(function (d) {
                 return isLocal ? (d.tokens || 0) : (d.cost || 0);
             });
+            // The local panel's headline figures are windowed too. Leaving them
+            // on the old range under a new chart title is the same defect as a
+            // 7d card set over a 30d bar chart.
+            if (isLocal) {
+                _localStats[provider] = stats;
+                _localLabel[provider] = label;
+                var host = document.getElementById('localCards-' + provider);
+                if (host) host.innerHTML = localPanelHtml(provider, stats, _engineCache[provider], label);
+            }
             renderTrendAndGauges();
         })
         .catch(function(e) {

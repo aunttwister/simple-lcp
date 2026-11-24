@@ -33,6 +33,22 @@
 .usage-gauge-item .gauge-legend { font-size: 0.65rem; color: hsl(var(--muted-foreground)); line-height: 1.5; }
 .usage-gauge-item .gauge-legend b { color: hsl(var(--foreground)); font-weight: 600; font-variant-numeric: tabular-nums; }
 .stat-card .spark-sum { font-size: 0.62rem; color: hsl(var(--muted-foreground)); margin-top: 0.2rem; font-variant-numeric: tabular-nums; }
+/* ── Local panel: grouped rows, not one bordered card per figure ──────────
+   A self-hosted engine's panel used to be eighteen bordered boxes: an engine
+   strip with six inner boxes, a trend card, five traffic cards and five
+   throughput cards. The numbers were right and the page was unreadable, so the
+   same figures are grouped by the question each one answers — what it served,
+   and what the engine is doing — and separated by hairlines instead of
+   borders. Two boxes, same figures. */
+.lp-card { background: hsl(var(--card)); border: 1px solid hsl(var(--card-border)); border-radius: var(--radius); padding: 0.9rem 1.1rem; margin-bottom: 1rem; }
+.lp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
+.lp-big { font-size: 1.7rem; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.lp-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 1.15rem; padding: 0.55rem 0 0.1rem; margin-top: 0.55rem; border-top: 1px solid hsl(var(--card-border) / 0.6); font-size: 0.75rem; }
+.lp-caption { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: hsl(var(--muted-foreground)); }
+.lp-item { display: inline-flex; align-items: baseline; gap: 0.3rem; white-space: nowrap; }
+.lp-k { color: hsl(var(--muted-foreground)); }
+.lp-v { font-weight: 600; font-variant-numeric: tabular-nums; }
+.lp-note { font-size: 0.625rem; color: hsl(var(--muted-foreground)); line-height: 1.5; }
 .usage-bar-item .bar-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.4rem; }
 .usage-bar-item .bar-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: hsl(var(--muted-foreground)); }
 .usage-bar-item .bar-pct { font-size: 1.1rem; font-weight: 700; }
