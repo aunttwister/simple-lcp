@@ -572,7 +572,7 @@ function renderBreakdownTable(containerId, data, labelKey, metric) {
         var v = isTokens ? (data[k].completion_tokens + data[k].prompt_tokens) : data[k].cost;
         if (v > maxVal) maxVal = v;
     });
-    var html = '<table class="breakdown-table"><thead><tr><th scope="col">' + labelKey + '</th>' +
+    var html = '<div class="bd-scroll"><table class="breakdown-table"><thead><tr><th scope="col">' + labelKey + '</th>' +
         (isTokens ? '' : '<th scope="col" class="cost-col">Cost</th>') +
         '<th scope="col" class="cost-col">Requests</th><th scope="col" class="cost-col">Tokens</th><th scope="col">Share</th></tr></thead><tbody>';
     keys.forEach(function(k) {
@@ -594,7 +594,7 @@ function renderBreakdownTable(containerId, data, labelKey, metric) {
             '<td style="width:120px"><div class="progress-bar" title="' + Math.round(pct) + '% of this panel\'s busiest row" role="img" aria-label="' + Math.round(pct) + '% share"><div class="progress-fill ' + barColor + '" style="width:' + Math.round(pct) + '%"></div></div></td>' +
             '</tr>';
     });
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
     el.innerHTML = html;
 }
 
@@ -1174,7 +1174,7 @@ function buildPage(providers) {
 
             panelsHtml += '<div class="chart-wrap"><h3 style="font-size:0.85rem;margin-bottom:0.5rem" id="chartTitle-' + prov + '">' + (isLocalProv ? 'Daily Tokens (7 days)' : 'Daily Spending (7 days)') + '</h3><div style="height:250px"><canvas id="' + dailyChartId + '"></canvas></div></div>';
 
-            panelsHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">' +
+            panelsHtml += '<div class="usage-duo">' +
                 '<div class="chart-wrap"><h3 style="font-size:0.85rem;margin-bottom:0.5rem">By Model</h3><div id="' + modelTableId + '"></div></div>' +
                 '<div class="chart-wrap"><h3 style="font-size:0.85rem;margin-bottom:0.5rem">By Profile</h3><div id="' + profileTableId + '"></div></div>' +
                 '</div>';
