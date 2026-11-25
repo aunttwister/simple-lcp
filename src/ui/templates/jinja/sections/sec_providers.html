@@ -151,7 +151,7 @@
 {% if providers %}{% for name, pdata in providers.items() %}
 <tr><td><b>{{ name }}</b></td>
 {% set _pt = provider_types.get(name, '') %}
-<td>{% if _pt %}<span class="badge badge-success" style="text-transform:none">{{ _pt }}</span>{% if not provider_type_declared.get(name) %}<span style="font-size:0.625rem;color:hsl(var(--muted-foreground))"> inferred</span>{% endif %}{% else %}<span class="badge" style="background:hsl(var(--secondary));color:hsl(var(--muted-foreground));text-transform:none">unclassified</span>{% endif %}</td>
+<td class="prov-type-cell">{% if _pt %}<span class="badge badge-success" style="text-transform:none">{{ _pt }}</span>{% if not provider_type_declared.get(name) %}<span class="prov-inferred" title="Not declared on this provider — read from the name">inferred</span>{% endif %}{% else %}<span class="badge" style="background:hsl(var(--secondary));color:hsl(var(--muted-foreground));text-transform:none">unclassified</span>{% endif %}</td>
 <td class="mono" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ pdata.get('api_base', '—') }}</td><td>{% if provider_has_keys.get(name) %}<span class="badge badge-success">stored</span>{% else %}<span style="font-size:0.75rem;color:hsl(var(--muted-foreground))">—</span>{% endif %}</td><td>{{ pdata.get('models', []) | join(', ') or '—' }}</td>
 <td style="white-space:nowrap"><button class="btn btn-outline btn-sm" onclick="editProvider('{{ name | e }}')">Edit</button><button class="btn btn-outline btn-sm" onclick="deleteProvider('{{ name | e }}')">Delete</button></td></tr>
 {% endfor %}{% else %}<tr><td colspan="6" class="empty">No providers configured.</td></tr>{% endif %}
