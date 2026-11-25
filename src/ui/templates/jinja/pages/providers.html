@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Providers — LCP{% endblock %}
+
+{#
+  CUR-358 (2026-11-25) — Providers is a PAGE of its own.
+
+  It used to be a tab of Models. Models is gone (the leaderboard it held is the same
+  partial Routing definitions → Arena boards renders, so nothing was lost), and a
+  provider is not "where a model comes from" any more than a profile is: it is its own
+  subject — an endpoint, a credential, a family, a health record — so it gets its own
+  nav entry and its own page.
+
+  The four tabs are the four questions an operator asks about an endpoint, in the order
+  he asks them:
+
+    Health         can it serve anyone right now, and where is it broken?
+    Configuration  what is registered, and what does it cost to change it?
+    Routing        what does the gateway do with a request once it can serve one?
+    Capabilities   what may each model do (vision / thinking / context)?
+
+  Navigation is SERVER-RENDERED links (`.page-tabs`), like every other page here: a tab
+  is a URL, so it can be bookmarked, shared and reloaded without a `#hash` shim. Each
+  tab's script is guarded on the same `tab` value, so only the active tab ships code.
+#}
+
+{% block head_extra %}
+{% include "sections/sec_providers_head.html" %}
+{% endblock %}
+
+{% block content %}
+<h1>Providers</h1>
+<p class="subtitle">
+  Every upstream endpoint this gateway can call: its health record per profile, its
+  credentials and declared models, the routing policy that chooses between them, and
+  the capability flags that gate what each model may serve.
+</p>
+
+<div class="page-tabs">
+  <a class="tab-btn{% if pane == 'health' %} active{% endif %}" href="/providers">Health</a>
+  <a class="tab-btn{% if pane == 'config' %} active{% endif %}" href="/providers?tab=config">Configuration</a>
+  <a class="tab-btn{% if pane == 'routing' %} active{% endif %}" href="/providers?tab=routing">Routing</a>
+  <a class="tab-btn{% if pane == 'capabilities' %} active{% endif %}" href="/providers?tab=capabilities">Capabilities</a>
+</div>
+
+{% include "sections/sec_providers.html" %}
+{% endblock %}
+
+{% block scripts %}
+{% include "sections/sec_providers_script.html" %}
+{% endblock %}

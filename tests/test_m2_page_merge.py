@@ -6,8 +6,10 @@ and became a page again, the nav lost its group labels and its usage widgets, an
 the workspace module stopped being a Setup module.
 
     Profiles   profiles + the API keys scoped to them + their cron jobs + their paths
-    Models     the leaderboard + where those models come from (the matrix left the
-               page on 2026-11-15: "leaderboard and percentile only")
+    Providers  the endpoints the gateway calls: health per profile, the registry
+               and its credentials, the routing policy between them, capability
+               flags (2026-11-25: was a tab of Models; Models is gone and its
+               leaderboard is the same partial Arena boards renders)
     Activity   overview + every log realm
     Usage      spend and balances (its own page: a billing view, not a log)
     Alerts     unchanged, and deliberately not part of Activity (R10)
@@ -42,8 +44,8 @@ SECTION_TAB = {
     "sec_usage": "usage",
     "sec_logs": "logs",
     "sec_evidence": "evidence",
-    "sec_models": "leaderboard",
     "sec_providers": "providers",
+    "sec_providers_head": "providers",
     "sec_profiles": "profiles",
     "sec_keys": "keys",
     # 2026-11-17: Routing definitions — the page that holds the routing vocabulary.
@@ -91,7 +93,7 @@ SHARED = {"sec_leaderboard"}
 # where routing is DEFINED (the capability matrix, the Arena board catalogue, the
 # unmapped queue), which reads before Models — where the models are RANKED. The
 # operator asked for this entry after finding the capability editor unreachable.
-NAV = ["/", "/profiles", "/routing-definitions", "/models", "/activity",
+NAV = ["/", "/profiles", "/routing-definitions", "/providers", "/activity",
        "/conversations", "/usage", "/alerts", "/settings"]
 
 
@@ -159,7 +161,7 @@ def _nav(html):
 def test_nav_is_flat_and_ordered_with_profiles_first(cfg):
     """Nine entries, no group labels: the label only made the reader classify."""
     from src.ui.render import render_page
-    html = render_page("pages/models.html", cfg)
+    html = render_page("pages/providers.html", cfg)
     nav = _nav(html)
     assert re.findall(r'href="(/[^"]*)"', nav) == NAV
     assert "nav-label" not in nav
@@ -168,10 +170,12 @@ def test_nav_is_flat_and_ordered_with_profiles_first(cfg):
 def test_nav_does_not_link_the_retired_pages(cfg):
     """The pages that were folded away are gone from the nav entirely."""
     from src.ui.render import render_page
-    nav = _nav(render_page("pages/models.html", cfg))
-    for gone in ('href="/keys"', 'href="/providers"', 'href="/logs"',
+    nav = _nav(render_page("pages/providers.html", cfg))
+    # CUR-358: /providers is a nav entry again (it is a page, not a redirect).
+    for gone in ('href="/keys"', 'href="/logs"',
                  'href="/dashboard"', 'href="/work/cron"', 'href="/work/config"'):
         assert gone not in nav, gone
+    assert 'href="/models"' not in nav, "the Models page is gone"
 
 
 def test_nav_has_no_usage_widgets(cfg):
@@ -182,7 +186,7 @@ def test_nav_has_no_usage_widgets(cfg):
     stay gone, or the widget comes back half-alive.
     """
     from src.ui.render import render_page
-    html = render_page("pages/models.html", cfg)
+    html = render_page("pages/providers.html", cfg)
     for dead in ("usageSubmenu", "usageChevron", "sbUsageRefreshBtn",
                  "sb-usage-nav", "sb-usage-detail", "plugin-status.js"):
         assert dead not in html, dead
@@ -214,8 +218,9 @@ MERGED = [
     ("/profiles?tab=keys", "profiles", lambda c, e: _pages().render_profiles_page(c, e, {"tab": "keys"})),
     # (`?tab=config` was the work-sources editor; it left on 2026-10-25 with the
     # other agent-infrastructure tabs, so it now falls back to the directory.)
-    ("/models", "leaderboard", lambda c, e: _pages().render_models_page(c, e, {})),
-    ("/models?tab=providers", "providers", lambda c, e: _pages().render_models_page(c, e, {"tab": "providers"})),
+    # CUR-358: Providers is its own page; Models is a redirect (no page renders it).
+    ("/providers", "providers", lambda c, e: _pages().render_providers_page(c, e, {})),
+    ("/providers?tab=config", "providers", lambda c, e: _pages().render_providers_page(c, e, {"tab": "config"})),
     # CUR-330: the overview IS the homepage now; Activity defaults to logs.
     ("/", "overview", lambda c, e: _pages().render_home_page(c, e, {"Host": "test:8734"})),
     ("/activity", "logs", lambda c, e: _pages().render_activity_page(c, e, {}, {"Host": "test:8734"})),
@@ -225,14 +230,25 @@ MERGED = [
 ]
 
 
+# Providers ships ONE PANEL per tab, so its ids are per-pane, not per-page. The
+# ownership map below is derived from the partials and cannot see the `pane` guard,
+# so this pairs each request with the markers that pane owns.
+PANE_MARKERS = {
+    "/providers": ("providerHealthBody", "phProbeNow", "failoverBody"),
+    "/providers?tab=config": ("providersBody", "provForm", "provPreset"),
+    "/providers?tab=routing": ("routingRulesRows", "routingProfile", "routingEnabled"),
+    "/providers?tab=capabilities": ("capsRows", "capsError"),
+}
+
+
 @pytest.mark.parametrize("label,tab,render", MERGED)
 def test_tab_renders_its_own_section(cfg, engine, label, tab, render):
     html = render(cfg, engine)
     assert "<!--" not in html[:6]  # rendered a page, not a template error string
-    # .get, not []: a tab whose ONLY section is a shared partial owns no ids. Models is
-    # exactly that now — it renders sec_leaderboard.html, which Arena boards renders too,
-    # so its ids cannot be attributed to one tab and the tab has no private markers.
-    for marker in MARKERS.get(tab, []):
+    # A PANE-SCOPED page is checked against its own pane's markers: the ownership map
+    # is derived per section, and sec_providers now emits one panel per tab.
+    markers = PANE_MARKERS.get(label, MARKERS.get(tab, []))
+    for marker in markers:
         assert 'id="%s"' % marker in html, "%s missing %s" % (label, marker)
 
 
@@ -240,19 +256,45 @@ def test_tab_renders_its_own_section(cfg, engine, label, tab, render):
 def test_tab_does_not_render_other_sections(cfg, engine, label, tab, render):
     """The whole point of the server-side guard: no foreign section markup."""
     html = render(cfg, engine)
+    own = set(PANE_MARKERS.get(label, MARKERS.get(tab, [])))
     leaked = [("%s#%s" % (other, m)) for other, marks in MARKERS.items() if other != tab
-              for m in marks if 'id="%s"' % m in html]
+              for m in marks if 'id="%s"' % m in html and m not in own]
     assert not leaked, "leaked %s" % leaked
 
 
+@pytest.mark.parametrize("label,render", [
+    (label, render) for label, tab, render in MERGED if label.startswith("/providers")])
+def test_a_providers_tab_renders_only_its_own_panel(cfg, engine, label, render):
+    """CUR-358: each tab ships one panel and one script — not four live panels.
+
+    Before this, all four panels were in the DOM and hidden with CSS, so the Health
+    tab paid for the registry table, the routing editor and the capability probe;
+    and every tab started every poll. The guard is now server-side, per tab.
+    """
+    html = render(cfg, engine)
+    own = set(PANE_MARKERS[label])
+    for markers in PANE_MARKERS.values():
+        for marker in markers:
+            if marker in own:
+                assert 'id="%s"' % marker in html, (label, marker)
+            else:
+                assert 'id="%s"' % marker not in html, (label, "leaked", marker)
+
+
 def test_every_page_with_tabs_serves_a_strip(cfg, engine):
-    """Each merged page that still has tabs shows them, active one marked."""
-    from src.ui.pages import render_models_page
+    """Each merged page that still has tabs shows them, active one marked.
+
+    CUR-358: Providers is a page of its own and its four tabs are real URLs, so the
+    active one is the one whose href matches the request.
+    """
+    from src.ui.pages import render_providers_page
     for params, active_href in (
-            ({}, "/models"),
-            ({"tab": "providers"}, "/models?tab=providers"),
+            ({}, "/providers"),
+            ({"tab": "config"}, "/providers?tab=config"),
+            ({"tab": "routing"}, "/providers?tab=routing"),
+            ({"tab": "capabilities"}, "/providers?tab=capabilities"),
     ):
-        html = render_models_page(cfg, engine, params)
+        html = render_providers_page(cfg, engine, params)
         assert 'href="%s"' % active_href in html
         assert 'class="tab-btn active"' in html
 
@@ -319,13 +361,14 @@ def test_profiles_title_follows_the_tab(cfg, engine, params, title):
 
 
 @pytest.mark.parametrize("params,title", [
-    ({}, "Models — LCP"),
-    ({"tab": "providers"}, "Providers — LCP"),
-    ({"tab": "matrix"}, "Models — LCP"),   # the retired id still lands on the page
+    ({}, "Providers — LCP"),
+    ({"tab": "config"}, "Providers — LCP"),
+    ({"tab": "matrix"}, "Providers — LCP"),   # a retired id falls back to Health
 ])
-def test_models_title_follows_the_tab(cfg, engine, params, title):
-    from src.ui.pages import render_models_page
-    html = render_models_page(cfg, engine, params)
+def test_providers_title_is_constant_across_its_tabs(cfg, engine, params, title):
+    """One page, four tabs: the title names the PAGE, the tab is a URL parameter."""
+    from src.ui.pages import render_providers_page
+    html = render_providers_page(cfg, engine, params)
     assert "<title>%s</title>" % title in html
 
 
@@ -348,7 +391,7 @@ def test_usage_page_title(cfg, engine):
 
 @pytest.mark.parametrize("page,params,expected", [
     ("profiles", {"tab": "nope"}, "Profiles — LCP"),
-    ("models", {"tab": "nope"}, "Models — LCP"),
+    ("providers", {"tab": "nope"}, "Providers — LCP"),
     ("activity", {"tab": "usage"}, "Logs — LCP"),  # the dead tab falls back to logs
 ])
 def test_unknown_tab_falls_back_to_the_default(cfg, engine, page, params, expected):
@@ -360,12 +403,14 @@ def test_unknown_tab_falls_back_to_the_default(cfg, engine, page, params, expect
     assert "<title>%s</title>" % expected in html
 
 
-@pytest.mark.parametrize("legacy,tab", [
-    ("pages/keys.html", "profiles"),   # M2c: keys are per profile now
-    ("pages/providers.html", "providers"),
-    ("pages/logs.html", "logs"),
+@pytest.mark.parametrize("legacy,tab,marker", [
+    ("pages/keys.html", "profiles", None),      # M2c: keys are per profile now
+    # CUR-358: providers.html is a real template again, and its alias renders the
+    # Configuration pane (the registry) — so the marker is that pane's, not the map's.
+    ("pages/providers.html", "providers", "providersBody"),
+    ("pages/logs.html", "logs", None),
 ])
-def test_legacy_page_names_still_resolve(cfg, engine, legacy, tab):
+def test_legacy_page_names_still_resolve(cfg, engine, legacy, tab, marker):
     """The pre-merge page names render the owning page's tab, not a 404.
 
     Kept as an alias table in src.ui.render rather than fixed up at ~40 call
@@ -373,8 +418,8 @@ def test_legacy_page_names_still_resolve(cfg, engine, legacy, tab):
     """
     from src.ui.render import render_page
     html = render_page(legacy, cfg, engine)
-    for marker in MARKERS[tab]:
-        assert 'id="%s"' % marker in html
+    for m in ([marker] if marker else MARKERS[tab]):
+        assert 'id="%s"' % m in html
 
 
 def test_the_dashboard_alias_renders_with_its_own_context(cfg, engine):
@@ -405,7 +450,9 @@ def test_usage_is_not_aliased_away(cfg, engine):
 
 def test_the_retired_templates_are_really_gone():
     """The merge deleted the old templates — the aliases point at the survivors."""
-    for gone in ("dashboard.html", "logs.html", "providers.html",
+    # CUR-358: providers.html came BACK as a real page, and models.html is now the
+    # retired one (its leaderboard is Arena boards' own partial).
+    for gone in ("dashboard.html", "logs.html", "models.html",
                  "keys.html", "work_cron.html", "work_config.html"):
         assert not os.path.exists(os.path.join(TEMPLATES, "pages", gone)), gone
 

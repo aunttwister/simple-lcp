@@ -1205,6 +1205,7 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_conversations_title_api())
     t.get("page.keys", exact("/keys", "/keys/dashboard"),
           lambda h, p: h._serve_keys_dashboard())
+    # CUR-358: Providers is its own page. It used to redirect here from Models.
     t.get("page.providers", exact("/providers"),
           lambda h, p: h._serve_providers_page())
     t.get("page.profiles", exact("/profiles"),
@@ -1213,6 +1214,9 @@ def _build_routes() -> RouteTable:
           lambda h, p: h._serve_profile_detail_page(h._path_part(h.path, 2)))
     t.get("api.profile.avatar", regex(r"^/api/profiles/(?P<name>[^/]+)/avatar$"),
           lambda h, p: h._serve_profile_avatar(h._path_part(h.path, 3)))
+    # CUR-358 — the Models page is GONE. Its leaderboard is the same partial the
+    # Arena boards tab renders, so the route redirects instead of rendering a second
+    # copy of one table. Registered here so a bookmark still lands somewhere true.
     t.get("page.models", exact("/models"),
           lambda h, p: h._serve_models_page())
     t.get("page.routingdefs", exact("/routing-definitions"),

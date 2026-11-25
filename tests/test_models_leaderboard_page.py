@@ -118,18 +118,30 @@ def test_the_matrix_surface_is_gone(cfg, engine, dead):
     assert dead not in page(cfg, engine)
 
 
-def test_the_page_still_names_itself_models(cfg, engine):
+def test_the_models_page_is_gone_and_the_board_lives_on_routing_definitions(cfg, engine):
+    """CUR-358 (2026-11-25): the page was deleted, the board was not.
+
+    The leaderboard was already `sec_leaderboard.html`, rendered by Routing
+    definitions -> Arena boards — so this page had become a second door to one room.
+    Proof of the move: the board renders on the boards tab, and `/models` is a
+    redirect at the route table rather than a template.
+    """
+    import os
+    boards = lane_page(cfg, engine, tab="boards")
+    assert 'id="lbTable"' in boards and 'id="mlTabs"' in boards
+    tpl = os.path.join(TEMPLATES, "pages")
+    assert not os.path.exists(os.path.join(tpl, "models.html"))
+    assert os.path.exists(os.path.join(tpl, "providers.html"))
+
+
+def test_a_models_bookmark_lands_on_the_leaderboard(cfg, engine):
+    """`/models` is a redirect now, and `render_models_page` still resolves.
+
+    Two callers exist for the removed page's renderer (older tests and any module
+    that names it); it must return the page that owns the content instead of
+    raising — the redirect is what real HTTP callers get.
+    """
     html = page(cfg, engine)
-    assert "<h1>Models</h1>" in html
-    # the tab strip that still exists: the leaderboard and the providers
-    strip = html.split('<div class="page-tabs">')[1].split("</div>")[0]
-    assert re.findall(r'href="([^"]+)"', strip) == ["/models", "/models?tab=providers"]
-    assert ">Leaderboard<" in strip
-
-
-def test_a_matrix_bookmark_lands_on_the_leaderboard(cfg, engine):
-    """`?tab=matrix` was the tab id until the matrix left; it must not 404."""
-    html = page(cfg, engine, {"tab": "matrix"})
     assert 'id="lbTable"' in html
     assert 'id="modelList"' not in html
 
@@ -218,10 +230,15 @@ def test_each_tab_owns_the_panes_it_opens(cfg, engine):
 
 # ── 4. the usage widget is gone from this page ──────────────────────────────
 
-def test_the_usage_widget_is_not_rendered_on_models(cfg, engine):
-    """The header pill carries a provider/token readout AND a credits bar; it is
-    a usage surface, and this page is a leaderboard."""
-    html = page(cfg, engine)
+def test_the_usage_widget_is_not_rendered_on_the_overview_home(cfg, engine):
+    """The header pill carries a provider/token readout AND a credits bar; it is a
+    usage surface, and the homepage already leads with the Usage Value card.
+
+    (Models used to be excluded from the widget too. That page is gone, CUR-358;
+    Providers keeps it, so this now pins the homepage gate on its own.)
+    """
+    from src.ui.pages import render_home_page
+    html = render_home_page(cfg, engine, {"Host": "test:8734"})
     for dead in ('id="pluginHeaderBadge"', 'id="hpUsage"', 'hp-usage-fill'):
         assert dead not in html, dead
 

@@ -4308,9 +4308,22 @@ class DashboardEndpoints:
         self.wfile.write(html.encode("utf-8"))
 
     def _serve_models_page(self):
-        """Server-rendered Models page (?tab=matrix|providers) — M2."""
-        from ..ui.pages import render_models_page
-        self._send_html(render_models_page(self.config, self.engine, self._qs()))
+        """``/models`` — a REDIRECT since 2026-11-25 (CUR-358). The page is gone.
+
+        Its leaderboard is the same ``sec_leaderboard.html`` partial that Routing
+        definitions → Arena boards renders, so this page had become a second door to
+        one room. The operator's words: "we can remove the leaderboard from models ..
+        actually the entire page, as we have that in routing definition".
+
+        Two destinations, because two different bookmark sets exist:
+          * ``?tab=providers`` → ``/providers`` (that is a page of its own now)
+          * everything else     → ``/routing-definitions?tab=boards`` (the board)
+        """
+        q = self._qs()
+        if str(q.get("tab") or "").strip().lower() == "providers":
+            self._redirect("/providers")
+            return
+        self._redirect("/routing-definitions?tab=boards")
 
     def _serve_routing_definitions_page(self):
         """Server-rendered Routing definitions page (?tab=matrix|boards|unmapped)."""
@@ -4977,8 +4990,15 @@ class DashboardEndpoints:
         self._redirect("/profiles?tab=keys")
 
     def _serve_providers_page(self):
-        """Legacy /providers — now the Providers tab of Models (M2)."""
-        self._redirect("/models?tab=providers")
+        """Server-rendered Providers page (?tab=health|config|routing|capabilities).
+
+        CUR-358 (2026-11-25): promoted from a tab of Models to its own page, because a
+        provider is a subject — an endpoint, a credential, a family, a health record —
+        not "where a model comes from". The redirect that used to live here is gone;
+        ``/models?tab=providers`` now redirects TO this.
+        """
+        from ..ui.pages import render_providers_page
+        self._send_html(render_providers_page(self.config, self.engine, self._qs()))
 
     def _serve_profiles_page(self):
         """Server-rendered Profiles page — the profile cards, and Config (M2c).

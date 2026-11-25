@@ -26,11 +26,11 @@
   <!-- Global top-right widget: latest active provider + usage/credits.
        NOT rendered on the Overview homepage (operator, 2026-11-07): the whole
        widget is a usage surface — the provider/token pill AND the credits bar —
-       and the homepage already leads with the Usage Value card. Models dropped
-       it too (operator, 2026-11-15): that page is a leaderboard, and a spend
-       readout in the corner competes with the board. The header-status.js
-       readers all null-check, so omitting the block is the whole fix. -->
-  {% if active_page not in ('home', 'models') %}
+       and the homepage already leads with the Usage Value card. (Models used to
+       be excluded here too — it was a leaderboard; that page is gone, 2026-11-25,
+       and Providers keeps the widget.) The header-status.js readers all
+       null-check, so omitting the block is the whole fix. -->
+  {% if active_page not in ('home',) %}
   <div class="header-plugin-badge global" id="pluginHeaderBadge" title="">
     <div class="hp-head-row">
       <span class="header-plugin-dot" id="pluginHeaderDot"></span>

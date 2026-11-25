@@ -737,11 +737,29 @@ class TestStaticEndpoints:
         assert _header(h, "Location") == "/profiles?tab=keys"
 
     def test_page_providers(self, temp_db):
-        """Legacy /providers now redirects to the Providers tab of Models (M2)."""
+        """CUR-358: /providers is a PAGE again, not a redirect into Models.
+
+        It was the Providers tab of Models from M2 until 2026-11-25; Models is gone
+        and this is its own nav entry, so the code is 200 and the body is HTML.
+        """
         h = TestHandler(path="/providers", engine=temp_db)
         h.do_GET()
+        assert _status(h) == 200
+        assert _header(h, "Content-Type").startswith("text/html")
+
+    def test_page_models_redirects_to_the_board(self, temp_db):
+        """CUR-358: /models has no page. Its leaderboard is Arena boards' own partial."""
+        h = TestHandler(path="/models", engine=temp_db)
+        h.do_GET()
         assert _status(h) == 302
-        assert _header(h, "Location") == "/models?tab=providers"
+        assert _header(h, "Location") == "/routing-definitions?tab=boards"
+
+    def test_page_models_providers_bookmark_lands_on_providers(self, temp_db):
+        """`/models?tab=providers` was a real URL for months — it must not 404."""
+        h = TestHandler(path="/models?tab=providers", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 302
+        assert _header(h, "Location") == "/providers"
 
     def test_page_profiles(self, temp_db):
         h = TestHandler(path="/profiles", engine=temp_db)
@@ -798,7 +816,9 @@ class TestStaticEndpoints:
             h.do_GET()
             assert _status(h) == 302, path
             assert _header(h, "Location") == "/profiles", path
-        for path in ("/profiles?tab=config", "/models?tab=providers",
+        for path in ("/profiles?tab=config", "/providers?tab=health",
+                     "/providers?tab=config", "/providers?tab=routing",
+                     "/providers?tab=capabilities",
                      "/activity?tab=usage", "/activity?tab=logs",
                      "/activity?tab=logs&view=decisions"):
             h = TestHandler(path=path, engine=temp_db)
@@ -807,7 +827,7 @@ class TestStaticEndpoints:
 
     def test_unknown_tab_falls_back_to_the_page_default(self, temp_db):
         """A stale ?tab= lands on the page's default tab, never a 404."""
-        h = TestHandler(path="/models?tab=nonsense", engine=temp_db)
+        h = TestHandler(path="/providers?tab=nonsense", engine=temp_db)
         h.do_GET()
         assert _status(h) == 200
 

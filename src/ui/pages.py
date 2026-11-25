@@ -264,11 +264,6 @@ def render_activity_page(config, engine=None, params=None, headers=None) -> str:
     return render_page("pages/activity.html", config, engine, **ctx)
 
 
-def render_providers_page(config, engine=None, params=None) -> str:
-    """Legacy /providers — now the Providers tab of Models (M2)."""
-    return render_models_page(config, engine, {"tab": "providers"})
-
-
 def render_profiles_page(config, engine=None, params=None) -> str:
     """Render the Profiles page — one card per profile (M2c, level 2).
 
@@ -348,29 +343,58 @@ def render_alerts_page(config, engine=None) -> str:
                        crumbs=_crumbs(("Alerts", None)))
 
 
-def render_models_page(config, engine=None, params=None) -> str:
-    """Render the Models page — the leaderboard, with providers as a tab (M2).
+#: The four Providers panels, in the order the page's tab strip lists them. Each is
+#: one question an operator asks about an endpoint, and each ships its own script
+#: (see ``sections/sec_providers_script.html``) — so the tuple is the page's whole
+#: contract: tab id, label, and the sentence the page uses to say what it answers.
+PROVIDER_PANES = (
+    ("health", "Health", "what can each profile call right now, and where is it broken"),
+    ("config", "Configuration", "what is registered, and what does changing it cost"),
+    ("routing", "Routing", "how a request picks between endpoints that can serve it"),
+    ("capabilities", "Capabilities", "what may each model do — vision, thinking, context"),
+)
+_PROVIDER_PANE_LABEL = {pane: label for pane, label, _ in PROVIDER_PANES}
+_PROVIDER_PANE_NOTE = {pane: note for pane, _, note in PROVIDER_PANES}
 
-    The capability matrix left this page on 2026-11-15 (operator: "we are pushing
-    for leaderboard and percentile only"), so ``?tab=matrix`` is kept as an alias
-    for the default rather than 404-ing a bookmark. A provider exists here only as
-    *where a model comes from*, so Providers is a tab of this page rather than a
-    nav entry of its own.
+
+def render_providers_page(config, engine=None, params=None) -> str:
+    """Render the Providers page — its own page since 2026-11-25 (CUR-358).
+
+    It used to be a tab of Models. Models is gone: the leaderboard it showed is the
+    SAME partial Routing definitions → Arena boards renders (since 2026-11-18), so
+    keeping a second page that rendered it was keeping two doors to one room.
+
+    ``pane`` (from ``?tab=``) selects which of the four panels is emitted *and*
+    which script is shipped, so a refresh on Configuration does not start polling a
+    health matrix that is not on the page. ``?tab=licenses`` and the other retired
+    ids have never existed; anything unknown falls back to Health rather than 404.
     """
     from .render import render_page
     p = dict(params or {})
-    # `matrix` was this tab's id until the matrix left the page; the ranking it
-    # now shows is the leaderboard, and an old bookmark must still land there.
-    if str(p.get("tab") or p.get("view") or "").strip().lower() == "matrix":
-        p.pop("view", None)
-        p["tab"] = "leaderboard"
-    tab = _tab(p, ("leaderboard", "providers"), "leaderboard")
-    return render_page("pages/models.html", config, engine,
-                       active_page="models",
-                       tab=tab,
-                       crumbs=_crumbs(("Models", "/models"),
-                                      ("Providers", None) if tab == "providers" else ("Leaderboard", None)),
+    pane = _tab(p, tuple(name for name, _, _ in PROVIDER_PANES), "health")
+    p["tab"] = pane
+    return render_page("pages/providers.html", config, engine,
+                       active_page="providers",
+                       tab="providers",          # the section partial's own guard
+                       pane=pane,
+                       pane_label=_PROVIDER_PANE_LABEL[pane],
+                       pane_note=_PROVIDER_PANE_NOTE[pane],
+                       crumbs=_crumbs(("Providers", "/providers"),
+                                      ({"health": "Health"}.get(pane, _PROVIDER_PANE_LABEL[pane]), None)
+                                      if pane != "health" else ("Health", None)),
                        params=p)
+
+
+def render_models_page(config, engine=None, params=None) -> str:
+    """REMOVED 2026-11-25 (CUR-358) — kept only so an in-process caller cannot 500.
+
+    The page, its template and its nav entry are gone. An HTTP request for /models
+    is redirected at the route table (``page.models`` → ``/routing-definitions``),
+    so nothing reaches this function from the wire; it exists for the handful of
+    test call sites and any module that still names it, and it points at the page
+    that now owns the content rather than raising AttributeError.
+    """
+    return render_routing_definitions_page(config, engine, {"tab": "boards"})
 
 
 def render_routing_definitions_page(config, engine=None, params=None) -> str:

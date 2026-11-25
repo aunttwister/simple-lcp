@@ -395,40 +395,47 @@ def test_the_log_never_writes(cfg, engine):
 
 # ── Models is now the leaderboard ONLY (the design's division) ────────────────
 
-def test_models_page_keeps_the_leaderboard(cfg, engine):
-    from src.ui.pages import render_models_page
-    html = render_models_page(cfg, engine, {})
+def test_the_board_lives_on_the_boards_tab_not_a_models_page(cfg, engine):
+    """CUR-358: the Models page is gone; the board is THIS tab's own surface."""
+    from src.ui.pages import render_routing_definitions_page
+    html = render_routing_definitions_page(cfg, engine, {"tab": "boards"})
     assert "lbTable" in html or "leaderboardPane" in html
+    assert "providerHealthBody" not in html, "the board is not the Providers page"
 
 
-def test_models_links_to_the_poll_instead_of_owning_it(cfg, engine):
-    """The move is DONE: the lane is on the boards tab, and Models points at it.
+def test_the_boards_tab_owns_the_poll_and_its_lane(cfg, engine):
+    """The move is DONE and the old page is gone (CUR-358).
 
-    It cannot simply be deleted from Models — a leaderboard with no route to the poll
-    is a dead end. So the two buttons that used to open the lane here are replaced by a
-    link, and the poll itself is no longer rendered on this page.
+    The leaderboard and the poll that fills it are one tab: the board is column 2 and
+    the lane is the poll it opens. What must stay true is that the board never appears
+    without its lane, and that no second page renders either.
     """
-    from src.ui.pages import render_models_page
-    html = render_models_page(cfg, engine, {})
-    assert 'href="/routing-definitions?tab=boards"' in html, \
-        "Models does not link to where the poll lives now"
-    for gone in ("pollPane", "pollRunBtn", "taxMap", "modelsPanel"):
-        assert gone not in html, f"Models still renders the moved lane control {gone}"
+    from src.ui.pages import render_routing_definitions_page
+    html = render_routing_definitions_page(cfg, engine, {"tab": "boards"})
+    assert 'id="lbTable"' in html
+    assert 'id="pollPane"' in html and 'id="pollOpenBtn"' in html
 
 
 def test_the_shared_js_is_one_copy(cfg, engine):
-    """Two pages, one copy of the fetch wrappers, the poll cache and the formatters.
-    A second copy would drift, and the Formatters are what make the two pages agree
-    about what a value means."""
+    """One copy of the fetch wrappers, the poll cache and the formatters.
+
+    A second copy would drift, and the Formatters are what make the two surfaces
+    agree about what a value means. Since CUR-358 there is one page left that
+    composes them (the boards tab, which includes the leaderboard script), so the
+    assertion is that the include is singular and nothing inlines a copy.
+    """
     import os
     d = os.path.join(REPO, "src", "ui", "templates", "jinja", "sections")
     shared = open(os.path.join(d, "sec_lcp_shared_js.html")).read()
     assert "const API = {" in shared and "function esc(s)" in shared
     assert "POLL_KEY" in shared, "the poll cache must be shared, not duplicated"
-    for f in ("sec_models_script.html", "sec_routingdefs_boards_script.html"):
-        body = open(os.path.join(d, f)).read()
-        assert 'sec_lcp_shared_js.html' in body, f"{f} does not include the shared JS"
-        assert "const API = {" not in body, f"{f} carries a second copy of API"
+    body = open(os.path.join(d, "sec_routingdefs_boards_script.html")).read()
+    assert body.count('sec_lcp_shared_js.html') == 1, "the shared JS is included once"
+    # (The matrix tab has its own API object on purpose: it talks to a different
+    # endpoint family — capability/registry — and never composes the board.)
+    for f in ("sec_leaderboard_script.html", "sec_routingdefs_boards_script.html"):
+        assert "const API = {" not in open(os.path.join(d, f)).read(), (
+            f"{f} carries a second copy of API")
 
 
 def test_the_unbound_route_is_registered():

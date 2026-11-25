@@ -8,7 +8,11 @@
                that profile's routing rules, its model pool and the API keys that
                call it. First, because the profile is the unit every other page
                is scoped to.
-  Models     — the capability matrix + where those models come from
+  Providers  — the endpoints the gateway calls: health per profile, the registry
+               and its credentials, the routing policy between them, and the
+               capability flags that gate what each model may serve. It was a tab
+               of Models until 2026-11-25; Models is gone (its leaderboard is the
+               same partial Routing definitions → Arena boards renders).
   Activity   — what happened: every log realm (Logs, Evidence). The cost/token
                overview left for Overview (CUR-330) — an overview is a dashboard,
                not a log.
@@ -45,7 +49,7 @@
     <a href="/"{% if active_page == 'home' %} class="active" aria-current="page"{% endif %}>Overview</a>
     <a href="/profiles"{% if active_page == 'profiles' %} class="active" aria-current="page"{% endif %}>Profiles</a>
     <a href="/routing-definitions"{% if active_page == 'routingdefs' %} class="active" aria-current="page"{% endif %}>Routing definitions</a>
-    <a href="/models"{% if active_page == 'models' %} class="active" aria-current="page"{% endif %}>Models</a>
+    <a href="/providers"{% if active_page == 'providers' %} class="active" aria-current="page"{% endif %}>Providers</a>
     <a href="/activity"{% if active_page == 'activity' %} class="active" aria-current="page"{% endif %}>Activity</a>
     <a href="/conversations"{% if active_page == 'conversations' %} class="active" aria-current="page"{% endif %}>Conversations</a>
     <a href="/usage"{% if active_page == 'usage' %} class="active" aria-current="page"{% endif %}>Usage</a>

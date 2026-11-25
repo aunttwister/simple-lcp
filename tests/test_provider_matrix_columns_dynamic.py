@@ -17,6 +17,10 @@ from pathlib import Path
 
 TEMPLATE = Path("src/ui/templates/jinja/sections/sec_providers_script.html")
 MARKUP = Path("src/ui/templates/jinja/sections/sec_providers.html")
+#: CUR-358 — the page-local CSS moved out of the section markup into a head partial
+#: (included by the page's `head_extra`, like every other page here). These tests
+#: used to grep MARKUP for the style; they grep the file that now owns it.
+STYLE = Path("src/ui/templates/jinja/sections/sec_providers_head.html")
 
 # Provider names that have existed in this estate. A JS array literal holding two
 # or more of them is the hardcoded column list this test exists to prevent.
@@ -54,7 +58,7 @@ def test_a_provider_with_no_config_is_labelled():
     src = _src()
     assert "unconfigured" in src
     assert "unused" in src, "a registered provider in no chain must be labelled"
-    assert "ph-tag-warn" in MARKUP.read_text(encoding="utf-8"), (
+    assert "ph-tag-warn" in STYLE.read_text(encoding="utf-8"), (
         "the warning tag needs a style, or it reads as ordinary metadata")
 
 

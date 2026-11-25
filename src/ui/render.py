@@ -153,7 +153,9 @@ _LEGACY_PAGE_TABS = {
     "pages/dashboard.html": ("pages/home.html", "overview", {}),
     "pages/logs.html": ("pages/activity.html", "logs",
                         {"view": {"tab": "requests"}, "params": {}}),
-    "pages/providers.html": ("pages/models.html", "providers", {}),
+    # CUR-358: Providers is its own page again — the alias points at the real
+    # template, not through Models (which no longer has a providers tab).
+    "pages/providers.html": ("pages/providers.html", "providers", {"pane": "config"}),
     # M2c: keys are per profile, so the profile directory is what stands in for
     # the old global keys page — not a "keys" tab, which no longer exists at this
     # level and would render an empty page.
@@ -171,7 +173,7 @@ def render_page(template_name: str, config, engine=None, **kwargs) -> str:
 
     Usage::
 
-        html = render_page("pages/models.html", config=self.config, engine=self.engine)
+        html = render_page("pages/providers.html", config=self.config, engine=self.engine)
     """
     merged = _LEGACY_PAGE_TABS.get(template_name)
     if merged is not None:

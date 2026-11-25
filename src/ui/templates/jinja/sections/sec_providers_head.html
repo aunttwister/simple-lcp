@@ -1,0 +1,103 @@
+{#- Providers page styles (CUR-358, 2026-11-25) — extracted from the section markup.
+
+    These rules used to live in a `<style>` block in the middle of sec_providers.html,
+    which meant a stylesheet arriving after the markup it styles (a flash of unstyled
+    matrix) and a section file that was two thirds CSS. Every other page here puts its
+    page-local CSS in a `*_head.html` partial included by `head_extra`; this one now
+    does too. -#}
+<style>
+/* ── The gateway-wide summary strip ──────────────────────────────────────────
+   Five same-weight metric cards (healthy / degraded / dead / tracked /
+   never assessed) said nothing about which number matters, and cost a row of
+   borders for five integers. One card, one caption, one hairline-separated row —
+   the same shape the Usage page's local panel settled on. */
+.ph-sum { padding: 0.8rem 1rem; }
+.ph-sum-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.ph-sum-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: hsl(var(--muted-foreground)); font-weight: 600; }
+.ph-sum-row { display: flex; flex-wrap: wrap; gap: 0.35rem 1.5rem; align-items: baseline;
+  margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid hsl(var(--card-border) / 0.6);
+  font-size: 0.8125rem; }
+.ph-item { display: inline-flex; align-items: baseline; gap: 0.35rem; white-space: nowrap; }
+.ph-item b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ph-item .ph-k { font-size: 0.7rem; color: hsl(var(--muted-foreground)); }
+.ph-item b.ph-ok { color: hsl(var(--green-fg)); }
+.ph-item b.ph-warn { color: hsl(var(--amber-fg)); }
+.ph-item b.ph-dead { color: hsl(var(--red-fg)); }
+
+/* ── Health matrix ──────────────────────────────────────────────────────────
+   Rows are profiles, columns are providers, and a cell is the
+   (provider, profile) pair — the key provider_health actually uses — so the grid
+   can be read down a column ("is commandcode usable anywhere?") or across a row
+   ("what can profile l2 call right now?"). */
+.ph-toolbar { display: flex; align-items: center; justify-content: space-between;
+  gap: 0.75rem; flex-wrap: wrap; margin: 0.9rem 0 0.4rem; }
+.ph-toolbar .ph-caption { margin: 0; }
+.ph-wrap { overflow-x: auto }
+table.ph-matrix { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 560px }
+table.ph-matrix th, table.ph-matrix td { border-bottom: 1px solid hsl(var(--card-border)); padding: 0 }
+table.ph-matrix thead th { font-size: 0.625rem; letter-spacing: 0.04em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); text-align: center; padding: 0.4rem 0.5rem;
+  font-weight: 600; white-space: nowrap }
+table.ph-matrix thead th.ph-rowhead { text-align: left; min-width: 130px }
+table.ph-matrix tbody th { text-align: left; font-size: 0.75rem; font-weight: 600;
+  padding: 0.4rem 0.5rem; color: hsl(var(--foreground)); white-space: nowrap }
+.ph-cell { width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.3rem;
+  background: none; border: 0; padding: 0.45rem 0.5rem; font: inherit; font-size: 0.6875rem;
+  color: hsl(var(--foreground)); cursor: pointer; text-align: center }
+button.ph-cell:hover { background: hsl(var(--secondary) / 0.45) }
+button.ph-cell[aria-pressed="true"] { background: hsl(var(--secondary));
+  box-shadow: inset 0 0 0 1px hsl(var(--card-border)) }
+.ph-cell.ph-static { cursor: default; color: hsl(var(--muted-foreground)) }
+.ph-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; flex: none; display: inline-block }
+.ph-dot-ok { background: hsl(var(--green-fg)) }
+.ph-dot-warn { background: hsl(var(--amber-fg)) }
+.ph-dot-dead { background: hsl(var(--red-fg)) }
+.ph-dot-none { background: transparent; box-shadow: inset 0 0 0 1px hsl(var(--muted-foreground)) }
+.ph-tag { font-size: 0.5625rem; color: hsl(var(--muted-foreground)); white-space: nowrap }
+/* A provider column that exists but cannot serve anyone — registered with no
+   chain step, or left behind by a delete/rename. Quieter than a status colour
+   on purpose: it is a configuration fact, not a health state. */
+.ph-tag.ph-tag-warn { color: hsl(var(--destructive, 0 72% 51%)); border: 1px solid currentColor;
+  border-radius: 3px; padding: 0 3px }
+/* Says where the columns come from. Provenance on the page, because a missing
+   column is otherwise indistinguishable from a hardcoded one. */
+.ph-caption { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); margin: 0 0 0.4rem }
+.ph-caption b { color: hsl(var(--foreground)); font-weight: 600 }
+.ph-caption code { font-size: 0.65rem }
+.ph-legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground)); margin: 0.6rem 0 0 }
+.ph-legend span { display: inline-flex; align-items: center; gap: 0.3rem }
+.ph-cellpanel { margin-top: 0.75rem; background: hsl(var(--card));
+  border: 1px solid hsl(var(--card-border)); border-radius: var(--radius); padding: 0.75rem 1rem }
+.ph-cp-head { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  margin-bottom: 0.6rem; font-size: 0.8125rem }
+.ph-cp-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.75rem }
+.ph-cp-msg { margin: 0.5rem 0 0; font-size: 0.6875rem; color: hsl(var(--muted-foreground)) }
+.ph-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.5rem; margin: 0; font-size: 0.6875rem }
+.ph-facts dt { font-size: 0.5625rem; text-transform: uppercase; letter-spacing: 0.04em;
+  color: hsl(var(--muted-foreground)); margin-bottom: 0.1rem }
+.ph-facts dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all }
+/* Two base URLs for one provider is two endpoints, not one row with repeated
+   labels — each gets its own block and heading. */
+.ph-eps { display: flex; flex-direction: column; gap: 0.6rem }
+.ph-ep { border-left: 2px solid hsl(var(--card-border)); padding-left: 0.6rem }
+.ph-ep-head { font-size: 0.6875rem; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem }
+/* Active-assessment control bar */
+.ph-probe { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0.75rem 0;
+  padding: 0.6rem 0.75rem; border: 1px solid hsl(var(--card-border));
+  border-radius: var(--radius); font-size: 0.75rem }
+.ph-probe-state { color: hsl(var(--muted-foreground)) }
+.ph-probe-state b { color: hsl(var(--foreground)); font-weight: 600 }
+.ph-probe-ctl { display: flex; align-items: center; gap: 0.3rem; color: hsl(var(--muted-foreground)) }
+.ph-probe-ctl select, .ph-probe-ctl input { font-size: 0.75rem }
+.ph-probe-msg { color: hsl(var(--muted-foreground)); font-size: 0.6875rem }
+/* The Chain column: a button, so the profile's ordered chain is one click away.
+   The matrix gives pairs; only the chain gives priority order. */
+.ph-chainbtn { min-width: 2rem; font-variant-numeric: tabular-nums }
+.ph-chain { list-style: none; margin: 0.4rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem }
+.ph-chain li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem }
+.ph-chain-step { flex: 1; min-width: 0 }
+.ph-chain-state { color: hsl(var(--muted-foreground)); font-size: 0.6875rem; white-space: nowrap }
+</style>

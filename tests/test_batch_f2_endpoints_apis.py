@@ -288,10 +288,18 @@ class TestUsageBranches:
 
 class TestPageAndCapabilityApis:
     def test_models_page(self, temp_db):
+        """CUR-358: /models has no page any more — it redirects to the board."""
         h = TestHandler(path="/models", engine=temp_db)
-        with patch("src.ui.pages.render_models_page", return_value="<html>x</html>"):
-            h.do_GET()
-        assert _status(h) == 200                      # 2208-2213 (handler 250 too)
+        h.do_GET()
+        assert _status(h) == 302
+        sent = dict(c[0] for c in h.send_header.call_args_list)
+        assert sent.get("Location") == "/routing-definitions?tab=boards"
+
+    def test_providers_page(self, temp_db):
+        """CUR-358: Providers is its own page now."""
+        h = TestHandler(path="/providers", engine=temp_db)
+        h.do_GET()
+        assert _status(h) == 200
 
     def test_capability_api_db_path_crash(self, temp_db, tmp_path, monkeypatch):
         # The endpoint swallows a crashing ``engine.url`` and falls back to the
