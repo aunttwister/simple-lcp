@@ -149,11 +149,15 @@ select.form-select { appearance: none; -webkit-appearance: none; padding-right: 
    read as a table only when they share a rhythm: the URL gets a title and a hard
    truncation, and the model list becomes a count chip plus the first two names —
    the full list is in the chip's title, so nothing is lost. */
-.prov-url { max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+/* The table must FIT its wrapper at 1280px: at 15rem per text column it measured
+   985px inside a 897px .table-wrap, so the ACTIONS column sat behind a horizontal
+   scroll and the Delete button was invisible — the primary row action hidden.
+   These two columns carry an ellipsis and a title, so they can be narrow. */
+.prov-url { max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .muted-sm { font-size: 0.75rem; color: hsl(var(--muted-foreground)) }
-.prov-models { white-space: nowrap; max-width: 15rem; overflow: hidden }
+.prov-models { white-space: nowrap; max-width: 11rem; overflow: hidden }
 .prov-count { vertical-align: middle; font-variant-numeric: tabular-nums }
 .prov-modelnames { display: block; margin-top: 0.25rem; font-size: 0.6875rem;
   color: hsl(var(--muted-foreground)); overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; max-width: 14rem }
+  white-space: nowrap; max-width: 10rem }
 </style>
