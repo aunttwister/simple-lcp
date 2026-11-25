@@ -20,15 +20,14 @@
 {# ═══ HEALTH ═══════════════════════════════════════════════════════════════ #}
 {% if pane == 'health' %}
 <div class="card ph-sum" id="healthSummaryCards">
-  <div class="ph-sum-head">
-    <span class="ph-sum-title">Provider health</span>
-    <span class="ph-sum-row" id="phSummaryRow">
-      <span class="ph-item"><span class="ph-dot ph-dot-ok"></span><b class="ph-ok" id="hcHealthy">–</b><span class="ph-k">healthy</span></span>
-      <span class="ph-item"><span class="ph-dot ph-dot-warn"></span><b class="ph-warn" id="hcDegraded">–</b><span class="ph-k">degraded</span></span>
-      <span class="ph-item"><span class="ph-dot ph-dot-dead"></span><b class="ph-dead" id="hcDead">–</b><span class="ph-k">dead</span></span>
-      <span class="ph-item"><b id="hcTotal">–</b><span class="ph-k">pairs tracked</span></span>
-      <span class="ph-item"><b id="hcUnassessed">–</b><span class="ph-k">never assessed</span></span>
-    </span>
+  <div class="ph-sum-title">Provider health
+    <span class="ph-k">· every (provider, profile) pair this gateway tracks</span></div>
+  <div class="ph-sum-row" id="phSummaryRow">
+    <span class="ph-item"><span class="ph-dot ph-dot-ok"></span><b class="ph-ok" id="hcHealthy">–</b><span class="ph-k">healthy</span></span>
+    <span class="ph-item"><span class="ph-dot ph-dot-warn"></span><b class="ph-warn" id="hcDegraded">–</b><span class="ph-k">degraded</span></span>
+    <span class="ph-item"><span class="ph-dot ph-dot-dead"></span><b class="ph-dead" id="hcDead">–</b><span class="ph-k">dead</span></span>
+    <span class="ph-item ph-item-sep"><b id="hcTotal">–</b><span class="ph-k">pairs tracked</span></span>
+    <span class="ph-item"><b id="hcUnassessed">–</b><span class="ph-k">never assessed</span></span>
   </div>
 </div>
 
@@ -53,6 +52,7 @@
      often that state is established, and lets it be established right now. -->
 <div class="ph-probe" id="phProbeBar">
   <div class="ph-probe-state" id="phProbeState">Checking prober…</div>
+  <div class="ph-probe-ctl-group">
   <label class="ph-probe-ctl">Every
     <select id="phProbeInterval">
       <option value="15">15 s</option>
@@ -65,6 +65,7 @@
   </label>
   <label class="ph-probe-ctl"><input type="checkbox" id="phProbeEnabled"> probing on</label>
   <button type="button" class="btn btn-outline btn-sm" id="phProbeNow">Check now</button>
+  </div>
   <span class="ph-probe-msg" id="phProbeMsg"></span>
 </div>
 

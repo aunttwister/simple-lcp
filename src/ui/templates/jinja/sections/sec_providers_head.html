@@ -11,13 +11,20 @@
    never assessed) said nothing about which number matters, and cost a row of
    borders for five integers. One card, one caption, one hairline-separated row —
    the same shape the Usage page's local panel settled on. */
-.ph-sum { padding: 0.8rem 1rem; }
-.ph-sum-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.ph-sum { padding: 0.9rem 1.1rem; }
+/* Title on its own line, then the figures under a hairline — the Usage page's local
+   panel shape. The first cut put the figures INSIDE the header row, so the hairline
+   landed between two right-aligned items and the card read as two stacked pieces. */
 .ph-sum-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
   color: hsl(var(--muted-foreground)); font-weight: 600; }
+.ph-sum-title .ph-k { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .ph-sum-row { display: flex; flex-wrap: wrap; gap: 0.35rem 1.5rem; align-items: baseline;
-  margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid hsl(var(--card-border) / 0.6);
+  margin-top: 0.55rem; padding-top: 0.55rem; border-top: 1px solid hsl(var(--card-border) / 0.6);
   font-size: 0.8125rem; }
+/* The split between the three STATES and the two TOTALS is the one distinction
+   worth a rule: a count of healthy pairs and a count of tracked pairs are not
+   the same kind of number. */
+.ph-item.ph-item-sep { padding-left: 1.5rem; border-left: 1px solid hsl(var(--card-border) / 0.6); }
 .ph-item { display: inline-flex; align-items: baseline; gap: 0.35rem; white-space: nowrap; }
 .ph-item b { font-variant-numeric: tabular-nums; font-weight: 600; }
 .ph-item .ph-k { font-size: 0.7rem; color: hsl(var(--muted-foreground)); }
@@ -54,7 +61,10 @@ button.ph-cell[aria-pressed="true"] { background: hsl(var(--secondary));
 .ph-dot-warn { background: hsl(var(--amber-fg)) }
 .ph-dot-dead { background: hsl(var(--red-fg)) }
 .ph-dot-none { background: transparent; box-shadow: inset 0 0 0 1px hsl(var(--muted-foreground)) }
-.ph-tag { font-size: 0.5625rem; color: hsl(var(--muted-foreground)); white-space: nowrap }
+.ph-tag { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); white-space: nowrap }
+/* "retired"/"2 urls" annotate a state the cell's own dot cannot express, so they
+   are read, not decoration — one step brighter than the muted chrome. */
+table.ph-matrix .ph-tag { color: hsl(var(--foreground) / 0.72) }
 /* A provider column that exists but cannot serve anyone — registered with no
    chain step, or left behind by a delete/rename. Quieter than a status colour
    on purpose: it is a configuration fact, not a health state. */
@@ -65,9 +75,12 @@ button.ph-cell[aria-pressed="true"] { background: hsl(var(--secondary));
 .ph-caption { font-size: 0.6875rem; color: hsl(var(--muted-foreground)); margin: 0 0 0.4rem }
 .ph-caption b { color: hsl(var(--foreground)); font-weight: 600 }
 .ph-caption code { font-size: 0.65rem }
-.ph-legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.6875rem;
-  color: hsl(var(--muted-foreground)); margin: 0.6rem 0 0 }
-.ph-legend span { display: inline-flex; align-items: center; gap: 0.3rem }
+.ph-legend { display: flex; gap: 0.4rem 1.1rem; flex-wrap: wrap; font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground)); margin: 0.75rem 0 0; line-height: 1.6 }
+.ph-legend span { display: inline-flex; align-items: center; gap: 0.35rem }
+/* The two legend entries that are STATES rather than columns are separated from the
+   dot legend, otherwise six items read as one sentence. */
+.ph-legend .ph-legend-sep { padding-left: 1.1rem; border-left: 1px solid hsl(var(--card-border)) }
 .ph-cellpanel { margin-top: 0.75rem; background: hsl(var(--card));
   border: 1px solid hsl(var(--card-border)); border-radius: var(--radius); padding: 0.75rem 1rem }
 .ph-cp-head { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
@@ -88,10 +101,23 @@ button.ph-cell[aria-pressed="true"] { background: hsl(var(--secondary));
 .ph-probe { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0.75rem 0;
   padding: 0.6rem 0.75rem; border: 1px solid hsl(var(--card-border));
   border-radius: var(--radius); font-size: 0.75rem }
+/* The bar answers two questions — what the prober is doing, and what to do about
+   it — so the CONTROLS are one group behind a rule, not five items in a row with
+   identical spacing. */
+.ph-probe-ctl-group { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+  padding-left: 0.75rem; border-left: 1px solid hsl(var(--card-border)) }
 .ph-probe-state { color: hsl(var(--muted-foreground)) }
 .ph-probe-state b { color: hsl(var(--foreground)); font-weight: 600 }
 .ph-probe-ctl { display: flex; align-items: center; gap: 0.3rem; color: hsl(var(--muted-foreground)) }
-.ph-probe-ctl select, .ph-probe-ctl input { font-size: 0.75rem }
+/* The controls in this bar are the page's own, so they wear the house form
+   styling: a native select paints a light-grey chip and a `0px` radius in the
+   middle of a dark card, which reads as an unfinished surface. A checkbox gets a
+   coloured accent, never `--primary` — in this theme --primary is white, so an
+   accent painted white renders on white and reads as OFF. */
+.ph-probe-ctl select { font-size: 0.75rem; padding: 0.25rem 0.5rem;
+  background: hsl(var(--background)); border: 1px solid hsl(var(--card-border));
+  border-radius: var(--radius); color: hsl(var(--foreground)) }
+.ph-probe-ctl input[type="checkbox"] { accent-color: hsl(var(--green-fg)); width: 0.8125rem; height: 0.8125rem }
 .ph-probe-msg { color: hsl(var(--muted-foreground)); font-size: 0.6875rem }
 /* The Chain column: a button, so the profile's ordered chain is one click away.
    The matrix gives pairs; only the chain gives priority order. */

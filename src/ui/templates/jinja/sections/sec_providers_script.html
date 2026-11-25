@@ -185,6 +185,10 @@ function saveProvider(){var name=document.getElementById('provName').value.trim(
 }
 
 function deleteProvider(name){if(!confirm('Delete provider "'+name+'"? This removes it from all profile chains.'))return;api('DELETE','/api/providers/'+encodeURIComponent(name)).then(function(d){if(d.ok)location.reload();else alert('Error: '+(d.error||'unknown'))})}
+// The Configuration tab's own start-up: the preset list it offers, and the
+// discovery state it owns. Registered here (not at parse time) so the other three
+// tabs never fetch a catalogue they cannot show.
+$t(loadPresets);
 {% endraw %}</script>
 {% endif %}
 
@@ -302,7 +306,16 @@ function phRender(){
       tip = pr + ' \u2014 ' + (m.type || 'untyped') + ' \u00b7 ' + (m.api_base || 'no base url')
           + ' \u00b7 ' + models + ' model' + (models === 1 ? '' : 's')
           + ' \u00b7 key ' + (m.has_api_key ? 'stored' : 'MISSING');
-      tags = ' <span class="ph-tag">' + phEsc(m.type || 'untyped') + '</span>';
+      // The column already says the provider's NAME, so a chip that repeats it
+      // renders "commandcode2 commandcode" / "local-zgx local" — which a reader
+      // parses as one duplicated word, not as two facts. Suppress the chip when the
+      // name already STARTS WITH the type (`commandcode2` is a second account of
+      // `commandcode`, `local-zgx` is a local engine); keep it when the two are
+      // genuinely different words, which is the only case it informs.
+      var ty = (m.type || '').toLowerCase();
+      if (ty && !String(pr).toLowerCase().startsWith(ty)) {
+        tags = ' <span class="ph-tag">' + phEsc(m.type) + '</span>';
+      }
       if(!inAnyChain[pr]) tags += ' <span class="ph-tag ph-tag-warn" title="Registered, but no profile chain names it — nothing can call it">unused</span>';
     } else {
       // A column that exists only in health data has no config behind it: it is
@@ -389,8 +402,8 @@ function phRender(){
     + '<span>' + phDot('degraded') + 'degraded</span>'
     + '<span>' + phDot('dead') + 'dead</span>'
     + '<span>' + phDot(null) + 'no data — in the chain, never assessed</span>'
-    + '<span>· not registered for that profile</span>'
-    + '<span>Click a cell for actions</span>';
+    + '<span class="ph-legend-sep">· not registered for that profile</span>'
+    + '<span class="ph-legend-sep">Click a cell for actions</span>';
 
   if(PH.sel) phPanel(PH.sel.prof, PH.sel.prov);
 }
