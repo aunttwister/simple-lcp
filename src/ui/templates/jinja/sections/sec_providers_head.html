@@ -141,4 +141,19 @@ select.form-select { appearance: none; -webkit-appearance: none; padding-right: 
 .prov-type-cell { white-space: nowrap; }
 .prov-type-cell .prov-inferred { font-size: 0.625rem; color: hsl(var(--muted-foreground));
   margin-left: 0.25rem; }
+
+/* ── The registry table ─────────────────────────────────────────────────────
+   Three columns were fighting for width: the base URL truncated mid-token with
+   no way to see the rest, and a comma-joined MODELS list wrapped to five lines,
+   which made every row a different height (79 / 59 / 121 px in one table). Rows
+   read as a table only when they share a rhythm: the URL gets a title and a hard
+   truncation, and the model list becomes a count chip plus the first two names —
+   the full list is in the chip's title, so nothing is lost. */
+.prov-url { max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.muted-sm { font-size: 0.75rem; color: hsl(var(--muted-foreground)) }
+.prov-models { white-space: nowrap; max-width: 15rem; overflow: hidden }
+.prov-count { vertical-align: middle; font-variant-numeric: tabular-nums }
+.prov-modelnames { display: block; margin-top: 0.25rem; font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground)); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 14rem }
 </style>
